@@ -39,9 +39,14 @@ jobs:
         with:
           # gitleaks precisa do historico para varrer commits antigos.
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Instalar gitleaks
+        run: |
+          VERSION=8.24.3
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+
+      - name: Varrer o historico completo
+        run: gitleaks detect --source . --redact --verbose --exit-code 1
 
   dependencies:
     name: Vulnerabilidades em dependencias
@@ -58,7 +63,7 @@ jobs:
       - run: uv sync --all-packages --frozen
 
       - name: osv-scanner
-        uses: google/osv-scanner-action/osv-scanner-action@v1.9.1
+        uses: google/osv-scanner-action/osv-scanner-action@v2.5.1
         with:
           scan-args: |-
             --lockfile=pnpm-lock.yaml
@@ -90,7 +95,7 @@ jobs:
             -t aia-${{ matrix.service }}:scan .
 
       - name: Trivy
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: aia-${{ matrix.service }}:scan
           format: sarif

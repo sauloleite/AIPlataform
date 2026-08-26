@@ -40,6 +40,11 @@ jobs:
           enable-cache: true
       - run: uv sync --all-packages --frozen
 
+      - name: Compilar os pacotes
+        # Precisa vir ANTES do ESLint: as regras tipadas resolvem `@aia/*` pelos
+        # `.d.ts` em dist/, e sem eles todo import vira tipo nao resolvido.
+        run: pnpm exec tsc --build tsconfig.build.json
+
       - name: Prettier
         run: pnpm exec prettier --check .
 
@@ -51,9 +56,6 @@ jobs:
 
       - name: Ruff (format)
         run: uv run ruff format --check .
-
-      - name: TypeScript
-        run: pnpm exec tsc --build
 
       - name: mypy
         run: uv run mypy .
@@ -147,7 +149,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec tsc --build
+      - run: pnpm exec tsc --build tsconfig.build.json
 
       - uses: astral-sh/setup-uv@v5
         with: { enable-cache: true }
@@ -187,7 +189,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec tsc --build
+      - run: pnpm exec tsc --build tsconfig.build.json
 
       - name: Vitest (integracao)
         run: pnpm exec vitest run --dir apps --testNamePattern "" --passWithNoTests

@@ -97,8 +97,8 @@ create_project "e2e-restrito" "E2E restrito" "restrito" >/dev/null 2>&1 || true
 PROJECT_INTERNO=$(find_project "e2e-interno")
 PROJECT_RESTRITO=$(find_project "e2e-restrito")
 
-[ -n "$PROJECT_INTERNO" ] && ok "projeto interno criado" || fail "projeto interno nao criado"
-[ -n "$PROJECT_RESTRITO" ] && ok "projeto restrito criado" || fail "projeto restrito nao criado"
+if [ -n "$PROJECT_INTERNO" ]; then ok "projeto interno criado"; else fail "projeto interno nao criado"; fi
+if [ -n "$PROJECT_RESTRITO" ]; then ok "projeto restrito criado"; else fail "projeto restrito nao criado"; fi
 
 NO_LEGAL_BASIS=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${BASE_URL}/v1/projects" \
   -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
@@ -343,7 +343,7 @@ fi
 printf '\n\033[1m─────────────────────────────────────────\033[0m\n'
 printf 'Resultado: '
 green "${PASSED} passaram"
-[ "$SKIPPED" -gt 0 ] && yellow "           ${SKIPPED} pulados"
+if [ "$SKIPPED" -gt 0 ]; then yellow "           ${SKIPPED} pulados"; fi
 if [ "$FAILED" -gt 0 ]; then
   red "           ${FAILED} falharam"
   echo
