@@ -55,9 +55,14 @@ const schema = z.object({
    * `interactions` is the current interface (GA in June 2026);
    * `generate-content` is the previous one, still supported.
    */
-  GEMINI_PROTOCOL: z.enum(['interactions', 'generate-content']).default('interactions'),
-  GEMINI_CHAT_MODEL: z.string().default('gemini-2.5-flash'),
-  GEMINI_EMBEDDING_MODEL: z.string().default('text-embedding-004'),
+  // `generate-content` is the endpoint this adapter speaks correctly. The
+  // newer `interactions` interface expects a `step_list` body for the current
+  // models, which `interactionsBody` does not build yet.
+  GEMINI_PROTOCOL: z.enum(['interactions', 'generate-content']).default('generate-content'),
+  // An alias, not a pinned version: Google retires versioned models for new
+  // keys, and a pinned default turns every fresh install into a 404.
+  GEMINI_CHAT_MODEL: z.string().default('gemini-flash-latest'),
+  GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-001'),
 
   ANTHROPIC_API_KEY: z.string().default(''),
   ANTHROPIC_BASE_URL: z.string().url().default('https://api.anthropic.com'),

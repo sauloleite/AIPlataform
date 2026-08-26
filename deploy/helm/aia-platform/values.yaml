@@ -133,10 +133,14 @@ inferenceRouter:
     gemini:
       baseUrl: https://generativelanguage.googleapis.com
       apiVersion: v1beta
-      # `interactions` is the current interface; `generate-content` is the previous one.
-      protocol: interactions
-      chatModel: gemini-2.5-flash
-      embeddingModel: text-embedding-004
+      # `generate-content` is the endpoint this adapter speaks correctly. The
+      # newer `interactions` interface expects a `step_list` body for the current
+      # models, which the adapter does not build yet.
+      protocol: generate-content
+      # An alias, not a pinned version: Google retires versioned models for new
+      # keys, and a pinned default turns every fresh install into a 404.
+      chatModel: gemini-flash-latest
+      embeddingModel: gemini-embedding-001
     anthropic:
       baseUrl: https://api.anthropic.com
       version: '2023-06-01'
