@@ -26,6 +26,43 @@ Reconfiguring first leaves the leaked credential valid for longer.
 3. Restart identity first: the bootstrap rewrites the hash.
 4. Restart the consumer. Already issued tokens stay valid until they expire.
 
+## Bootstrap administrator password
+
+`IDENTITY_BOOTSTRAP_ADMIN_PASSWORD` is read only when the administrator does not
+yet exist. Changing the variable and restarting does NOTHING — the bootstrap
+returns early when it finds the account, so a restart cannot silently reset a
+password someone changed on purpose.
+
+To rotate it, remove the principal so the bootstrap recreates it:
+
+```bash
+COMPOSE="docker compose -f deploy/compose/docker-compose.yml"
+
+# 1. Set the new value (8 characters minimum, or identity refuses to start).
+#    In .env for compose, or in the Secret for Kubernetes.
+
+# 2. Remove the account.
+$COMPOSE exec -T mongo mongosh aia_identity --quiet --eval \
+  'db.principals.deleteOne({ email: "admin@aia.local" })'
+
+# 3. Restart identity. The bootstrap recreates it with the new password.
+$COMPOSE up -d --force-recreate identity
+```
+
+Check first what the account carries: `memberships` and PATs do NOT survive,
+because the recreated principal gets a new id.
+
+```bash
+$COMPOSE exec -T mongo mongosh aia_identity --quiet --eval '
+  const p = db.principals.findOne({ email: "admin@aia.local" });
+  print(JSON.stringify({ memberships: p.memberships || [],
+                         pats: db.personal_access_tokens.countDocuments({ principalId: p._id }) }))'
+```
+
+If either is non-empty, grant the memberships again and reissue the PATs after
+the restart. Audit records keep the OLD id, and that is correct: the trail has to
+say who actually made each call, not who holds the address today.
+
 ## Token signing key
 
 The most delicate one: swapping it carelessly invalidates ALL tokens in use.

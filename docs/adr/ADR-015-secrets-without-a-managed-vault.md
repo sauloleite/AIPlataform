@@ -29,8 +29,11 @@ Three levels, depending on where the platform runs:
   service down. The platform starts identically with zero, one or four keys.
 - A service secret is compared by HMAC with a pepper, and password hashing uses
   Argon2id. A database leak hands over no usable credential.
-- Rotation means changing the variable and restarting: the bootstrap rewrites the
-  hash.
+- Rotating a SERVICE secret means changing the variable and restarting: the
+  bootstrap rotates the stored hash. The bootstrap ADMIN password is different —
+  it is written once and a restart never overwrites it, so that a restart cannot
+  silently undo a password the administrator changed themselves. Rotating that
+  one is a deliberate procedure, in the secret rotation runbook.
 
 ## Alternatives considered
 
