@@ -113,7 +113,7 @@ class TestApproveToolCall:
         with pytest.raises(RunNotFoundError):
             await use_case.execute(
                 ApproveToolCallCommand(
-                    run_id="nao-existe",
+                    run_id="does-not-exist",
                     tool_call_id="call-1",
                     principal_id="user-owner",
                     principal_roles=OWNER,

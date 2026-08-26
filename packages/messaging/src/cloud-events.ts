@@ -42,7 +42,7 @@ const TYPE_PATTERN = /^aia\.[a-z0-9]+(\.[a-z0-9_]+)+\.v\d+$/;
 
 export function newEvent<T>(input: NewEventInput<T>): CloudEvent<T> {
   if (!TYPE_PATTERN.test(input.type)) {
-    throw new ValidationError('type do evento deve seguir aia.<dominio>.<fato>.v<N>', {
+    throw new ValidationError('event type must follow aia.<domain>.<fact>.v<N>', {
       type: input.type,
     });
   }
