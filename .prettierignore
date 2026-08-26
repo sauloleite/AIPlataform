@@ -1,0 +1,15 @@
+node_modules
+dist
+.nx
+coverage
+pnpm-lock.yaml
+uv.lock
+packages/contracts/src/generated
+python/aia_contracts/src/aia_contracts/generated
+docs/reference
+
+# Templates Go do Helm nao sao YAML valido; o Prettier os corromperia.
+deploy/helm/**/templates
+deploy/helm/**/charts
+
+.import_linter_cache

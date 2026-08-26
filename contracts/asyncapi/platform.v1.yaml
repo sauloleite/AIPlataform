@@ -1,0 +1,199 @@
+asyncapi: 3.0.0
+info:
+  title: AIA Platform - eventos
+  version: '1.0.0'
+  description: |
+    Eventos de negocio da plataforma. Envelope CloudEvents 1.0, `subject` sempre
+    com o `project_id` e `traceparent` como extensao, para que o trace atravesse
+    a fronteira assincrona.
+
+    Transporte: Redis Streams, um stream por tipo de evento, com grupos de
+    consumidores e ack explicito (ADR-008 na versao OSS). Produtores usam o
+    padrao outbox; consumidores sao idempotentes.
+
+    Mudanca incompativel de payload cria um NOVO `type` com sufixo de versao.
+    Depreciacao com prazo minimo de 90 dias.
+
+servers:
+  redis:
+    host: redis:6379
+    protocol: redis
+    description: Redis Streams (local e self-host)
+
+defaultContentType: application/json
+
+channels:
+  usageRecorded:
+    address: 'aia:events:aia.inference.usage.recorded.v1'
+    description: Uma chamada de inferencia terminou e consumiu orcamento.
+    messages:
+      UsageRecorded:
+        $ref: '#/components/messages/UsageRecorded'
+
+  projectCreated:
+    address: 'aia:events:aia.governance.project.created.v1'
+    messages:
+      ProjectCreated:
+        $ref: '#/components/messages/ProjectCreated'
+
+  budgetChanged:
+    address: 'aia:events:aia.governance.budget.changed.v1'
+    messages:
+      BudgetChanged:
+        $ref: '#/components/messages/BudgetChanged'
+
+  policyChanged:
+    address: 'aia:events:aia.governance.policy.changed.v1'
+    description: |
+      O router escuta para invalidar o cache local de politica antes do TTL.
+    messages:
+      PolicyChanged:
+        $ref: '#/components/messages/PolicyChanged'
+
+operations:
+  publishUsageRecorded:
+    action: send
+    channel: { $ref: '#/channels/usageRecorded' }
+    summary: Publicado pelo aia-inference-router via outbox.
+
+  consumeUsageRecorded:
+    action: receive
+    channel: { $ref: '#/channels/usageRecorded' }
+    summary: Consumido pelo aia-data-platform (Bronze) e pelo aia-governance.
+
+  publishPolicyChanged:
+    action: send
+    channel: { $ref: '#/channels/policyChanged' }
+    summary: Publicado pelo aia-governance.
+
+components:
+  messages:
+    UsageRecorded:
+      name: UsageRecorded
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.inference.usage.recorded.v1' }
+              data: { $ref: '#/components/schemas/UsageRecordedData' }
+
+    ProjectCreated:
+      name: ProjectCreated
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.governance.project.created.v1' }
+              data:
+                type: object
+                required: [project_id, slug, data_classification]
+                properties:
+                  project_id: { type: string }
+                  slug: { type: string }
+                  name: { type: string }
+                  data_classification: { type: string }
+                  owner_principal_id: { type: string }
+
+    BudgetChanged:
+      name: BudgetChanged
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.governance.budget.changed.v1' }
+              data:
+                type: object
+                required: [project_id, limit_micros, currency, period]
+                properties:
+                  project_id: { type: string }
+                  limit_micros: { type: integer }
+                  currency: { type: string }
+                  period: { type: string, enum: [daily, monthly] }
+                  block_at_limit: { type: boolean }
+
+    PolicyChanged:
+      name: PolicyChanged
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.governance.policy.changed.v1' }
+              data:
+                type: object
+                required: [project_id, version]
+                properties:
+                  project_id: { type: string }
+                  version: { type: integer }
+
+  schemas:
+    CloudEventEnvelope:
+      type: object
+      required: [specversion, type, source, id, time, subject, datacontenttype, data]
+      properties:
+        specversion: { type: string, const: '1.0' }
+        type: { type: string }
+        source: { type: string, examples: ['/aia/inference-router'] }
+        id: { type: string, format: uuid }
+        time: { type: string, format: date-time }
+        subject:
+          type: string
+          description: project_id. O tenant acompanha o evento ate o analitico.
+        datacontenttype: { type: string, const: application/json }
+        traceparent: { type: string, description: 'Extensao: contexto W3C de trace.' }
+        idempotencykey: { type: string, description: 'Extensao: deduplicacao no consumidor.' }
+        data: { type: object }
+
+    UsageRecordedData:
+      type: object
+      required:
+        [
+          request_id,
+          project_id,
+          principal_id,
+          alias,
+          provider,
+          deployment_id,
+          data_zone,
+          prompt_tokens,
+          completion_tokens,
+          cost_micros,
+          currency,
+          status,
+        ]
+      properties:
+        request_id: { type: string }
+        project_id: { type: string }
+        principal_id: { type: string }
+        alias: { type: string }
+        provider: { type: string, enum: [openai, gemini, anthropic, ollama] }
+        provider_model: { type: string }
+        deployment_id: { type: string }
+        data_zone:
+          type: string
+          enum: [local, br, us, eu, global]
+          description: Evidencia de residencia de dados para auditoria (ADR-010).
+        data_classification: { type: string }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        cost_micros: { type: integer, description: Custo calculado, em micros da moeda. }
+        currency: { type: string }
+        duration_ms: { type: integer }
+        time_to_first_token_ms: { type: [integer, 'null'] }
+        cache_hit: { type: boolean }
+        status:
+          type: string
+          enum: [completed, partial, failed]
+          description: |
+            `partial` quando o stream caiu antes do fim: o commit usa o que foi
+            contabilizado ate o corte e a reconciliacao ajusta depois.
+        error_code: { type: [string, 'null'] }
+        budget_unverified: { type: boolean }
+        policy_stale: { type: boolean }

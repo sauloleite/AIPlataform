@@ -1,0 +1,306 @@
+openapi: 3.1.0
+info:
+  title: AIA Governance
+  version: '1.0.0'
+  description: |
+    Dono do projeto como TENANT: orcamento em moeda, classificacao de dados,
+    politicas de acesso a modelo e showback. O inference-router consulta a
+    politica do projeto aqui e mantem cache local com TTL curto; se este servico
+    cair, o router continua atendendo com a ultima politica e marca `policy_stale`.
+  license: { name: MIT }
+
+servers:
+  - url: http://localhost:8080
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: projects
+  - name: budget
+  - name: policies
+
+paths:
+  /v1/projects:
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Cria um projeto
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProjectRequest' }
+      responses:
+        '201':
+          description: Projeto criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '409':
+          description: Ja existe projeto com este slug
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: Lista os projetos visiveis ao principal
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/Cursor'
+        - $ref: './_shared.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Pagina de projetos
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './_shared.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Project' } }
+
+  /v1/projects/{projectId}:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Detalha um projeto
+      responses:
+        '200':
+          description: Projeto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /v1/projects/{projectId}/budget:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: setBudget
+      tags: [budget]
+      summary: Define o orcamento do periodo
+      description: |
+        Orcamento em MOEDA, nao em tokens: o custo por token varia por provedor,
+        e o que o negocio controla e o gasto (doc 01, achado 3.3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetBudgetRequest' }
+      responses:
+        '200':
+          description: Orcamento atualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Budget' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+    get:
+      operationId: getBudget
+      tags: [budget]
+      summary: Consulta o orcamento e o consumo do periodo
+      responses:
+        '200':
+          description: Orcamento
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Budget' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /v1/projects/{projectId}/policy:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getProjectPolicy
+      tags: [policies]
+      summary: Politica efetiva do projeto
+      description: |
+        Consumida pelo inference-router a cada request (via cache local com TTL).
+        Traz classificacao, zonas permitidas, aliases liberados e limites.
+      responses:
+        '200':
+          description: Politica efetiva
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectPolicy' }
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              description: TTL curto; o router usa como dica de revalidacao.
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+    put:
+      operationId: setProjectPolicy
+      tags: [policies]
+      summary: Altera a politica do projeto
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetPolicyRequest' }
+      responses:
+        '200':
+          description: Politica atualizada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectPolicy' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+
+  /health/live:
+    get:
+      operationId: liveness
+      security: []
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Processo vivo
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+
+  /health/ready:
+    get:
+      operationId: readiness
+      security: []
+      summary: Readiness probe
+      responses:
+        '200':
+          description: Pronto
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+        '503': { $ref: './_shared.yaml#/components/responses/ServiceUnavailable' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    CreateProjectRequest:
+      type: object
+      required: [slug, name, data_classification, legal_basis, purpose]
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$'
+          description: Identificador estavel do tenant. Nao muda.
+        name: { type: string, minLength: 3, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        data_classification: { $ref: './_shared.yaml#/components/schemas/DataClassification' }
+        legal_basis:
+          type: string
+          description: Base legal do tratamento (LGPD, art. 7). Obrigatoria no cadastro.
+        purpose:
+          type: string
+          description: Finalidade do tratamento (LGPD). Obrigatoria no cadastro.
+        cost_center: { type: string }
+        owner_principal_id: { type: string }
+      additionalProperties: false
+
+    Project:
+      type: object
+      required: [id, slug, name, data_classification, created_at]
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        name: { type: string }
+        description: { type: string }
+        data_classification: { $ref: './_shared.yaml#/components/schemas/DataClassification' }
+        legal_basis: { type: string }
+        purpose: { type: string }
+        cost_center: { type: string }
+        owner_principal_id: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    SetBudgetRequest:
+      type: object
+      required: [limit, period]
+      properties:
+        limit: { $ref: './_shared.yaml#/components/schemas/Money' }
+        period: { type: string, enum: [daily, monthly] }
+        block_at_limit:
+          type: boolean
+          default: true
+          description: Se `false`, ultrapassar o limite so alerta, nao bloqueia.
+        alert_thresholds:
+          type: array
+          items: { type: number, minimum: 0, maximum: 1 }
+          default: [0.5, 0.8, 1.0]
+      additionalProperties: false
+
+    Budget:
+      type: object
+      required: [project_id, limit, spent, period, period_start, period_end]
+      properties:
+        project_id: { type: string }
+        limit: { $ref: './_shared.yaml#/components/schemas/Money' }
+        spent: { $ref: './_shared.yaml#/components/schemas/Money' }
+        reserved:
+          allOf: [{ $ref: './_shared.yaml#/components/schemas/Money' }]
+          description: Reservado por chamadas em voo, ainda nao comitado.
+        period: { type: string, enum: [daily, monthly] }
+        period_start: { type: string, format: date-time }
+        period_end: { type: string, format: date-time }
+        block_at_limit: { type: boolean }
+        alert_thresholds: { type: array, items: { type: number } }
+
+    ModelRule:
+      type: object
+      required: [alias, allowed]
+      properties:
+        alias: { type: string }
+        allowed: { type: boolean }
+        max_output_tokens: { type: integer }
+
+    ProjectPolicy:
+      type: object
+      required: [project_id, data_classification, allowed_data_zones, version]
+      properties:
+        project_id: { type: string }
+        data_classification: { $ref: './_shared.yaml#/components/schemas/DataClassification' }
+        allowed_data_zones:
+          type: array
+          description: Derivado da classificacao; pode ser restringido, nunca ampliado.
+          items: { $ref: './_shared.yaml#/components/schemas/DataZone' }
+        model_rules:
+          type: array
+          items: { $ref: '#/components/schemas/ModelRule' }
+        max_concurrent_requests: { type: integer, minimum: 1, default: 20 }
+        content_capture:
+          type: boolean
+          default: false
+          description: Grava prompt e resposta na auditoria, apos redacao de PII.
+        version:
+          type: integer
+          description: Incrementa a cada mudanca. O router usa para invalidar o cache.
+
+    SetPolicyRequest:
+      type: object
+      properties:
+        allowed_data_zones:
+          type: array
+          items: { $ref: './_shared.yaml#/components/schemas/DataZone' }
+        model_rules: { type: array, items: { $ref: '#/components/schemas/ModelRule' } }
+        max_concurrent_requests: { type: integer, minimum: 1 }
+        content_capture: { type: boolean }
+      additionalProperties: false

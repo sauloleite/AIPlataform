@@ -1,0 +1,194 @@
+# Valores padrao do chart. Tudo que aponta para fora e substituivel.
+
+global:
+  imageRegistry: ghcr.io
+  imageRepository: sauloleite/aiplataform
+  imageTag: '' # vazio usa o appVersion do Chart
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# Dependencias de infraestrutura
+#
+# `enabled: true` sobe o componente dentro do cluster (bom para comecar).
+# `enabled: false` + `externalUri` aponta para um servico existente.
+# ---------------------------------------------------------------------------
+mongodb:
+  # `true` sobe um StatefulSet simples, suficiente para comecar.
+  # Em producao com alta disponibilidade, use `false` + operador dedicado ou
+  # servico gerenciado, e informe `externalUri`.
+  enabled: true
+  replicaCount: 1
+  persistence:
+    size: 20Gi
+  externalUri: ''
+
+redis:
+  enabled: true
+  maxmemory: 512mb
+  persistence:
+    size: 8Gi
+  externalUri: ''
+
+qdrant:
+  enabled: false
+  externalUrl: ''
+
+minio:
+  enabled: false
+  externalUrl: ''
+
+ollama:
+  enabled: true
+  image: ollama/ollama:0.5.7
+  # Modelos baixados na inicializacao. Vazio nao baixa nada.
+  models:
+    - llama3.2:1b
+    - nomic-embed-text
+  persistence:
+    enabled: true
+    size: 20Gi
+  resources:
+    requests: { cpu: '500m', memory: 4Gi }
+    limits: { memory: 8Gi }
+  # Modelo grande costuma exigir um no dedicado.
+  nodeSelector: {}
+
+# ---------------------------------------------------------------------------
+# Observabilidade
+# ---------------------------------------------------------------------------
+telemetry:
+  # Endpoint OTLP. Aponte para o seu collector, Tempo, Jaeger ou Grafana Cloud.
+  otlpEndpoint: 'http://otel-collector:4318'
+  contentCapture: false
+
+# ---------------------------------------------------------------------------
+# Servicos da plataforma
+# ---------------------------------------------------------------------------
+identity:
+  enabled: true
+  replicaCount: 2
+  port: 3001
+  # Segredo com `signing-key` (PEM PKCS#8) e `token-pepper`.
+  # Sem ele, reiniciar o pod invalida todos os tokens emitidos.
+  existingSecret: ''
+  issuer: 'http://identity:3001'
+  audience: aia-platform
+  accessTokenTtl: 3600
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { memory: 512Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+governance:
+  enabled: true
+  replicaCount: 2
+  port: 3002
+  defaultCurrency: BRL
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { memory: 512Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+guardrails:
+  enabled: true
+  replicaCount: 2
+  port: 8001
+  # `regex` sobe instantaneo; `presidio` detecta tambem nome de pessoa.
+  detector: regex
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { memory: 1Gi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+inferenceRouter:
+  enabled: true
+  replicaCount: 3
+  port: 3000
+  policyCacheTtlSeconds: 30
+  auditRetentionDays: 90
+  semanticCache:
+    enabled: false
+    ttlSeconds: 3600
+  # Segredo com as chaves dos provedores. Chave ausente desabilita o provedor;
+  # a plataforma continua funcionando pelo Ollama.
+  providersSecret: ''
+  providers:
+    openai:
+      baseUrl: https://api.openai.com/v1
+      chatModel: gpt-4o-mini
+      embeddingModel: text-embedding-3-small
+    gemini:
+      baseUrl: https://generativelanguage.googleapis.com
+      apiVersion: v1beta
+      # `interactions` e a interface atual; `generate-content` e a anterior.
+      protocol: interactions
+      chatModel: gemini-2.5-flash
+      embeddingModel: text-embedding-004
+    anthropic:
+      baseUrl: https://api.anthropic.com
+      version: '2023-06-01'
+      chatModel: claude-sonnet-4-5
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { memory: 1Gi }
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+
+agentRuntime:
+  enabled: false # Fase 3 do roadmap
+  replicaCount: 1
+  port: 8002
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+# ---------------------------------------------------------------------------
+# Rede
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  host: aia.local
+  annotations:
+    # SSE nao pode ser bufferizado: o stream chegaria em bloco no fim.
+    nginx.ingress.kubernetes.io/proxy-buffering: 'off'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+  tls:
+    enabled: false
+    secretName: aia-tls
+
+networkPolicy:
+  # Nega tudo por padrao e libera so o necessario. Deixe ligado.
+  enabled: true
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+  seccompProfile: { type: RuntimeDefault }
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ['ALL']
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

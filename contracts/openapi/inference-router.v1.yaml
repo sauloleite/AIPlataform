@@ -1,0 +1,306 @@
+openapi: 3.1.0
+info:
+  title: AIA Inference Router
+  version: '1.0.0'
+  description: |
+    API canonica de inferencia da plataforma, compativel com OpenAI.
+
+    O consumidor escolhe um ALIAS, nunca um provedor. Qual provedor atende
+    (OpenAI, Gemini, Anthropic, Ollama) e decisao do router, condicionada a
+    classificacao de dados do projeto (ADR-010). Trocar de provedor nao muda
+    uma linha na aplicacao que consome.
+  license: { name: MIT }
+
+servers:
+  - url: http://localhost:8080
+    description: Ambiente local (docker-compose)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: inference
+    description: Chat, embeddings e catalogo de aliases
+
+paths:
+  /v1/chat/completions:
+    post:
+      operationId: createChatCompletion
+      tags: [inference]
+      summary: Cria uma completion de chat
+      description: |
+        Compativel com `POST /v1/chat/completions` da OpenAI.
+
+        Com `stream: true` a resposta e Server-Sent Events com eventos tipados,
+        `id` incremental para reconexao e heartbeat a cada 15 s.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+        - $ref: './_shared.yaml#/components/parameters/TraceParent'
+        - $ref: './_shared.yaml#/components/parameters/RequestId'
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChatCompletionRequest' }
+      responses:
+        '200':
+          description: Completion gerada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatCompletion' }
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Eventos nomeados: `message.delta`, `run.finished`, `error`.
+                  Cada evento carrega `id` incremental e o payload em JSON.
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './_shared.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '422':
+          description: Nenhum deployment compativel com a classificacao do projeto
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+        '429': { $ref: './_shared.yaml#/components/responses/TooManyRequests' }
+        '503': { $ref: './_shared.yaml#/components/responses/ServiceUnavailable' }
+
+  /v1/embeddings:
+    post:
+      operationId: createEmbeddings
+      tags: [inference]
+      summary: Gera embeddings
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+        - $ref: './_shared.yaml#/components/parameters/TraceParent'
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmbeddingsRequest' }
+      responses:
+        '200':
+          description: Embeddings gerados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmbeddingsResponse' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './_shared.yaml#/components/responses/Unauthorized' }
+        '429': { $ref: './_shared.yaml#/components/responses/TooManyRequests' }
+
+  /v1/models:
+    get:
+      operationId: listModels
+      tags: [inference]
+      summary: Lista os aliases visiveis ao projeto
+      description: |
+        Devolve apenas os aliases que a classificacao do projeto permite usar.
+        Um alias sem nenhum deployment compativel nao aparece.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Aliases disponiveis
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [object, data]
+                properties:
+                  object: { type: string, const: list }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ModelAlias' }
+        '401': { $ref: './_shared.yaml#/components/responses/Unauthorized' }
+
+  /health/live:
+    get:
+      operationId: liveness
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: Processo vivo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { status: { type: string, const: ok } }
+
+  /health/ready:
+    get:
+      operationId: readiness
+      summary: Readiness probe
+      security: []
+      responses:
+        '200':
+          description: Pronto para receber trafego
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Readiness' }
+        '503':
+          description: Dependencia critica indisponivel
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string, enum: [system, user, assistant, tool] }
+        content: { type: [string, 'null'] }
+        name: { type: string }
+        tool_call_id: { type: string }
+
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          description: |
+            Alias do catalogo, nao o nome do modelo do provedor.
+            Ex.: `chat-rapido`, `chat-avancado`, `chat-local`.
+          examples: [chat-rapido]
+        messages:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/ChatMessage' }
+        stream: { type: boolean, default: false }
+        max_tokens:
+          type: integer
+          minimum: 1
+          description: Limitado pelo teto do alias, mesmo que o valor pedido seja maior.
+        temperature: { type: number, minimum: 0, maximum: 2 }
+        top_p: { type: number, minimum: 0, maximum: 1 }
+        stop:
+          type: array
+          items: { type: string }
+          maxItems: 4
+        user: { type: string, description: Identificador opaco do usuario final. }
+      additionalProperties: false
+
+    Usage:
+      type: object
+      required: [prompt_tokens, completion_tokens, total_tokens]
+      properties:
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        total_tokens: { type: integer }
+
+    ChatCompletion:
+      type: object
+      required: [id, object, created, model, choices]
+      properties:
+        id: { type: string }
+        object: { type: string, const: chat.completion }
+        created: { type: integer }
+        model: { type: string, description: Alias solicitado. }
+        choices:
+          type: array
+          items:
+            type: object
+            required: [index, message, finish_reason]
+            properties:
+              index: { type: integer }
+              message: { $ref: '#/components/schemas/ChatMessage' }
+              finish_reason:
+                type: [string, 'null']
+                enum: [stop, length, content_filter, tool_calls, null]
+        usage: { $ref: '#/components/schemas/Usage' }
+        aia:
+          $ref: '#/components/schemas/RoutingMetadata'
+
+    RoutingMetadata:
+      type: object
+      description: |
+        Como a plataforma atendeu a chamada. Serve de evidencia de residencia de
+        dados para auditoria (ADR-010) e de diagnostico para o operador.
+      properties:
+        deployment_id: { type: string }
+        provider: { type: string, enum: [openai, gemini, anthropic, ollama] }
+        provider_model: { type: string }
+        data_zone: { $ref: './_shared.yaml#/components/schemas/DataZone' }
+        cost: { $ref: './_shared.yaml#/components/schemas/Money' }
+        cache_hit: { type: boolean }
+        policy_stale:
+          type: boolean
+          description: Politica servida do cache porque o governance estava fora.
+        budget_unverified:
+          type: boolean
+          description: Orcamento nao verificado porque o Redis estava fora.
+        attempts: { type: integer, description: Quantos deployments foram tentados. }
+
+    EmbeddingsRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model: { type: string, examples: [embedding-padrao] }
+        input:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string }, minItems: 1, maxItems: 2048 }
+        dimensions: { type: integer, minimum: 1 }
+      additionalProperties: false
+
+    EmbeddingsResponse:
+      type: object
+      required: [object, data, model]
+      properties:
+        object: { type: string, const: list }
+        data:
+          type: array
+          items:
+            type: object
+            required: [object, index, embedding]
+            properties:
+              object: { type: string, const: embedding }
+              index: { type: integer }
+              embedding: { type: array, items: { type: number } }
+        model: { type: string }
+        usage: { $ref: '#/components/schemas/Usage' }
+        aia: { $ref: '#/components/schemas/RoutingMetadata' }
+
+    ModelAlias:
+      type: object
+      required: [id, object, capabilities]
+      properties:
+        id: { type: string, examples: [chat-rapido] }
+        object: { type: string, const: model }
+        description: { type: string }
+        capabilities:
+          type: array
+          items: { type: string, enum: [chat, embeddings, vision, tools] }
+        max_output_tokens: { type: integer }
+        data_zones:
+          type: array
+          description: Zonas onde este alias pode ser atendido para este projeto.
+          items: { $ref: './_shared.yaml#/components/schemas/DataZone' }
+        deprecated_at:
+          type: [string, 'null']
+          format: date-time
+          description: Descontinuacao anunciada. Alerta dispara 60 dias antes.
+
+    Readiness:
+      type: object
+      required: [status, dependencies]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        dependencies:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status: { type: string, enum: [ok, degraded, down] }
+              detail: { type: string }

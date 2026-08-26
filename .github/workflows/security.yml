@@ -1,0 +1,109 @@
+name: Seguranca
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Dependencia nova com CVE nao espera a proxima PR.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: returntocorp/semgrep-action@v1
+        with:
+          # Regras da comunidade, open source. Cobrem OWASP Top 10, secrets em
+          # codigo e antipadroes de seguranca em TypeScript e Python.
+          config: >-
+            p/default
+            p/typescript
+            p/python
+            p/owasp-top-ten
+            p/secrets
+            p/dockerfile
+
+  secrets:
+    name: Segredos no historico
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks precisa do historico para varrer commits antigos.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependencies:
+    name: Vulnerabilidades em dependencias
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-packages --frozen
+
+      - name: osv-scanner
+        uses: google/osv-scanner-action/osv-scanner-action@v1.9.1
+        with:
+          scan-args: |-
+            --lockfile=pnpm-lock.yaml
+            --lockfile=uv.lock
+            --format=table
+
+  containers:
+    name: Vulnerabilidades nas imagens
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: inference-router
+            dockerfile: deploy/docker/node.Dockerfile
+          - service: identity
+            dockerfile: deploy/docker/node.Dockerfile
+          - service: governance
+            dockerfile: deploy/docker/node.Dockerfile
+          - service: guardrails
+            dockerfile: deploy/docker/python.Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construir a imagem
+        run: |
+          docker build -f ${{ matrix.dockerfile }} \
+            --build-arg SERVICE=${{ matrix.service }} \
+            -t aia-${{ matrix.service }}:scan .
+
+      - name: Trivy
+        uses: aquasecurity/trivy-action@0.29.0
+        with:
+          image-ref: aia-${{ matrix.service }}:scan
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          # Vulnerabilidade critica sem correcao disponivel nao bloqueia o build;
+          # o que bloqueia e a que tem patch e ninguem aplicou.
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Publicar no code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}

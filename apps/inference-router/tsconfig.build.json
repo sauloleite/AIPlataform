@@ -1,0 +1,36 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.spec.ts", "src/**/*.test.ts", "test/**/*"],
+  "references": [
+    {
+      "path": "../../packages/auth/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/contracts/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/errors/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/messaging/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/resilience/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/telemetry/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/nest/tsconfig.build.json"
+    }
+  ],
+  "//": "Config de BUILD: emite para dist/. Testes ficam de fora para nao irem para a imagem."
+}

@@ -1,0 +1,291 @@
+{{/*
+MongoDB, Redis e Ollama como StatefulSet proprio.
+
+Autocontido de proposito: o chart nao depende de repositorio de terceiros, cuja
+politica de imagens pode mudar sem aviso (ADR-012).
+
+Estes manifestos servem para COMECAR. Para producao com alta disponibilidade,
+desligue (`mongodb.enabled=false`) e aponte para um operador dedicado ou um
+servico gerenciado — o `externalUri` existe exatamente para isso.
+*/}}
+
+{{- if .Values.mongodb.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-mongodb
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mongodb
+spec:
+  serviceName: {{ .Release.Name }}-mongodb-headless
+  replicas: {{ .Values.mongodb.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "aia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mongodb
+  template:
+    metadata:
+      labels:
+        {{- include "aia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mongodb
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: mongodb
+          image: mongo:8.0
+          # Replica set mesmo com um no: transacao multi-documento exige, e e
+          # ela que sustenta o padrao outbox (ADR-007).
+          args: ['--replSet', 'rs0', '--bind_ip_all']
+          ports:
+            - name: mongodb
+              containerPort: 27017
+          readinessProbe:
+            exec:
+              command:
+                - mongosh
+                - --quiet
+                - --eval
+                - |
+                  try { rs.status().ok }
+                  catch { rs.initiate({_id:'rs0',members:[{_id:0,host:'{{ .Release.Name }}-mongodb-0.{{ .Release.Name }}-mongodb-headless:27017'}]}).ok }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ['mongosh', '--quiet', '--eval', 'db.adminCommand("ping").ok']
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 2Gi }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ['ReadWriteOnce']
+        resources:
+          requests:
+            storage: {{ .Values.mongodb.persistence.size | default "20Gi" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-mongodb-headless
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mongodb
+spec:
+  # Headless: o replica set precisa de DNS estavel por pod.
+  clusterIP: None
+  ports:
+    - port: 27017
+      targetPort: mongodb
+      name: mongodb
+  selector:
+    {{- include "aia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mongodb
+{{- end }}
+
+{{- if .Values.redis.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-redis
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  serviceName: {{ .Release.Name }}-redis-master
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "aia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        {{- include "aia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          args:
+            - redis-server
+            # appendonly: o contador de orcamento sobrevive a um restart.
+            - --appendonly
+            - 'yes'
+            - --maxmemory
+            - {{ .Values.redis.maxmemory | default "512mb" | quote }}
+            # noeviction de proposito: despejar um contador de orcamento
+            # silenciosamente seria pior do que falhar de forma visivel.
+            - --maxmemory-policy
+            - noeviction
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ['redis-cli', 'ping']
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ['redis-cli', 'ping']
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 768Mi }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ['ReadWriteOnce']
+        resources:
+          requests:
+            storage: {{ .Values.redis.persistence.size | default "8Gi" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-redis-master
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  ports:
+    - port: 6379
+      targetPort: redis
+      name: redis
+  selector:
+    {{- include "aia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+{{- end }}
+
+{{- if .Values.ollama.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "aia.fullname" . }}-ollama
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  serviceName: {{ include "aia.fullname" . }}-ollama
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "aia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ollama
+  template:
+    metadata:
+      labels:
+        {{- include "aia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ollama
+    spec:
+      # A imagem do Ollama grava em /root/.ollama por padrao, o que exigiria
+      # root. `OLLAMA_MODELS` e `HOME` movem o estado para o volume, e assim o
+      # pod roda sem privilegio como todos os outros.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      {{- if .Values.ollama.models }}
+      initContainers:
+        # Baixa os modelos antes de servir: sem isso a primeira requisicao
+        # espera o download inteiro e estoura o timeout do router.
+        - name: pull-models
+          image: {{ .Values.ollama.image }}
+          env:
+            - name: HOME
+              value: /data
+            - name: OLLAMA_MODELS
+              value: /data/models
+          command:
+            - sh
+            - -c
+            - |
+              ollama serve &
+              until ollama list >/dev/null 2>&1; do sleep 1; done
+              {{- range .Values.ollama.models }}
+              ollama pull {{ . }}
+              {{- end }}
+              kill %1
+          volumeMounts:
+            - name: models
+              mountPath: /data
+      {{- end }}
+      containers:
+        - name: ollama
+          image: {{ .Values.ollama.image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ['ALL']
+          env:
+            - name: HOME
+              value: /data
+            - name: OLLAMA_MODELS
+              value: /data/models
+            - name: OLLAMA_HOST
+              value: 0.0.0.0:11434
+          ports:
+            - name: http
+              containerPort: 11434
+          readinessProbe:
+            exec:
+              command: ['ollama', 'list']
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          volumeMounts:
+            - name: models
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.ollama.resources | nindent 12 }}
+      {{- with .Values.ollama.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: models
+      spec:
+        accessModes: ['ReadWriteOnce']
+        resources:
+          requests:
+            storage: {{ .Values.ollama.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aia.fullname" . }}-ollama
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+spec:
+  ports:
+    - port: 11434
+      targetPort: http
+      name: http
+  selector:
+    {{- include "aia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ollama
+{{- end }}

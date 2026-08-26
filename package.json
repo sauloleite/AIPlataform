@@ -1,0 +1,39 @@
+{
+  "name": "aia-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AIA 2.0 OSS - plataforma corporativa de IA, agnostica de cloud e open source",
+  "license": "MIT",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "lint": "nx run-many -t lint --all",
+    "test": "nx run-many -t test --all",
+    "build": "tsc --build tsconfig.build.json",
+    "typecheck": "nx run-many -t typecheck --all",
+    "arch": "depcruise --config .dependency-cruiser.cjs apps packages",
+    "contracts": "node tools/scripts/generate-contracts.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.6.1",
+    "@commitlint/config-conventional": "^19.6.0",
+    "@eslint/js": "^9.18.0",
+    "@nx/js": "^20.3.1",
+    "@types/node": "^22.10.6",
+    "dependency-cruiser": "^16.9.0",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^10.0.1",
+    "globals": "^15.15.0",
+    "nx": "^20.3.1",
+    "openapi-typescript": "^7.13.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^2.1.8"
+  }
+}

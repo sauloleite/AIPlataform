@@ -1,0 +1,115 @@
+[project]
+name = "aia-platform-python"
+version = "0.1.0"
+description = "AIA 2.0 OSS - workspace Python (servicos FastAPI e bibliotecas compartilhadas)"
+requires-python = ">=3.12"
+dependencies = [
+    "aia-contracts",
+    "aia-auth",
+    "aia-errors",
+    "aia-messaging",
+    "aia-resilience",
+    "aia-telemetry",
+    "aia-sdk",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.9.2",
+    "mypy>=1.14.1",
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.25.2",
+    "pytest-cov>=6.0.0",
+    "respx>=0.22.0",
+    "httpx>=0.28.1",
+    "import-linter>=2.1",
+    "testcontainers>=4.9.1",
+    "schemathesis>=3.39.0",
+]
+
+[tool.uv.workspace]
+members = ["python/*", "apps/guardrails", "apps/agent-runtime", "apps/document-processing", "apps/evaluation", "apps/data-platform"]
+
+[tool.uv.sources]
+aia-contracts = { workspace = true }
+aia-auth = { workspace = true }
+aia-errors = { workspace = true }
+aia-messaging = { workspace = true }
+aia-resilience = { workspace = true }
+aia-telemetry = { workspace = true }
+aia-sdk = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["**/generated/**", "docs/reference"]
+# Raizes de codigo: o ruff infere o que e first-party a partir daqui, entao um
+# servico novo gerado por tools/generators nao exige editar esta configuracao.
+src = ["python/*/src", "apps/*/src"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # isort
+    "N",         # pep8-naming
+    "UP",        # pyupgrade
+    "B",         # bugbear
+    "A",         # builtins shadowing
+    "C4",        # comprehensions
+    "DTZ",       # datetimes sem timezone
+    "T20",       # print esquecido
+    "SIM",       # simplificacoes
+    "ARG",       # argumento nao usado
+    "PTH",       # pathlib
+    "ASYNC",     # armadilhas de async
+    "S",         # bandit
+    "RUF",
+]
+ignore = ["S101"]  # assert e valido em teste
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S", "ARG", "T20"]
+"**/*_test.py" = ["S", "ARG", "T20"]
+"**/test_*.py" = ["S", "ARG", "T20"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "aia_auth",
+    "aia_contracts",
+    "aia_errors",
+    "aia_messaging",
+    "aia_resilience",
+    "aia_telemetry",
+    "aia_sdk",
+]
+
+[tool.mypy]
+python_version = "3.12"
+# Os servicos usam layout src/: sem isto o mypy acha o mesmo arquivo por dois
+# nomes de modulo e desiste antes de checar qualquer coisa.
+mypy_path = "apps/evaluation/src:python/aia_auth/src:python/aia_contracts/src:python/aia_errors/src:python/aia_messaging/src:python/aia_resilience/src:python/aia_telemetry/src:python/aia_sdk/src:apps/guardrails/src:apps/agent-runtime/src"
+explicit_package_bases = true
+strict = true
+warn_unreachable = true
+disallow_any_explicit = false
+plugins = ["pydantic.mypy"]
+exclude = ["generated/", "docs/reference/"]
+
+[[tool.mypy.overrides]]
+module = ["presidio_analyzer.*", "presidio_anonymizer.*", "testcontainers.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["python", "apps"]
+# import-mode=importlib: sem ele, dois diretorios `tests/` com o mesmo nome
+# de modulo colidem na coleta.
+addopts = "-q --strict-markers --import-mode=importlib"
+markers = [
+    "integration: exige containers (Testcontainers)",
+    "contract: valida o servico contra o OpenAPI",
+]
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\."]

@@ -1,0 +1,138 @@
+# Sobreposicao de producao para self-host (VPS, servidor on-premise, homelab).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# O que muda em relacao ao desenvolvimento:
+#   - nenhuma porta exposta alem do Traefik;
+#   - segredos por arquivo, nunca por variavel de ambiente;
+#   - limites de CPU e memoria em todo servico;
+#   - TLS automatico via Let's Encrypt.
+
+services:
+  # Bancos e ferramentas param de escutar no host: so a rede interna alcanca.
+  mongo:
+    ports: !override []
+    deploy:
+      resources:
+        limits: { cpus: '2', memory: 2G }
+        reservations: { memory: 512M }
+
+  redis:
+    ports: !override []
+    command:
+      [
+        'redis-server',
+        '--appendonly',
+        'yes',
+        '--maxmemory',
+        '512mb',
+        '--maxmemory-policy',
+        'noeviction',
+      ]
+    deploy:
+      resources:
+        limits: { cpus: '1', memory: 768M }
+
+  minio:
+    ports: !override []
+    environment:
+      MINIO_ROOT_USER_FILE: /run/secrets/minio_user
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/minio_password
+    secrets: [minio_user, minio_password]
+
+  qdrant:
+    ports: !override []
+
+  lgtm:
+    ports: !override []
+    environment:
+      # Grafana anonimo e aceitavel em dev, nao em producao.
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
+    secrets: [grafana_password]
+    deploy:
+      resources:
+        limits: { cpus: '2', memory: 2G }
+
+  ollama:
+    ports: !override []
+    deploy:
+      resources:
+        limits: { memory: 8G }
+
+  traefik:
+    command: !override
+      - '--providers.docker=true'
+      - '--providers.docker.exposedbydefault=false'
+      - '--entrypoints.web.address=:80'
+      - '--entrypoints.web.http.redirections.entryPoint.to=websecure'
+      - '--entrypoints.web.http.redirections.entryPoint.scheme=https'
+      - '--entrypoints.websecure.address=:443'
+      - '--entrypoints.websecure.http.tls.certresolver=letsencrypt'
+      - '--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}'
+      - '--certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json'
+      - '--certificatesresolvers.letsencrypt.acme.tlschallenge=true'
+      - '--accesslog=true'
+      # Dashboard fechado: em producao ele expoe a topologia inteira.
+      - '--api.dashboard=false'
+    ports: !override ['80:80', '443:443']
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-acme:/acme
+
+  identity:
+    ports: !override []
+    environment:
+      NODE_ENV: production
+      # Sem chave persistida, reiniciar invalidaria todos os tokens emitidos.
+      IDENTITY_SIGNING_PRIVATE_KEY_FILE: /run/secrets/identity_signing_key
+      IDENTITY_TOKEN_PEPPER_FILE: /run/secrets/identity_pepper
+    secrets: [identity_signing_key, identity_pepper]
+    deploy:
+      resources:
+        limits: { cpus: '1', memory: 512M }
+
+  governance:
+    ports: !override []
+    environment: { NODE_ENV: production }
+    deploy:
+      resources:
+        limits: { cpus: '1', memory: 512M }
+
+  guardrails:
+    ports: !override []
+    deploy:
+      resources:
+        limits: { cpus: '2', memory: 1G }
+
+  inference-router:
+    ports: !override []
+    environment:
+      NODE_ENV: production
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+      GEMINI_API_KEY_FILE: /run/secrets/gemini_api_key
+      ANTHROPIC_API_KEY_FILE: /run/secrets/anthropic_api_key
+    secrets: [openai_api_key, gemini_api_key, anthropic_api_key]
+    deploy:
+      replicas: 2
+      resources:
+        limits: { cpus: '2', memory: 1G }
+
+  agent-runtime:
+    ports: !override []
+    deploy:
+      resources:
+        limits: { cpus: '1', memory: 512M }
+
+secrets:
+  identity_signing_key: { file: ./secrets/identity_signing_key.pem }
+  identity_pepper: { file: ./secrets/identity_pepper.txt }
+  minio_user: { file: ./secrets/minio_user.txt }
+  minio_password: { file: ./secrets/minio_password.txt }
+  grafana_password: { file: ./secrets/grafana_password.txt }
+  openai_api_key: { file: ./secrets/openai_api_key.txt }
+  gemini_api_key: { file: ./secrets/gemini_api_key.txt }
+  anthropic_api_key: { file: ./secrets/anthropic_api_key.txt }
+
+volumes:
+  traefik-acme:

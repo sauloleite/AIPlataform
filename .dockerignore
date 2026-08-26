@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+**/dist
+.venv
+**/__pycache__
+.nx
+.git
+.github
+coverage
+docs/reference
+deploy/compose/.data
+*.md
+.env
+.env.*
+!.env.example

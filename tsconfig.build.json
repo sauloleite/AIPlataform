@@ -1,0 +1,42 @@
+{
+  "//": "Agregador de build. `tsc --build tsconfig.build.json` compila tudo na ordem certa.",
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/errors/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/telemetry/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/contracts/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/resilience/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/auth/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/messaging/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/nest/tsconfig.build.json"
+    },
+    {
+      "path": "./packages/sdk/tsconfig.build.json"
+    },
+    {
+      "path": "./apps/identity/tsconfig.build.json"
+    },
+    {
+      "path": "./apps/governance/tsconfig.build.json"
+    },
+    {
+      "path": "./apps/inference-router/tsconfig.build.json"
+    },
+    {
+      "path": "./apps/registry/tsconfig.build.json"
+    }
+  ]
+}

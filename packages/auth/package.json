@@ -1,0 +1,29 @@
+{
+  "name": "@aia/auth",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Validacao local de JWT com JWKS, Principal, RBAC e ABAC",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint src --max-warnings 0"
+  },
+  "dependencies": {
+    "@aia/errors": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "jose": "^5.9.6"
+  }
+}

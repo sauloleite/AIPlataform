@@ -1,0 +1,163 @@
+# Componentes compartilhados por todos os contratos da plataforma.
+# Referenciados como: $ref: './_shared.yaml#/components/schemas/ProblemDetails'
+openapi: 3.1.0
+info:
+  title: AIA - componentes compartilhados
+  version: '1.0.0'
+paths: {}
+components:
+  parameters:
+    ProjectId:
+      name: X-Project-Id
+      in: header
+      required: true
+      description: |
+        Projeto e o tenant da plataforma. Obrigatorio em todo contrato, todo evento,
+        todo trace e toda chave de particao (doc 02, principio 2).
+      schema: { type: string, minLength: 1, maxLength: 64 }
+    TraceParent:
+      name: traceparent
+      in: header
+      required: false
+      description: Contexto de trace do W3C, para correlacao ponta a ponta.
+      schema: { type: string }
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Obrigatorio em POST nao-streaming que cria recurso ou consome orcamento.
+        O resultado fica cacheado por 24 h, com chave composta pelo project_id.
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Cursor opaco de paginacao. Nunca interprete o conteudo.
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+
+  schemas:
+    ProblemDetails:
+      type: object
+      description: RFC 9457. `code` e estavel e faz parte do contrato publico.
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code:
+          type: string
+          enum:
+            - budget_exhausted
+            - quota_exceeded
+            - concurrency_limit
+            - no_compatible_deployment
+            - alias_not_found
+            - provider_unavailable
+            - all_deployments_failed
+            - stream_interrupted
+            - guardrail_blocked
+            - prompt_injection_suspected
+            - unauthenticated
+            - forbidden
+            - token_expired
+            - invalid_token
+            - project_required
+            - project_not_found
+            - validation_failed
+            - idempotency_conflict
+            - not_found
+            - conflict
+            - upstream_timeout
+            - circuit_open
+            - internal_error
+        trace_id: { type: string }
+        retry_after: { type: integer, description: Segundos ate valer a pena tentar de novo. }
+      additionalProperties: true
+
+    DataClassification:
+      type: string
+      description: |
+        Classificacao de dados do projeto. Condiciona para quais zonas o
+        roteamento de modelo pode enviar o conteudo (ADR-010).
+      enum: [publico, interno, confidencial, restrito]
+
+    DataZone:
+      type: string
+      description: |
+        Onde o provedor processa o dado. `local` e o Ollama na propria maquina.
+      enum: [local, br, us, eu, global]
+
+    Money:
+      type: object
+      description: Valor monetario em micros para evitar ponto flutuante.
+      required: [currency, micros]
+      properties:
+        currency: { type: string, minLength: 3, maxLength: 3, examples: [BRL, USD] }
+        micros:
+          type: integer
+          format: int64
+          description: 1 unidade da moeda = 1.000.000 micros.
+
+    Page:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: {} }
+        next_cursor:
+          type: [string, 'null']
+          description: Ausente ou nulo quando nao ha mais paginas.
+
+  responses:
+    BadRequest:
+      description: Requisicao invalida
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    Unauthorized:
+      description: Nao autenticado
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    Forbidden:
+      description: Acesso negado
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    NotFound:
+      description: Recurso nao encontrado
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    TooManyRequests:
+      description: Orcamento, cota ou concorrencia excedidos
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    ServiceUnavailable:
+      description: Dependencia indisponivel ou circuito aberto
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT emitido pelo aia-identity ou por um OIDC externo configurado.

@@ -1,0 +1,108 @@
+# Regra de dependencia da Clean Architecture para os servicos Python (doc 03, 3.1).
+# Espelha o .dependency-cruiser.cjs do lado TypeScript. Falha o build.
+
+[importlinter]
+root_packages =
+    aia_auth
+    aia_contracts
+    aia_errors
+    aia_messaging
+    aia_resilience
+    aia_telemetry
+    aia_sdk
+    guardrails
+    agent_runtime
+    evaluation
+# Necessario porque os contratos proibem tambem pacotes externos (fastapi, redis).
+include_external_packages = True
+
+[importlinter:contract:camadas-guardrails]
+name = guardrails respeita a regra de dependencia
+type = layers
+layers =
+    presentation
+    application
+    domain
+containers =
+    guardrails
+exhaustive = False
+
+[importlinter:contract:camadas-agent-runtime]
+name = agent-runtime respeita a regra de dependencia
+type = layers
+layers =
+    presentation
+    application
+    domain
+containers =
+    agent_runtime
+exhaustive = False
+
+[importlinter:contract:camadas-evaluation]
+name = evaluation respeita a regra de dependencia
+type = layers
+layers =
+    presentation
+    application
+    domain
+containers =
+    evaluation
+exhaustive = False
+
+[importlinter:contract:dominio-guardrails-sem-framework]
+name = dominio do guardrails nao conhece framework nem I/O
+type = forbidden
+source_modules =
+    guardrails.domain
+forbidden_modules =
+    fastapi
+    starlette
+    pymongo
+    redis
+    httpx
+    presidio_analyzer
+    presidio_anonymizer
+    guardrails.infrastructure
+    guardrails.presentation
+
+[importlinter:contract:dominio-agent-runtime-sem-framework]
+name = dominio do agent-runtime nao conhece framework nem I/O
+type = forbidden
+source_modules =
+    agent_runtime.domain
+forbidden_modules =
+    fastapi
+    starlette
+    pymongo
+    redis
+    httpx
+    agent_runtime.infrastructure
+    agent_runtime.presentation
+
+[importlinter:contract:aplicacao-sem-adapters]
+name = casos de uso dependem de ports, nunca de adapters
+type = forbidden
+source_modules =
+    guardrails.application
+    agent_runtime.application
+    evaluation.application
+forbidden_modules =
+    guardrails.infrastructure
+    agent_runtime.infrastructure
+    evaluation.infrastructure
+    fastapi
+    starlette
+
+[importlinter:contract:bibliotecas-nao-conhecem-servicos]
+name = bibliotecas compartilhadas nao conhecem servicos
+type = forbidden
+source_modules =
+    aia_auth
+    aia_errors
+    aia_messaging
+    aia_resilience
+    aia_telemetry
+forbidden_modules =
+    guardrails
+    agent_runtime
+    evaluation

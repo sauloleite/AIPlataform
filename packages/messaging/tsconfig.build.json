@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.spec.ts", "src/**/*.test.ts"],
+  "references": [
+    {
+      "path": "../errors/tsconfig.build.json"
+    },
+    {
+      "path": "../telemetry/tsconfig.build.json"
+    }
+  ],
+  "//": "Config de BUILD: emite para dist/. Testes ficam de fora para nao irem para a imagem."
+}

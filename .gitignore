@@ -1,0 +1,44 @@
+# dependencias
+node_modules/
+.pnpm-store/
+.venv/
+__pycache__/
+*.egg-info/
+
+# build
+dist/
+build/
+*.tsbuildinfo
+.next/
+
+# cache de ferramentas
+.nx/
+.cache/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+coverage/
+*.lcov
+
+# segredos e ambiente (doc 03, secao 5: nunca commitar)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!deploy/**/*.key.example
+
+# volumes locais
+deploy/compose/.data/
+deploy/compose/secrets/
+!deploy/compose/secrets/.gitkeep
+
+# sistema operacional e editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Cache do import-linter
+.import_linter_cache/

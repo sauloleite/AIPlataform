@@ -1,0 +1,16 @@
+# Toda PR precisa de um revisor de outro servico (doc 03, secao 5).
+# Substitua os times pelos handles reais da sua organizacao.
+
+*                               @plataforma-arquitetura
+
+/contracts/                     @plataforma-arquitetura
+/docs/adr/                      @plataforma-arquitetura
+/docs/reference/                @plataforma-arquitetura
+/packages/auth/                 @plataforma-seguranca @plataforma-arquitetura
+/apps/identity/                 @plataforma-seguranca
+/apps/guardrails/               @plataforma-seguranca
+/apps/inference-router/         @plataforma-backend-ts
+/apps/governance/               @plataforma-backend-ts
+/apps/agent-runtime/            @plataforma-backend-py
+/deploy/                        @plataforma-sre
+/.github/workflows/             @plataforma-sre

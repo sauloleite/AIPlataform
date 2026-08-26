@@ -1,0 +1,264 @@
+{{/*
+Deployments e Services da plataforma.
+
+Um unico template para os quatro servicos: eles compartilham a mesma forma
+(stateless, health checks, sem segredo em variavel, HPA opcional). Duplicar o
+manifesto por servico so criaria quatro lugares para esquecer de atualizar.
+*/}}
+
+{{- $services := list
+  (dict "key" "identity"         "name" "identity"         "values" .Values.identity         "runtime" "node")
+  (dict "key" "governance"       "name" "governance"       "values" .Values.governance       "runtime" "node")
+  (dict "key" "guardrails"       "name" "guardrails"       "values" .Values.guardrails       "runtime" "python")
+  (dict "key" "inferenceRouter"  "name" "inference-router" "values" .Values.inferenceRouter  "runtime" "node")
+  (dict "key" "agentRuntime"     "name" "agent-runtime"    "values" .Values.agentRuntime     "runtime" "python")
+-}}
+
+{{- range $service := $services }}
+{{- if $service.values.enabled }}
+{{- $fullname := printf "%s-%s" (include "aia.fullname" $) $service.name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "aia.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $service.name }}
+spec:
+  {{- if not $service.values.autoscaling.enabled }}
+  replicas: {{ $service.values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "aia.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $service.name }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      # Nenhuma replica sai antes da substituta estar pronta.
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "aia.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $service.name }}
+      annotations:
+        # Mudar a configuracao reinicia o pod; sem isso, um ConfigMap novo
+        # ficaria ignorado ate o proximo deploy.
+        checksum/config: {{ toJson $service.values | sha256sum }}
+    spec:
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
+      # Sobe pausa suficiente para o balanceador tirar a replica da rotacao
+      # antes do processo comecar a recusar conexao.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: {{ $service.name }}
+          image: {{ include "aia.image" (dict "root" $ "service" $service.name) }}
+          imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ $service.values.port }}
+          env:
+            - name: PORT
+              value: {{ $service.values.port | quote }}
+            {{- include "aia.commonEnv" $ | nindent 12 }}
+
+            {{- if eq $service.key "identity" }}
+            - name: MONGO_DATABASE
+              value: aia_identity
+            - name: IDENTITY_ACCESS_TOKEN_TTL
+              value: {{ $service.values.accessTokenTtl | quote }}
+            {{- if $service.values.existingSecret }}
+            - name: IDENTITY_SIGNING_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ $service.values.existingSecret }}, key: signing-key }
+            - name: IDENTITY_TOKEN_PEPPER
+              valueFrom:
+                secretKeyRef: { name: {{ $service.values.existingSecret }}, key: token-pepper }
+            {{- end }}
+            {{- end }}
+
+            {{- if eq $service.key "governance" }}
+            - name: MONGO_DATABASE
+              value: aia_governance
+            - name: DEFAULT_CURRENCY
+              value: {{ $service.values.defaultCurrency | quote }}
+            {{- end }}
+
+            {{- if eq $service.key "guardrails" }}
+            - name: DETECTOR
+              value: {{ $service.values.detector | quote }}
+            {{- end }}
+
+            {{- if eq $service.key "inferenceRouter" }}
+            - name: MONGO_DATABASE
+              value: aia_router
+            - name: GOVERNANCE_URL
+              value: {{ include "aia.governanceUrl" $ | quote }}
+            {{- if $.Values.guardrails.enabled }}
+            - name: GUARDRAILS_URL
+              value: {{ include "aia.guardrailsUrl" $ | quote }}
+            {{- end }}
+            - name: POLICY_CACHE_TTL_SECONDS
+              value: {{ $service.values.policyCacheTtlSeconds | quote }}
+            - name: AUDIT_RETENTION_DAYS
+              value: {{ $service.values.auditRetentionDays | quote }}
+            - name: SEMANTIC_CACHE_ENABLED
+              value: {{ $service.values.semanticCache.enabled | quote }}
+            - name: SEMANTIC_CACHE_TTL_SECONDS
+              value: {{ $service.values.semanticCache.ttlSeconds | quote }}
+            - name: OLLAMA_BASE_URL
+              value: {{ include "aia.ollamaUrl" $ | quote }}
+            - name: OPENAI_BASE_URL
+              value: {{ $service.values.providers.openai.baseUrl | quote }}
+            - name: OPENAI_CHAT_MODEL
+              value: {{ $service.values.providers.openai.chatModel | quote }}
+            - name: OPENAI_EMBEDDING_MODEL
+              value: {{ $service.values.providers.openai.embeddingModel | quote }}
+            - name: GEMINI_BASE_URL
+              value: {{ $service.values.providers.gemini.baseUrl | quote }}
+            - name: GEMINI_API_VERSION
+              value: {{ $service.values.providers.gemini.apiVersion | quote }}
+            - name: GEMINI_PROTOCOL
+              value: {{ $service.values.providers.gemini.protocol | quote }}
+            - name: GEMINI_CHAT_MODEL
+              value: {{ $service.values.providers.gemini.chatModel | quote }}
+            - name: GEMINI_EMBEDDING_MODEL
+              value: {{ $service.values.providers.gemini.embeddingModel | quote }}
+            - name: ANTHROPIC_BASE_URL
+              value: {{ $service.values.providers.anthropic.baseUrl | quote }}
+            - name: ANTHROPIC_VERSION
+              value: {{ $service.values.providers.anthropic.version | quote }}
+            - name: ANTHROPIC_CHAT_MODEL
+              value: {{ $service.values.providers.anthropic.chatModel | quote }}
+            {{- if $service.values.providersSecret }}
+            {{/*
+              Chave ausente no Secret nao quebra o pod: `optional: true` deixa a
+              variavel vazia, e o provedor correspondente simplesmente nao
+              participa do roteamento.
+            */}}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $service.values.providersSecret }}
+                  key: openai-api-key
+                  optional: true
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $service.values.providersSecret }}
+                  key: gemini-api-key
+                  optional: true
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $service.values.providersSecret }}
+                  key: anthropic-api-key
+                  optional: true
+            {{- end }}
+            {{- end }}
+
+            {{- if eq $service.key "agentRuntime" }}
+            - name: INFERENCE_ROUTER_URL
+              value: {{ include "aia.routerUrl" $ | quote }}
+            {{- end }}
+
+          livenessProbe:
+            httpGet: { path: /health/live, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            # Liveness NAO consulta dependencia: reiniciar o pod porque o Mongo
+            # piscou so transformaria uma degradacao em indisponibilidade.
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /health/ready, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            httpGet: { path: /health/live, port: http }
+            periodSeconds: 5
+            # Ate 2,5 min para subir: o guardrails com Presidio carrega modelo.
+            failureThreshold: 30
+          resources:
+            {{- toYaml $service.values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "aia.tmpVolumeMount" $ | nindent 12 }}
+      volumes:
+        {{- include "aia.tmpVolume" $ | nindent 8 }}
+      {{- with $.Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "aia.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $service.name }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $service.values.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "aia.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $service.name }}
+{{- if $service.values.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "aia.labels" $ | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $fullname }}
+  minReplicas: {{ $service.values.autoscaling.minReplicas }}
+  maxReplicas: {{ $service.values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $service.values.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- if gt (int $service.values.replicaCount) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "aia.labels" $ | nindent 4 }}
+spec:
+  # Um drain de no nunca leva a ultima replica junto.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "aia.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $service.name }}
+{{- end }}
+{{- end }}
+{{- end }}

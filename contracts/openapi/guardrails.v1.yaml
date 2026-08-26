@@ -1,0 +1,180 @@
+openapi: 3.1.0
+info:
+  title: AIA Guardrails
+  version: '1.0.0'
+  description: |
+    Substitui um servico gerenciado de content safety por pecas open source:
+    Presidio para deteccao e redacao de PII (com reconhecedores de CPF, CNPJ,
+    cartao, agencia e conta), heuristicas de injecao de prompt (OWASP LLM01) e,
+    opcionalmente, um classificador local via Ollama.
+  license: { name: MIT }
+
+servers:
+  - url: http://localhost:8080
+
+security:
+  - bearerAuth: []
+
+paths:
+  /v1/guardrails/analyze:
+    post:
+      operationId: analyzeContent
+      summary: Analisa conteudo sem alterar
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnalyzeRequest' }
+      responses:
+        '200':
+          description: Resultado da analise
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalyzeResponse' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+
+  /v1/guardrails/redact:
+    post:
+      operationId: redactContent
+      summary: Analisa e devolve o conteudo com PII substituida
+      description: |
+        Chamado antes de qualquer persistencia de conteudo (doc 02, secao 10.2):
+        o texto bruto nao sai do fluxo da request.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RedactRequest' }
+      responses:
+        '200':
+          description: Conteudo redigido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RedactResponse' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+
+  /health/live:
+    get:
+      operationId: liveness
+      security: []
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Processo vivo
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+
+  /health/ready:
+    get:
+      operationId: readiness
+      security: []
+      summary: Readiness probe
+      responses:
+        '200':
+          description: Pronto
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AnalyzeRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, maxLength: 1000000 }
+        language: { type: string, default: pt, enum: [pt, en] }
+        entities:
+          type: array
+          description: Restringe a busca a estas entidades. Vazio = todas as conhecidas.
+          items: { $ref: '#/components/schemas/EntityType' }
+        check_injection: { type: boolean, default: true }
+      additionalProperties: false
+
+    EntityType:
+      type: string
+      enum:
+        - BR_CPF
+        - BR_CNPJ
+        - BR_RG
+        - BR_BANK_ACCOUNT
+        - CREDIT_CARD
+        - IBAN_CODE
+        - EMAIL_ADDRESS
+        - PHONE_NUMBER
+        - PERSON
+        - LOCATION
+        - IP_ADDRESS
+        - DATE_TIME
+        - URL
+
+    Finding:
+      type: object
+      required: [entity_type, start, end, score]
+      properties:
+        entity_type: { $ref: '#/components/schemas/EntityType' }
+        start: { type: integer }
+        end: { type: integer }
+        score: { type: number, minimum: 0, maximum: 1 }
+
+    InjectionSignal:
+      type: object
+      required: [rule, score]
+      properties:
+        rule: { type: string, examples: [ignore_previous_instructions] }
+        score: { type: number, minimum: 0, maximum: 1 }
+        excerpt:
+          type: string
+          description: Trecho curto que disparou a regra, ja truncado.
+
+    AnalyzeResponse:
+      type: object
+      required: [findings, injection, decision]
+      properties:
+        findings: { type: array, items: { $ref: '#/components/schemas/Finding' } }
+        injection:
+          type: object
+          required: [suspected, signals]
+          properties:
+            suspected: { type: boolean }
+            score: { type: number }
+            signals: { type: array, items: { $ref: '#/components/schemas/InjectionSignal' } }
+        decision: { type: string, enum: [allow, redact, block] }
+
+    RedactRequest:
+      allOf:
+        - $ref: '#/components/schemas/AnalyzeRequest'
+        - type: object
+          properties:
+            strategy:
+              type: string
+              enum: [replace, mask, hash]
+              default: replace
+              description: |
+                `replace` troca por `<BR_CPF>`; `mask` mantem os ultimos digitos;
+                `hash` permite correlacionar ocorrencias sem revelar o valor.
+
+    RedactResponse:
+      type: object
+      required: [text, findings, decision]
+      properties:
+        text: { type: string }
+        findings: { type: array, items: { $ref: '#/components/schemas/Finding' } }
+        redacted_count: { type: integer }
+        injection:
+          type: object
+          properties:
+            suspected: { type: boolean }
+            score: { type: number }
+        decision: { type: string, enum: [allow, redact, block] }

@@ -1,0 +1,289 @@
+openapi: 3.1.0
+info:
+  title: AIA Identity
+  version: '1.0.0'
+  description: |
+    Emissor de identidade da plataforma. Sem dependencia de nenhum IdP de cloud:
+    emite JWT RS256 proprio e publica as chaves publicas em JWKS, para que todo
+    servico valide o token LOCALMENTE (ADR-004) e o identity fique fora do
+    caminho critico. Um OIDC externo (Keycloak, Google, Auth0) pode ser plugado.
+  license: { name: MIT }
+
+servers:
+  - url: http://localhost:8080
+
+tags:
+  - name: auth
+  - name: tokens
+
+paths:
+  /v1/auth/token:
+    post:
+      operationId: issueToken
+      tags: [auth]
+      summary: Emite um token de acesso
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/PasswordGrant'
+                - $ref: '#/components/schemas/ClientCredentialsGrant'
+              discriminator: { propertyName: grant_type }
+      responses:
+        '200':
+          description: Token emitido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '401': { $ref: './_shared.yaml#/components/responses/Unauthorized' }
+
+  /.well-known/jwks.json:
+    get:
+      operationId: getJwks
+      tags: [auth]
+      summary: Chaves publicas para validacao local de JWT
+      security: []
+      responses:
+        '200':
+          description: Conjunto de chaves
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keys]
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+
+  /.well-known/openid-configuration:
+    get:
+      operationId: getOidcDiscovery
+      tags: [auth]
+      summary: Documento de descoberta OIDC
+      security: []
+      responses:
+        '200':
+          description: Metadados do emissor
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+
+  /v1/auth/introspect:
+    post:
+      operationId: introspectToken
+      tags: [auth]
+      summary: Introspecciona um token opaco (PAT)
+      description: |
+        So para PAT. JWT nao passa por aqui: e validado localmente pelo JWKS.
+        O resultado fica em cache por 60 s (ADR-004).
+      responses:
+        '200':
+          description: Resultado da introspeccao
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Introspection' }
+        '401': { $ref: './_shared.yaml#/components/responses/Unauthorized' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+
+  /v1/me:
+    get:
+      operationId: getCurrentPrincipal
+      tags: [auth]
+      summary: Devolve o principal do token atual
+      responses:
+        '200':
+          description: Principal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Principal' }
+        '401': { $ref: './_shared.yaml#/components/responses/Unauthorized' }
+
+  /v1/pats:
+    post:
+      operationId: createPat
+      tags: [tokens]
+      summary: Cria um Personal Access Token
+      description: |
+        O valor so e devolvido nesta resposta; a plataforma guarda apenas o hash.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, project_id]
+              properties:
+                name: { type: string, minLength: 3, maxLength: 64 }
+                project_id: { type: string }
+                scopes: { type: array, items: { type: string } }
+                expires_in_days: { type: integer, minimum: 1, maximum: 365, default: 90 }
+      responses:
+        '201':
+          description: PAT criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PatCreated' }
+        '401': { $ref: './_shared.yaml#/components/responses/Unauthorized' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+    get:
+      operationId: listPats
+      tags: [tokens]
+      summary: Lista os PATs do principal (sem o valor)
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/Cursor'
+        - $ref: './_shared.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Pagina de PATs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './_shared.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Pat' } }
+
+  /v1/pats/{patId}:
+    delete:
+      operationId: revokePat
+      tags: [tokens]
+      summary: Revoga um PAT
+      parameters:
+        - name: patId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Revogado }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /health/live:
+    get:
+      operationId: liveness
+      security: []
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Processo vivo
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+
+  /health/ready:
+    get:
+      operationId: readiness
+      security: []
+      summary: Readiness probe
+      responses:
+        '200':
+          description: Pronto
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+        '503': { $ref: './_shared.yaml#/components/responses/ServiceUnavailable' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    PasswordGrant:
+      type: object
+      required: [grant_type, username, password]
+      properties:
+        grant_type: { type: string, const: password }
+        username: { type: string }
+        password: { type: string, format: password }
+
+    ClientCredentialsGrant:
+      type: object
+      required: [grant_type, client_id, client_secret]
+      properties:
+        grant_type: { type: string, const: client_credentials }
+        client_id: { type: string }
+        client_secret: { type: string, format: password }
+        scope: { type: string }
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, const: Bearer }
+        expires_in: { type: integer }
+        scope: { type: string }
+
+    Introspection:
+      type: object
+      required: [active]
+      properties:
+        active: { type: boolean }
+        sub: { type: string }
+        scope: { type: string }
+        exp: { type: integer }
+        principal_type: { type: string, enum: [user, application, service] }
+
+    Principal:
+      type: object
+      required: [id, type, global_roles, memberships]
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [user, application, service] }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        global_roles: { type: array, items: { $ref: '#/components/schemas/Role' } }
+        memberships:
+          type: array
+          items:
+            type: object
+            required: [project_id, roles]
+            properties:
+              project_id: { type: string }
+              roles: { type: array, items: { $ref: '#/components/schemas/Role' } }
+
+    Role:
+      type: string
+      enum: [platform_admin, project_owner, project_editor, project_viewer, auditor]
+
+    Pat:
+      type: object
+      required: [id, name, project_id, created_at, expires_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        project_id: { type: string }
+        scopes: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+
+    PatCreated:
+      allOf:
+        - $ref: '#/components/schemas/Pat'
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              description: Valor em claro. Nao e possivel recupera-lo depois.

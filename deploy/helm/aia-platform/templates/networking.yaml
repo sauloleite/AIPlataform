@@ -1,0 +1,145 @@
+{{/*
+Entrada e isolamento de rede.
+
+O Ingress mapeia cada prefixo para o servico dono daquele contrato — o mesmo
+roteamento que o Traefik faz no compose.
+*/}}
+
+{{- if .Values.ingress.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "aia.fullname" . }}
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+  annotations:
+    {{- toYaml .Values.ingress.annotations | nindent 4 }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          {{- if .Values.identity.enabled }}
+          {{- range $path := list "/v1/auth" "/v1/pats" "/v1/me" "/.well-known" }}
+          - path: {{ $path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aia.fullname" $ }}-identity
+                port: { number: {{ $.Values.identity.port }} }
+          {{- end }}
+          {{- end }}
+          {{- if .Values.governance.enabled }}
+          - path: /v1/projects
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aia.fullname" . }}-governance
+                port: { number: {{ .Values.governance.port }} }
+          {{- end }}
+          {{- if .Values.inferenceRouter.enabled }}
+          {{- range $path := list "/v1/chat" "/v1/embeddings" "/v1/models" }}
+          - path: {{ $path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aia.fullname" $ }}-inference-router
+                port: { number: {{ $.Values.inferenceRouter.port }} }
+          {{- end }}
+          {{- end }}
+          {{- if .Values.agentRuntime.enabled }}
+          - path: /v1/agents
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aia.fullname" . }}-agent-runtime
+                port: { number: {{ .Values.agentRuntime.port }} }
+          {{- end }}
+{{- end }}
+
+{{- if .Values.networkPolicy.enabled }}
+---
+{{/*
+Nega tudo por padrao.
+
+Sem isto, qualquer pod comprometido no namespace alcanca o MongoDB e o Redis
+diretamente, contornando toda a governanca da plataforma. As regras abaixo
+liberam apenas o que precisa existir.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aia.fullname" . }}-default-deny
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "aia.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "aia.fullname" . }}-allow-platform
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "aia.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Entre pods da plataforma.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "aia.selectorLabels" . | nindent 14 }}
+    # Do ingress controller.
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "aia.selectorLabels" . | nindent 14 }}
+    # DNS: sem isto nada resolve nome de servico.
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Saida para a internet: e por onde o router alcanca OpenAI, Gemini e
+    # Anthropic. Restrinja por FQDN se o seu CNI suportar.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Bloqueia acesso a rede interna e ao metadata da nuvem, que e um
+              # alvo classico de SSRF.
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}

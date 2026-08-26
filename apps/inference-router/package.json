@@ -1,0 +1,40 @@
+{
+  "name": "@aia/inference-router",
+  "version": "0.1.0",
+  "private": true,
+  "description": "API canonica de inferencia: aliasing, orcamento, guardrails e auditoria",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/main.js",
+    "dev": "tsx watch src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "lint": "eslint src --max-warnings 0"
+  },
+  "dependencies": {
+    "@aia/auth": "workspace:*",
+    "@aia/contracts": "workspace:*",
+    "@aia/errors": "workspace:*",
+    "@aia/messaging": "workspace:*",
+    "@aia/nest": "workspace:*",
+    "@aia/resilience": "workspace:*",
+    "@aia/telemetry": "workspace:*",
+    "@nestjs/common": "^11.0.5",
+    "@nestjs/core": "^11.0.5",
+    "@nestjs/platform-express": "^11.0.5",
+    "@opentelemetry/api": "^1.9.1",
+    "gpt-tokenizer": "^2.8.1",
+    "ioredis": "^5.4.2",
+    "mongodb": "^6.12.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0"
+  }
+}

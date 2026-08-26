@@ -1,0 +1,188 @@
+flowchart TB
+    %% ================= Consumidores =================
+    subgraph USERS["Consumidores"]
+        U["Colaboradores<br/>navegador"]
+        APPS["Aplicações internas<br/>SDK + credencial de projeto"]
+        IDE["IDEs e agentes externos<br/>clientes MCP"]
+    end
+
+    %% ================= Borda =================
+    subgraph EDGE["Borda"]
+        FD["Azure Front Door + WAF<br/>TLS, DDoS, estático"]
+        APIM_IN["API Management · Ingress<br/>JWT via JWKS · rate limit · roteamento por caminho<br/>project_id obrigatório · correlação"]
+        APIM_AI["API Management · AI Gateway<br/>token limit por projeto · content safety<br/>load balancer + circuit breaker · cache semântico<br/>logs gen_ai"]
+    end
+
+    %% ================= Apresentação =================
+    subgraph WEB["Apresentação"]
+        FE["aia-web<br/>Next.js · módulos: chat, agents, knowledge, admin, finops"]
+    end
+
+    %% ================= Plano de controle =================
+    subgraph CONTROL["Plano de controle · governança"]
+        IDN["aia-identity<br/>PAT, app tokens, RBAC/ABAC, políticas<br/>NestJS"]
+        GOV["aia-governance<br/>projetos, orçamentos, cotas,<br/>políticas de modelo por classificação, showback<br/>NestJS"]
+        REG["aia-registry<br/>ativos de IA: agentes, tools, prompts, stores, modelos<br/>diretório: pessoas, times, siglas<br/>NestJS"]
+        EVAL["aia-evaluation<br/>datasets, evals offline e online, red team, gates<br/>FastAPI"]
+    end
+
+    %% ================= Plano de execução =================
+    subgraph RUNTIME["Plano de execução"]
+        ROUTER["aia-inference-router<br/>API canônica OpenAI-compat · aliasing<br/>reserva e commit de orçamento · guardrails de negócio · auditoria<br/>NestJS"]
+        AGENT["aia-agent-runtime<br/>LangGraph · execução durável · HITL · SSE<br/>FastAPI"]
+        MCPGW["aia-mcp-gateway<br/>allow-list de tools por projeto<br/>identidade do usuário por chamada · auditoria<br/>NestJS"]
+        KNOW["aia-knowledge<br/>RAG: ingestão assíncrona, busca híbrida,<br/>security trimming, MCP server<br/>NestJS"]
+        DOCP["aia-document-processing<br/>parsers, chunking, extração estruturada, workers<br/>FastAPI"]
+    end
+
+    %% ================= Produtos =================
+    subgraph PRODUCTS["Produtos construídos sobre a plataforma"]
+        CGUARD["aia-codeguardian<br/>análise de segurança de código<br/>FastAPI · LangGraph"]
+        NEWP["Novos produtos<br/>via SDK e contratos"]
+    end
+
+    %% ================= Dados e mensageria =================
+    subgraph DATA["Plano de dados e mensageria"]
+        SB[("Azure Service Bus<br/>eventos: UsageRecorded, DocumentIngested, AgentRunFinished")]
+        MONGO[("Cosmos DB for MongoDB<br/>um database por serviço")]
+        REDIS[("Azure Managed Redis<br/>contadores de orçamento, cache, sessões")]
+        SEARCH[("Azure AI Search<br/>índices vetoriais e híbridos por store")]
+        BLOB[("Azure Blob Storage<br/>documentos, artefatos, datasets")]
+        ADX[("Azure Data Explorer<br/>usage, custos, auditoria analítica")]
+        DATAP["aia-data-platform<br/>jobs Medallion, ingestão IRH/CSM<br/>Python · Container Apps Jobs"]
+    end
+
+    %% ================= Transversal =================
+    subgraph XCUT["Observabilidade e segurança transversal"]
+        OTEL["OpenTelemetry Collector<br/>traces, métricas, logs · gen_ai.*"]
+        MON["Azure Monitor · App Insights · Managed Grafana"]
+        KV["Azure Key Vault<br/>segredos e chaves · Managed Identity"]
+        CS["Azure AI Content Safety<br/>Prompt Shields, filtros"]
+        SENT["Microsoft Sentinel · Defender for Cloud"]
+    end
+
+    %% ================= Externos =================
+    subgraph EXT["Serviços externos"]
+        ENTRA["Microsoft Entra ID"]
+        FOUNDRY["Microsoft Foundry<br/>Azure OpenAI · Anthropic · outros<br/>deployments por zona de dados"]
+        DI["Azure Document Intelligence<br/>Azure Speech"]
+        SANDBOX["Container Apps Dynamic Sessions<br/>code interpreter isolado"]
+        GITLAB["GitLab"]
+        JIRA["Jira"]
+        WIKI["Wiki corporativa"]
+        HR["IRH · CSM"]
+    end
+
+    %% ---------- Entrada ----------
+    U --> FD
+    FD --> FE
+    FE --> APIM_IN
+    APPS --> APIM_IN
+    IDE --> APIM_IN
+    APIM_IN -.->|"JWKS"| ENTRA
+
+    %% ---------- Roteamento do ingress ----------
+    APIM_IN --> ROUTER
+    APIM_IN --> AGENT
+    APIM_IN --> KNOW
+    APIM_IN --> DOCP
+    APIM_IN --> MCPGW
+    APIM_IN --> REG
+    APIM_IN --> GOV
+    APIM_IN --> IDN
+    APIM_IN --> EVAL
+    APIM_IN --> CGUARD
+
+    %% ---------- Inferência ----------
+    ROUTER -->|"políticas de modelo, cache local"| GOV
+    ROUTER -->|"reserva e commit atômicos"| REDIS
+    ROUTER -->|"LLM APIs"| APIM_AI
+    APIM_AI --> FOUNDRY
+    APIM_AI -.->|"prompt e resposta"| CS
+    ROUTER -->|"UsageRecorded via outbox"| SB
+
+    %% ---------- Agentes ----------
+    AGENT -->|"inferência"| ROUTER
+    AGENT -->|"tools"| MCPGW
+    AGENT -->|"busca"| KNOW
+    AGENT -->|"definições"| REG
+    AGENT -->|"checkpoints"| MONGO
+    AGENT -->|"código"| SANDBOX
+    AGENT -->|"AgentRunFinished"| SB
+    MCPGW --> GITLAB
+    MCPGW --> JIRA
+    MCPGW -->|"MCP"| KNOW
+
+    %% ---------- Conhecimento ----------
+    KNOW --> SEARCH
+    KNOW --> BLOB
+    KNOW -->|"jobs de ingestão"| SB
+    KNOW -->|"embeddings"| ROUTER
+    KNOW -->|"parse"| DOCP
+    WIKI -.->|"conector"| KNOW
+
+    %% ---------- Documentos ----------
+    DOCP --> DI
+    DOCP -->|"extração com LLM"| ROUTER
+    DOCP --> BLOB
+    DOCP --> MONGO
+    DOCP --> SB
+
+    %% ---------- Controle ----------
+    IDN --> ENTRA
+    IDN --> MONGO
+    IDN --> REDIS
+    GOV --> MONGO
+    GOV -->|"consumo consolidado"| ADX
+    GOV --> JIRA
+    GOV -->|"configura cotas"| REDIS
+    REG --> MONGO
+    EVAL -->|"execuções"| ROUTER
+    EVAL --> BLOB
+    EVAL -->|"amostras de produção"| MON
+
+    %% ---------- Produtos ----------
+    CGUARD --> ROUTER
+    CGUARD --> GITLAB
+    NEWP --> ROUTER
+
+    %% ---------- Dados ----------
+    SB --> DATAP
+    HR --> DATAP
+    DATAP --> ADX
+    DATAP -->|"diretório"| REG
+
+    %% ---------- Transversal ----------
+    RUNTIME -.-> OTEL
+    CONTROL -.-> OTEL
+    PRODUCTS -.-> OTEL
+    APIM_AI -.-> OTEL
+    OTEL --> MON
+    MON --> SENT
+    MON -->|"export"| ADX
+    KV -.->|"segredos via Managed Identity"| RUNTIME
+    KV -.-> CONTROL
+
+    %% ================= Estilos =================
+    classDef edge fill:#fef3c7,stroke:#b45309,color:#78350f
+    classDef web fill:#dbeafe,stroke:#1d4ed8,color:#1e3a8a
+    classDef control fill:#fce7f3,stroke:#be185d,color:#831843
+    classDef runtime fill:#dcfce7,stroke:#15803d,color:#14532d
+    classDef product fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+    classDef data fill:#ede9fe,stroke:#6d28d9,color:#4c1d95
+    classDef xcut fill:#f3f4f6,stroke:#4b5563,color:#111827
+    classDef ext fill:#f9fafb,stroke:#9ca3af,color:#374151,stroke-dasharray:4 3
+    classDef user fill:#ffffff,stroke:#6b7280,color:#111827
+
+    class FD,APIM_IN,APIM_AI edge
+    class FE web
+    class IDN,GOV,REG,EVAL control
+    class ROUTER,AGENT,MCPGW,KNOW,DOCP runtime
+    class CGUARD,NEWP product
+    class SB,MONGO,REDIS,SEARCH,BLOB,ADX,DATAP data
+    class OTEL,MON,KV,CS,SENT xcut
+    class ENTRA,FOUNDRY,DI,SANDBOX,GITLAB,JIRA,WIKI,HR ext
+    class U,APPS,IDE user
+
+    style ROUTER stroke-width:3px
+    style APIM_AI stroke-width:3px

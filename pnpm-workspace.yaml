@@ -1,0 +1,16 @@
+packages:
+  - 'packages/*'
+  - 'apps/web'
+  - 'apps/inference-router'
+  - 'apps/identity'
+  - 'apps/governance'
+  - 'apps/registry'
+  - 'apps/mcp-gateway'
+  - 'apps/knowledge'
+
+allowBuilds:
+  argon2: true
+  esbuild: true
+  msgpackr-extract: true
+  nx: true
+  protobufjs: true

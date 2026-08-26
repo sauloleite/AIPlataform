@@ -1,0 +1,251 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  # ==========================================================================
+  # Qualidade: lint, formatacao e tipos nos dois ecossistemas.
+  # Build falha em warning (doc 03, secao 5).
+  # ==========================================================================
+  quality:
+    name: Lint e tipos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-packages --frozen
+
+      - name: Prettier
+        run: pnpm exec prettier --check .
+
+      - name: ESLint
+        run: pnpm exec eslint . --max-warnings 0
+
+      - name: Ruff (lint)
+        run: uv run ruff check --output-format=github .
+
+      - name: Ruff (format)
+        run: uv run ruff format --check .
+
+      - name: TypeScript
+        run: pnpm exec tsc --build
+
+      - name: mypy
+        run: uv run mypy .
+
+  # ==========================================================================
+  # Regra de dependencia da Clean Architecture. Falha o build (doc 03, 3.1).
+  # ==========================================================================
+  architecture:
+    name: Regra de dependencia
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv sync --all-packages --frozen
+
+      - name: dependency-cruiser (TypeScript)
+        run: pnpm exec depcruise --config .dependency-cruiser.cjs --output-type err apps packages
+
+      - name: import-linter (Python)
+        run: uv run lint-imports
+
+      - name: A regra realmente falha quando violada
+        # Um teste de arquitetura que nunca reprova nao protege nada. Este passo
+        # introduz uma violacao de proposito e exige que o depcruise a pegue.
+        run: |
+          set -euo pipefail
+          VIOLACAO=apps/inference-router/src/modules/completions/domain/__ci-violacao.ts
+          cat > "$VIOLACAO" <<'TS'
+          import { MongoAuditRepository } from '../infrastructure/mongo/audit.repository.js';
+          export const x = MongoAuditRepository;
+          TS
+          if pnpm exec depcruise --config .dependency-cruiser.cjs --output-type err apps/inference-router; then
+            rm -f "$VIOLACAO"
+            echo "::error::A regra de dependencia NAO detectou uma violacao proposital."
+            exit 1
+          fi
+          rm -f "$VIOLACAO"
+          echo "regra de arquitetura confirmada"
+
+  # ==========================================================================
+  # Contratos: o gerado precisa bater com o commitado.
+  # ==========================================================================
+  contracts:
+    name: Contratos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+
+      - name: Contratos OpenAPI e AsyncAPI sao YAML valido
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys, yaml
+          for path in sorted(pathlib.Path('contracts').rglob('*.yaml')):
+              try:
+                  yaml.safe_load(path.read_text())
+              except yaml.YAMLError as error:
+                  print(f"::error file={path}::{error}")
+                  sys.exit(1)
+              print(f"ok {path}")
+          PY
+
+      - name: Tipos gerados estao sincronizados com os contratos
+        run: |
+          node tools/scripts/generate-contracts.mjs
+          if ! git diff --exit-code --stat packages/contracts/src/generated; then
+            echo "::error::Os tipos gerados divergem dos contratos. Rode 'make contracts' e commite."
+            exit 1
+          fi
+
+  # ==========================================================================
+  # Testes unitarios: dominio e aplicacao, sem I/O.
+  # ==========================================================================
+  test-unit:
+    name: Testes unitarios
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc --build
+
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv sync --all-packages --frozen
+
+      - name: Vitest
+        run: pnpm exec nx run-many -t test --all
+
+      - name: pytest
+        run: uv run pytest -m "not integration"
+
+  # ==========================================================================
+  # Integracao com dependencias reais em container.
+  # ==========================================================================
+  test-integration:
+    name: Testes de integracao
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:8.0
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      MONGO_URI: mongodb://localhost:27017
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc --build
+
+      - name: Vitest (integracao)
+        run: pnpm exec vitest run --dir apps --testNamePattern "" --passWithNoTests
+        env:
+          RUN_INTEGRATION: '1'
+
+  # ==========================================================================
+  # Ponta a ponta: sobe a plataforma inteira e roda o fluxo 7.1.
+  # ==========================================================================
+  e2e:
+    name: Ponta a ponta
+    runs-on: ubuntu-latest
+    # Sobe seis containers e um modelo local: caro demais para toda PR de docs.
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'e2e')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Subir a plataforma
+        run: |
+          cp .env.example .env
+          docker compose -f deploy/compose/docker-compose.yml --env-file .env up -d --build --wait --wait-timeout 600
+
+      - name: Baixar o modelo local
+        run: |
+          docker exec aia-ollama-1 ollama pull llama3.2:3b
+
+      - name: Fluxo 7.1
+        run: bash tools/scripts/e2e.sh
+
+      - name: Logs em caso de falha
+        if: failure()
+        run: docker compose -f deploy/compose/docker-compose.yml logs --tail 200
+
+  # ==========================================================================
+  # Shell scripts: eles fazem parte da operacao, entao passam por lint tambem.
+  # ==========================================================================
+  shell:
+    name: Shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './tools/scripts'
+
+  helm:
+    name: Helm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm dependency update deploy/helm/aia-platform
+      - run: helm lint deploy/helm/aia-platform
+      - name: Renderizar com os valores padrao
+        run: helm template aia deploy/helm/aia-platform > /dev/null
+      - name: Renderizar apontando para dependencias externas
+        run: |
+          helm template aia deploy/helm/aia-platform \
+            --set mongodb.enabled=false --set mongodb.externalUri=mongodb://externo:27017 \
+            --set redis.enabled=false --set redis.externalUri=redis://externo:6379 \
+            > /dev/null

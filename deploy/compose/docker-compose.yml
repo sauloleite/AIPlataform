@@ -1,0 +1,354 @@
+# AIA 2.0 OSS - ambiente de desenvolvimento.
+#
+# Tudo aqui e open source e roda sem nenhuma conta de cloud. Sem chave de API,
+# a plataforma funciona inteira pelo Ollama.
+#
+#   make dev-infra   sobe so a infraestrutura
+#   make dev         sobe a plataforma inteira
+
+name: aia
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks: [aia]
+  logging:
+    driver: json-file
+    options: { max-size: '10m', max-file: '3' }
+
+x-platform-env: &platform-env
+  NODE_ENV: ${NODE_ENV:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  MONGO_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
+  REDIS_URL: redis://redis:6379
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+  IDENTITY_ISSUER: http://identity:3001
+  IDENTITY_AUDIENCE: aia-platform
+
+services:
+  # ==========================================================================
+  # Infraestrutura
+  # ==========================================================================
+
+  mongo:
+    <<: *service-defaults
+    image: mongo:8.0
+    # Replica set de um no: transacao e change stream exigem replica set, e sao
+    # o que sustenta o padrao outbox (estado e evento na mesma transacao).
+    command: ['--replSet', 'rs0', '--bind_ip_all', '--quiet']
+    ports: ['27017:27017']
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      test: |
+        mongosh --quiet --eval "
+          try { rs.status().ok }
+          catch { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }
+        "
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    <<: *service-defaults
+    image: redis:7.4-alpine
+    # appendonly: o contador de orcamento sobrevive a um restart do container.
+    command: ['redis-server', '--appendonly', 'yes', '--save', '60', '1']
+    ports: ['6379:6379']
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    <<: *service-defaults
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aia}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aia-local-dev-only}
+    ports: ['9000:9000', '9001:9001']
+    volumes: [minio-data:/data]
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    <<: *service-defaults
+    image: qdrant/qdrant:v1.12.5
+    ports: ['6333:6333', '6334:6334']
+    volumes: [qdrant-data:/qdrant/storage]
+    healthcheck:
+      # A imagem nao tem curl nem wget: o proprio binario responde pelo healthcheck.
+      test: ['CMD', '/qdrant/qdrant', '--version']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  lgtm:
+    <<: *service-defaults
+    # Loki, Grafana, Tempo e Prometheus em uma imagem. Traces com gen_ai.* e
+    # aia.* ficam visiveis em http://localhost:3000 sem nenhuma configuracao.
+    image: grafana/otel-lgtm:0.8.4
+    ports:
+      - '3000:3000' # Grafana
+      - '4317:4317' # OTLP gRPC
+      - '4318:4318' # OTLP HTTP
+    volumes: [lgtm-data:/data]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ALLOW_EMBEDDING: 'true'
+
+  ollama:
+    <<: *service-defaults
+    image: ollama/ollama:0.5.7
+    ports: ['11434:11434']
+    volumes: [ollama-data:/root/.ollama]
+    healthcheck:
+      test: ['CMD', 'ollama', 'list']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  traefik:
+    <<: *service-defaults
+    # Ponto de entrada unico da plataforma: TLS, roteamento e rate limit.
+    image: traefik:v3.3
+    command:
+      - '--providers.docker=true'
+      - '--providers.docker.exposedbydefault=false'
+      - '--entrypoints.web.address=:8080'
+      # O dashboard usa a porta 8080 por padrao, que aqui e a entrada da
+      # plataforma: sem este entrypoint proprio, os dois colidem no bind.
+      - '--entrypoints.traefik.address=:8090'
+      - '--accesslog=true'
+      - '--api.dashboard=true'
+      - '--api.insecure=true'
+    ports: ['8080:8080', '8090:8090']
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      identity: { condition: service_started }
+      governance: { condition: service_started }
+      inference-router: { condition: service_started }
+
+  # ==========================================================================
+  # Plataforma
+  # ==========================================================================
+
+  identity:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/node.Dockerfile
+      args: { SERVICE: identity }
+    environment:
+      <<: *platform-env
+      PORT: 3001
+      MONGO_DATABASE: aia_identity
+      IDENTITY_TOKEN_PEPPER: ${IDENTITY_TOKEN_PEPPER:-dev-pepper-troque-em-producao}
+      IDENTITY_ACCESS_TOKEN_TTL: ${IDENTITY_ACCESS_TOKEN_TTL:-3600}
+      IDENTITY_BOOTSTRAP_ADMIN_EMAIL: ${IDENTITY_BOOTSTRAP_ADMIN_EMAIL:-admin@aia.local}
+      IDENTITY_BOOTSTRAP_ADMIN_PASSWORD: ${IDENTITY_BOOTSTRAP_ADMIN_PASSWORD:-change-me-now}
+      # Credenciais dos servicos internos. Substituem a identidade gerenciada
+      # que uma nuvem forneceria (ADR-012).
+      IDENTITY_BOOTSTRAP_SERVICE_CLIENTS: >-
+        [{"clientId":"aia-inference-router",
+          "displayName":"Inference Router",
+          "secret":"${ROUTER_CLIENT_SECRET:-dev-router-secret-troque-em-producao}",
+          "scopes":["projects:read","inference:write"]},
+         {"clientId":"aia-agent-runtime",
+          "displayName":"Agent Runtime",
+          "secret":"${AGENT_RUNTIME_CLIENT_SECRET:-dev-agent-secret-troque-em-producao}",
+          "scopes":["projects:read","inference:write"]}]
+    ports: ['3001:3001']
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          '/nodejs/bin/node',
+          '-e',
+          "fetch('http://localhost:3001/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    labels:
+      traefik.enable: 'true'
+      traefik.http.routers.identity.rule: 'PathPrefix(`/v1/auth`) || PathPrefix(`/v1/pats`) || PathPrefix(`/v1/me`) || PathPrefix(`/.well-known`)'
+      traefik.http.services.identity.loadbalancer.server.port: '3001'
+
+  governance:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/node.Dockerfile
+      args: { SERVICE: governance }
+    environment:
+      <<: *platform-env
+      PORT: 3002
+      MONGO_DATABASE: aia_governance
+      DEFAULT_CURRENCY: ${DEFAULT_CURRENCY:-BRL}
+    ports: ['3002:3002']
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      identity: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          '/nodejs/bin/node',
+          '-e',
+          "fetch('http://localhost:3002/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    labels:
+      traefik.enable: 'true'
+      traefik.http.routers.governance.rule: 'PathPrefix(`/v1/projects`)'
+      traefik.http.services.governance.loadbalancer.server.port: '3002'
+
+  guardrails:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/python.Dockerfile
+      args:
+        SERVICE: guardrails
+        # `true` baixa o modelo do spaCy e habilita deteccao de nome de pessoa,
+        # ao custo de uma imagem maior e um build mais lento.
+        WITH_SPACY_MODEL: ${GUARDRAILS_WITH_SPACY:-false}
+    environment:
+      PORT: 8001
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DETECTOR: ${GUARDRAILS_DETECTOR:-regex}
+      IDENTITY_ISSUER: http://identity:3001
+      IDENTITY_AUDIENCE: aia-platform
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    ports: ['8001:8001']
+    depends_on:
+      identity: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health/live').status==200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  inference-router:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/node.Dockerfile
+      args: { SERVICE: inference-router }
+    environment:
+      <<: *platform-env
+      PORT: 3000
+      MONGO_DATABASE: aia_router
+      GOVERNANCE_URL: http://governance:3002
+      GUARDRAILS_URL: http://guardrails:8001
+      ROUTER_CLIENT_ID: aia-inference-router
+      ROUTER_CLIENT_SECRET: ${ROUTER_CLIENT_SECRET:-dev-router-secret-troque-em-producao}
+      POLICY_CACHE_TTL_SECONDS: ${POLICY_CACHE_TTL_SECONDS:-30}
+      BUDGET_UNVERIFIED_MAX_TOKENS: ${BUDGET_UNVERIFIED_MAX_TOKENS:-2000}
+      DEFAULT_CURRENCY: ${DEFAULT_CURRENCY:-BRL}
+      SEMANTIC_CACHE_ENABLED: ${SEMANTIC_CACHE_ENABLED:-false}
+      AIA_CONTENT_CAPTURE: ${AIA_CONTENT_CAPTURE:-false}
+      # Ollama nao precisa de chave: e o provedor padrao de custo zero.
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:1b}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      # Provedores externos entram sozinhos quando a chave existe.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com}
+      GEMINI_API_VERSION: ${GEMINI_API_VERSION:-v1beta}
+      GEMINI_PROTOCOL: ${GEMINI_PROTOCOL:-interactions}
+      GEMINI_CHAT_MODEL: ${GEMINI_CHAT_MODEL:-gemini-2.5-flash}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_CHAT_MODEL: ${ANTHROPIC_CHAT_MODEL:-claude-sonnet-4-5}
+    ports: ['3003:3000']
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      identity: { condition: service_healthy }
+      governance: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          '/nodejs/bin/node',
+          '-e',
+          "fetch('http://localhost:3000/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    labels:
+      traefik.enable: 'true'
+      traefik.http.routers.router.rule: 'PathPrefix(`/v1/chat`) || PathPrefix(`/v1/embeddings`) || PathPrefix(`/v1/models`)'
+      traefik.http.services.router.loadbalancer.server.port: '3000'
+
+  agent-runtime:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/python.Dockerfile
+      args: { SERVICE: agent-runtime }
+    environment:
+      PORT: 8002
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      IDENTITY_ISSUER: http://identity:3001
+      IDENTITY_AUDIENCE: aia-platform
+      INFERENCE_ROUTER_URL: http://inference-router:3000
+      AGENT_RUNTIME_CLIENT_ID: aia-agent-runtime
+      AGENT_RUNTIME_CLIENT_SECRET: ${AGENT_RUNTIME_CLIENT_SECRET:-dev-agent-secret-troque-em-producao}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    ports: ['8002:8002']
+    depends_on:
+      identity: { condition: service_healthy }
+      inference-router: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8002/health/live').status==200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+networks:
+  aia:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  redis-data:
+  minio-data:
+  qdrant-data:
+  lgtm-data:
+  ollama-data:
