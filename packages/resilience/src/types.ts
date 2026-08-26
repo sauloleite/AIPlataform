@@ -1,55 +1,55 @@
 /**
- * Politicas de resiliencia declaradas (doc 02, secao 8).
+ * Declared resilience policies (reference doc 02 §8).
  *
- * Existem aqui, e nao em cada servico, para que ninguem reinvente retry.
+ * They live here, not in each service, so that nobody reinvents retry.
  */
 
-/** Erro de transporte que carrega informacao suficiente para decidir o retry. */
+/** A transport error carrying enough information to decide about retrying. */
 export interface TransportErrorLike {
-  /** Status HTTP devolvido pela dependencia, quando houve resposta. */
+  /** HTTP status returned by the dependency, when there was a response. */
   status?: number;
-  /** Valor do header `Retry-After` ja convertido para milissegundos. */
+  /** The `Retry-After` header, already converted to milliseconds. */
   retryAfterMs?: number;
 }
 
 export interface TimeoutPolicy {
-  /** Tempo maximo para estabelecer a conexao. */
+  /** Maximum time to establish the connection. */
   connectMs?: number;
-  /** Tempo maximo total da operacao. */
+  /** Maximum total time for the operation. */
   totalMs: number;
 }
 
 export interface RetryPolicy {
-  /** Numero de tentativas ADICIONAIS. `maxAttempts: 2` significa ate 3 chamadas. */
+  /** Number of ADDITIONAL attempts. `maxAttempts: 2` means up to 3 calls. */
   maxAttempts: number;
   baseDelayMs: number;
   maxDelayMs: number;
-  /** Status que justificam nova tentativa. Padrao: 408, 429 e 5xx. */
+  /** Statuses worth retrying. Defaults to 408, 429 and 5xx. */
   retryableStatuses?: readonly number[];
-  /** Se `false`, ignora o `Retry-After` da dependencia. Padrao: `true`. */
+  /** When `false`, ignores the dependency's `Retry-After`. Defaults to `true`. */
   honorRetryAfter?: boolean;
 }
 
 export interface CircuitBreakerPolicy {
-  /** Falhas consecutivas que abrem o circuito. */
+  /** Consecutive failures that open the circuit. */
   failureThreshold: number;
-  /** Tempo que o circuito fica aberto antes de testar de novo. */
+  /** How long the circuit stays open before probing again. */
   openMs: number;
-  /** Sucessos em half-open necessarios para fechar. */
+  /** Successes in half-open needed to close it. */
   successThreshold: number;
 }
 
 export interface BulkheadPolicy {
-  /** Chamadas simultaneas permitidas por chave (normalmente o projeto). */
+  /** Concurrent calls allowed per key, normally the project. */
   maxConcurrent: number;
-  /** Tempo maximo esperando por uma vaga antes de rejeitar. */
+  /** Maximum wait for a slot before rejecting. */
   acquireTimeoutMs: number;
-  /** Tempo de vida da vaga, para que um processo morto nao trave o semaforo. */
+  /** Slot lifetime, so a dead process cannot wedge the semaphore. */
   leaseTtlMs?: number;
 }
 
 export interface ResiliencePolicy {
-  /** Nome usado em metricas, logs e chave do circuito. */
+  /** Name used in metrics, logs and as the circuit key. */
   name: string;
   timeout?: TimeoutPolicy;
   retry?: RetryPolicy;
@@ -57,9 +57,9 @@ export interface ResiliencePolicy {
   bulkhead?: BulkheadPolicy;
 }
 
-/** Contexto de uma execucao protegida. */
+/** Context for one protected execution. */
 export interface ExecutionContext {
-  /** Discrimina o circuito e o semaforo. Ex.: `openai:gpt-4o-mini` ou o project_id. */
+  /** Discriminates circuit and semaphore. E.g. `openai:gpt-4o-mini`, or a project id. */
   key?: string;
   signal?: AbortSignal;
 }

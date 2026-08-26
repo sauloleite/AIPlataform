@@ -1,11 +1,11 @@
 import { ERROR_CODES, type ErrorCode, problemTypeFor } from './catalog.js';
-import { type DomainError, InternalError, isDomainError } from './domain-error.js';
+import { DomainError, InternalError, isDomainError } from './domain-error.js';
 
 /**
  * Problem Details for HTTP APIs (RFC 9457).
  *
- * Extensoes da plataforma: `code` (estavel, do catalogo), `trace_id` (correlacao)
- * e os `details` do erro de dominio. Nenhum campo carrega PII.
+ * Platform extensions: `code` (stable, from the catalogue), `trace_id` for
+ * correlation, and the domain error's `details`. No field carries PII.
  */
 export interface ProblemDetails {
   type: string;
@@ -20,44 +20,44 @@ export interface ProblemDetails {
 }
 
 export interface ProblemContext {
-  /** Caminho da requisicao, para o campo `instance`. */
+  /** Request path, for the `instance` field. */
   instance?: string;
-  /** trace_id do W3C traceparent, para correlacionar com a telemetria. */
+  /** trace_id from the W3C traceparent, to correlate with telemetry. */
   traceId?: string;
 }
 
 const TITLES: Record<string, string> = {
-  [ERROR_CODES.BUDGET_EXHAUSTED]: 'Orcamento do projeto esgotado',
-  [ERROR_CODES.QUOTA_EXCEEDED]: 'Cota excedida',
-  [ERROR_CODES.CONCURRENCY_LIMIT]: 'Limite de concorrencia do projeto atingido',
+  [ERROR_CODES.BUDGET_EXHAUSTED]: 'Project budget exhausted',
+  [ERROR_CODES.QUOTA_EXCEEDED]: 'Quota exceeded',
+  [ERROR_CODES.CONCURRENCY_LIMIT]: 'Project concurrency limit reached',
   [ERROR_CODES.NO_COMPATIBLE_DEPLOYMENT]:
-    'Nenhum deployment compativel com a classificacao do projeto',
-  [ERROR_CODES.ALIAS_NOT_FOUND]: 'Alias de modelo desconhecido',
-  [ERROR_CODES.PROVIDER_UNAVAILABLE]: 'Provedor de modelo indisponivel',
-  [ERROR_CODES.ALL_DEPLOYMENTS_FAILED]: 'Todos os deployments do alias falharam',
-  [ERROR_CODES.STREAM_INTERRUPTED]: 'Stream interrompido',
-  [ERROR_CODES.GUARDRAIL_BLOCKED]: 'Conteudo bloqueado por guardrail',
-  [ERROR_CODES.PROMPT_INJECTION_SUSPECTED]: 'Suspeita de injecao de prompt',
-  [ERROR_CODES.UNAUTHENTICATED]: 'Nao autenticado',
-  [ERROR_CODES.FORBIDDEN]: 'Acesso negado',
-  [ERROR_CODES.TOKEN_EXPIRED]: 'Token expirado',
-  [ERROR_CODES.INVALID_TOKEN]: 'Token invalido',
-  [ERROR_CODES.PROJECT_REQUIRED]: 'Projeto obrigatorio',
-  [ERROR_CODES.PROJECT_NOT_FOUND]: 'Projeto nao encontrado',
-  [ERROR_CODES.VALIDATION_FAILED]: 'Requisicao invalida',
-  [ERROR_CODES.IDEMPOTENCY_CONFLICT]: 'Conflito de idempotencia',
-  [ERROR_CODES.NOT_FOUND]: 'Recurso nao encontrado',
-  [ERROR_CODES.CONFLICT]: 'Conflito de estado',
-  [ERROR_CODES.UPSTREAM_TIMEOUT]: 'Tempo esgotado em dependencia',
-  [ERROR_CODES.CIRCUIT_OPEN]: 'Dependencia em circuito aberto',
-  [ERROR_CODES.INTERNAL_ERROR]: 'Erro interno',
+    'No deployment compatible with the project data classification',
+  [ERROR_CODES.ALIAS_NOT_FOUND]: 'Unknown model alias',
+  [ERROR_CODES.PROVIDER_UNAVAILABLE]: 'Model provider unavailable',
+  [ERROR_CODES.ALL_DEPLOYMENTS_FAILED]: 'Every deployment for the alias failed',
+  [ERROR_CODES.STREAM_INTERRUPTED]: 'Stream interrupted',
+  [ERROR_CODES.GUARDRAIL_BLOCKED]: 'Content blocked by a guardrail',
+  [ERROR_CODES.PROMPT_INJECTION_SUSPECTED]: 'Suspected prompt injection',
+  [ERROR_CODES.UNAUTHENTICATED]: 'Not authenticated',
+  [ERROR_CODES.FORBIDDEN]: 'Access denied',
+  [ERROR_CODES.TOKEN_EXPIRED]: 'Token expired',
+  [ERROR_CODES.INVALID_TOKEN]: 'Invalid token',
+  [ERROR_CODES.PROJECT_REQUIRED]: 'Project required',
+  [ERROR_CODES.PROJECT_NOT_FOUND]: 'Project not found',
+  [ERROR_CODES.VALIDATION_FAILED]: 'Invalid request',
+  [ERROR_CODES.IDEMPOTENCY_CONFLICT]: 'Idempotency conflict',
+  [ERROR_CODES.NOT_FOUND]: 'Resource not found',
+  [ERROR_CODES.CONFLICT]: 'State conflict',
+  [ERROR_CODES.UPSTREAM_TIMEOUT]: 'Dependency timed out',
+  [ERROR_CODES.CIRCUIT_OPEN]: 'Dependency circuit open',
+  [ERROR_CODES.INTERNAL_ERROR]: 'Internal error',
 };
 
 export function titleFor(code: ErrorCode): string {
-  return TITLES[code] ?? 'Erro';
+  return TITLES[code] ?? 'Error';
 }
 
-/** Traduz um erro de dominio para o corpo de resposta em Problem Details. */
+/** Translates a domain error into the Problem Details response body. */
 export function toProblemDetails(error: DomainError, context: ProblemContext = {}): ProblemDetails {
   const problem: ProblemDetails = {
     type: problemTypeFor(error.code),
@@ -78,10 +78,11 @@ export function toProblemDetails(error: DomainError, context: ProblemContext = {
 }
 
 /**
- * Converte qualquer coisa lancada em Problem Details.
+ * Converts anything thrown into Problem Details.
  *
- * Erro desconhecido vira 500 sem detalhe: mensagem interna nunca vaza para o cliente
- * (o stack vai para o log estruturado, correlacionado pelo trace_id).
+ * An unknown error becomes a 500 with no detail: the internal message never
+ * reaches the client. The stack goes to the structured log instead, correlated
+ * by trace_id.
  */
 export function fromUnknown(error: unknown, context: ProblemContext = {}): ProblemDetails {
   if (isDomainError(error)) return toProblemDetails(error, context);

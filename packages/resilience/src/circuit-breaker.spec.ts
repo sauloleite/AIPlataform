@@ -12,7 +12,7 @@ describe('CircuitBreaker', () => {
     now = 1_000_000;
   });
 
-  it('comeca fechado e deixa passar', () => {
+  it('starts closed and lets calls through', () => {
     const breaker = new CircuitBreaker(POLICY, { now: clock });
     expect(breaker.stateOf('openai')).toBe('closed');
     expect(() => {
@@ -20,7 +20,7 @@ describe('CircuitBreaker', () => {
     }).not.toThrow();
   });
 
-  it('abre depois de failureThreshold falhas consecutivas', () => {
+  it('opens after failureThreshold consecutive failures', () => {
     const breaker = new CircuitBreaker(POLICY, { now: clock });
     breaker.recordFailure('openai');
     breaker.recordFailure('openai');
@@ -33,7 +33,7 @@ describe('CircuitBreaker', () => {
     }).toThrow(CircuitOpenError);
   });
 
-  it('um sucesso zera a contagem de falhas consecutivas', () => {
+  it('a success resets the consecutive failure count', () => {
     const breaker = new CircuitBreaker(POLICY, { now: clock });
     breaker.recordFailure('openai');
     breaker.recordFailure('openai');
@@ -43,14 +43,14 @@ describe('CircuitBreaker', () => {
     expect(breaker.stateOf('openai')).toBe('closed');
   });
 
-  it('isola as chaves: um provedor ruim nao derruba os outros', () => {
+  it('isolates keys: one bad provider does not take down the others', () => {
     const breaker = new CircuitBreaker(POLICY, { now: clock });
     for (let i = 0; i < 3; i += 1) breaker.recordFailure('gemini');
     expect(breaker.stateOf('gemini')).toBe('open');
     expect(breaker.stateOf('ollama')).toBe('closed');
   });
 
-  it('usa o Retry-After da dependencia como duracao da abertura', () => {
+  it('uses the dependency Retry-After as the open duration', () => {
     const breaker = new CircuitBreaker(POLICY, { now: clock });
     for (let i = 0; i < 3; i += 1) breaker.recordFailure('openai', { retryAfterMs: 120_000 });
 
@@ -65,7 +65,7 @@ describe('CircuitBreaker', () => {
     }).not.toThrow();
   });
 
-  it('vai para half-open apos openMs e fecha depois de successThreshold sucessos', () => {
+  it('moves to half-open after openMs and closes after successThreshold successes', () => {
     const onStateChange = vi.fn();
     const breaker = new CircuitBreaker(POLICY, { now: clock, onStateChange });
     for (let i = 0; i < 3; i += 1) breaker.recordFailure('openai');
@@ -82,7 +82,7 @@ describe('CircuitBreaker', () => {
     expect(onStateChange.mock.calls.map((c) => c[0].to)).toEqual(['open', 'half-open', 'closed']);
   });
 
-  it('uma falha em half-open reabre imediatamente', () => {
+  it('a failure while half-open reopens immediately', () => {
     const breaker = new CircuitBreaker(POLICY, { now: clock });
     for (let i = 0; i < 3; i += 1) breaker.recordFailure('openai');
     now += 30_001;
@@ -92,7 +92,7 @@ describe('CircuitBreaker', () => {
     expect(breaker.stateOf('openai')).toBe('open');
   });
 
-  it('execute contabiliza sucesso e falha ao redor da operacao', async () => {
+  it('execute records success and failure around the operation', async () => {
     const breaker = new CircuitBreaker(POLICY, { now: clock });
     await expect(breaker.execute('openai', () => Promise.resolve('ok'))).resolves.toBe('ok');
 

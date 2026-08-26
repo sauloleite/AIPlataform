@@ -1,12 +1,12 @@
 /**
- * Convencoes de atributos de telemetria (doc 02, secao 11 e ADR-009).
+ * Telemetry attribute conventions (reference doc 02 §11, ADR-009).
  *
- * `gen_ai.*` segue as Semantic Conventions for Generative AI do OpenTelemetry,
- * para que a telemetria seja portavel entre backends.
- * `aia.*` sao os atributos de negocio que todo span da plataforma carrega.
+ * `gen_ai.*` follows the OpenTelemetry Semantic Conventions for Generative AI,
+ * so the telemetry stays portable across backends.
+ * `aia.*` are the business attributes every platform span carries.
  */
 
-/** Atributos de negocio obrigatorios em todo span. */
+/** Business attributes required on every span. */
 export const AIA_ATTR = {
   PROJECT_ID: 'aia.project_id',
   PRINCIPAL_ID: 'aia.principal_id',
@@ -15,9 +15,9 @@ export const AIA_ATTR = {
   DATA_CLASSIFICATION: 'aia.data_classification',
   DEPLOYMENT_ID: 'aia.deployment_id',
   DATA_ZONE: 'aia.data_zone',
-  /** Politica servida do cache porque o governance estava indisponivel. */
+  /** Policy served from cache because governance was unreachable. */
   POLICY_STALE: 'aia.policy_stale',
-  /** Orcamento nao verificado porque o Redis estava indisponivel. */
+  /** Budget not verified because Redis was unreachable. */
   BUDGET_UNVERIFIED: 'aia.budget_unverified',
   BUDGET_RESERVED_MICROS: 'aia.budget.reserved_micros',
   BUDGET_COMMITTED_MICROS: 'aia.budget.committed_micros',
@@ -27,7 +27,7 @@ export const AIA_ATTR = {
   ERROR_CODE: 'aia.error_code',
 } as const;
 
-/** Subconjunto das convencoes GenAI que a plataforma emite. */
+/** The subset of the GenAI conventions this platform emits. */
 export const GEN_AI_ATTR = {
   SYSTEM: 'gen_ai.system',
   OPERATION_NAME: 'gen_ai.operation.name',
@@ -41,7 +41,7 @@ export const GEN_AI_ATTR = {
   USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens',
 } as const;
 
-/** Nomes de span das convencoes GenAI. */
+/** Span names from the GenAI conventions. */
 export const GEN_AI_SPAN = {
   CHAT: 'chat',
   EMBEDDINGS: 'embeddings',
@@ -49,7 +49,7 @@ export const GEN_AI_SPAN = {
   EXECUTE_TOOL: 'execute_tool',
 } as const;
 
-/** Metricas de SLI da plataforma (doc 02, secao 11). */
+/** Platform SLI metrics (reference doc 02 §11). */
 export const AIA_METRIC = {
   TIME_TO_FIRST_TOKEN: 'aia.inference.time_to_first_token',
   INFERENCE_DURATION: 'aia.inference.duration',

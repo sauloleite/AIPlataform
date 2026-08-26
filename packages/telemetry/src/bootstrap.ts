@@ -15,7 +15,7 @@ export interface TelemetryOptions {
   serviceName: string;
   serviceVersion?: string;
   environment?: string;
-  /** Endpoint OTLP HTTP do collector. Sem ele, a telemetria fica so em memoria. */
+  /** Collector's OTLP HTTP endpoint. Without it telemetry stays in memory. */
   otlpEndpoint?: string;
   debug?: boolean;
 }
@@ -23,11 +23,11 @@ export interface TelemetryOptions {
 let sdk: NodeSDK | undefined;
 
 /**
- * Inicializa o OpenTelemetry. Chame antes de qualquer import que faca I/O,
- * porque a auto-instrumentacao precisa envolver os modulos na carga.
+ * Starts OpenTelemetry. Call this before any import that performs I/O, because
+ * auto-instrumentation has to wrap those modules as they load.
  *
- * O destino e um collector OTLP; qual backend recebe depois (Tempo, Jaeger,
- * Azure Monitor) e decisao de deploy, nao de codigo (ADR-009).
+ * The destination is an OTLP collector; which backend receives the data (Tempo,
+ * Jaeger, a managed service) is a deployment decision, not a code one (ADR-009).
  */
 export function startTelemetry(options: TelemetryOptions): void {
   if (sdk !== undefined) return;
@@ -56,7 +56,7 @@ export function startTelemetry(options: TelemetryOptions): void {
           }),
     instrumentations: [
       getNodeAutoInstrumentations({
-        // Ruido sem valor operacional.
+        // Noise with no operational value.
         '@opentelemetry/instrumentation-fs': { enabled: false },
         '@opentelemetry/instrumentation-dns': { enabled: false },
       }),
@@ -66,7 +66,7 @@ export function startTelemetry(options: TelemetryOptions): void {
   sdk.start();
 }
 
-/** Encerra o SDK drenando o que ainda nao foi exportado (graceful shutdown). */
+/** Shuts the SDK down, flushing anything not yet exported (graceful shutdown). */
 export async function stopTelemetry(): Promise<void> {
   if (sdk === undefined) return;
   await sdk.shutdown();

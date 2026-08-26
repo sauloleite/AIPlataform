@@ -10,17 +10,18 @@ export interface ResilienceHooks {
 }
 
 /**
- * Envolve uma operacao com a politica declarada.
+ * Wraps an operation in the declared policy.
  *
- * Ordem das camadas, de fora para dentro:
- *   bulkhead -> retry -> circuit breaker -> timeout -> operacao
+ * Layer order, outermost first:
+ *   bulkhead -> retry -> circuit breaker -> timeout -> operation
  *
- * O bulkhead fica por fora porque limita quantas execucoes existem ao mesmo tempo,
- * retentativas incluidas. O circuit breaker fica dentro do retry para que cada
- * tentativa consulte o estado atualizado e uma tentativa que falha ja contabilize.
+ * The bulkhead sits outside because it caps how many executions exist at once,
+ * retries included. The circuit breaker sits inside the retry so that each
+ * attempt reads current state and a failing attempt is counted immediately.
  */
 export class ResilienceExecutor {
   private readonly breaker?: CircuitBreaker;
+  private readonly hooks: ResilienceHooks;
 
   constructor(
     private readonly policy: ResiliencePolicy,
@@ -36,8 +37,6 @@ export class ResilienceExecutor {
       });
     }
   }
-
-  private readonly hooks: ResilienceHooks;
 
   circuitState(key: string): string | undefined {
     return this.breaker?.stateOf(key);

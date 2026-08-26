@@ -1,13 +1,14 @@
 import type { ResiliencePolicy } from './types.js';
 
 /**
- * Politicas nomeadas da tabela do doc 02, secao 8.
+ * Named policies from the table in reference doc 02 §8.
  *
- * Um servico escolhe a politica pelo TIPO de chamada, nunca inventa numeros.
- * Mudar um valor aqui muda o comportamento de toda a plataforma: e proposital.
+ * A service picks a policy by the KIND of call it is making; it never invents
+ * numbers. Changing a value here changes behaviour across the whole platform,
+ * which is the point.
  */
 export const POLICIES = {
-  /** Inferencia nao-streaming: conexao 3 s, total 60 s, ate 2 retentativas. */
+  /** Non-streaming inference: 3 s to connect, 60 s total, up to 2 retries. */
   INFERENCE: {
     name: 'inference',
     timeout: { connectMs: 3_000, totalMs: 60_000 },
@@ -17,8 +18,9 @@ export const POLICIES = {
   },
 
   /**
-   * Inferencia streaming: 10 s ate o primeiro token, 30 s de inatividade.
-   * Nao ha retentativa depois do primeiro token; o erro vira `stream_interrupted`.
+   * Streaming inference: 10 s to the first token, 30 s of inactivity.
+   * There is no retry after the first token; the failure becomes
+   * `stream_interrupted`.
    */
   INFERENCE_STREAMING: {
     name: 'inference_streaming',
@@ -29,12 +31,12 @@ export const POLICIES = {
   },
 
   /**
-   * Inferencia streaming em modelo LOCAL.
+   * Streaming inference against a LOCAL model.
    *
-   * O teto de 10 s ate o primeiro token vale para provedor em nuvem, que ja tem
-   * o modelo carregado. Um modelo local precisa le-lo do disco na primeira
-   * chamada, e derrubar por isso inutilizaria justamente o caminho de custo
-   * zero. Depois do primeiro token, a regra e a mesma: nao ha retentativa.
+   * The 10 s time-to-first-token budget suits a cloud provider, which already
+   * has the model resident. A local model has to read it from disk on the first
+   * call, and failing for that reason would break precisely the zero-cost path.
+   * After the first token the rule is the same: no retry.
    */
   INFERENCE_STREAMING_LOCAL: {
     name: 'inference_streaming_local',
@@ -43,7 +45,7 @@ export const POLICIES = {
     circuitBreaker: { failureThreshold: 5, openMs: 30_000, successThreshold: 2 },
   },
 
-  /** Inferencia nao-streaming em modelo local: mesmo motivo, teto maior. */
+  /** Non-streaming inference against a local model: same reason, larger budget. */
   INFERENCE_LOCAL: {
     name: 'inference_local',
     timeout: { connectMs: 2_000, totalMs: 180_000 },
@@ -51,7 +53,7 @@ export const POLICIES = {
     circuitBreaker: { failureThreshold: 5, openMs: 30_000, successThreshold: 2 },
   },
 
-  /** Embeddings em lote: 30 s por lote, ate 3 retentativas. */
+  /** Batched embeddings: 30 s per batch, up to 3 retries. */
   EMBEDDINGS: {
     name: 'embeddings',
     timeout: { connectMs: 3_000, totalMs: 30_000 },
@@ -60,8 +62,8 @@ export const POLICIES = {
   },
 
   /**
-   * Chamada interna (governance, registry): 2 s e uma retentativa.
-   * O fallback e o cache local com TTL, tratado por quem chama.
+   * Internal call (governance, registry): 2 s and one retry.
+   * The fallback is the caller's local cache with a TTL.
    */
   INTERNAL: {
     name: 'internal',
@@ -71,8 +73,9 @@ export const POLICIES = {
   },
 
   /**
-   * Tool via MCP: sem retentativa automatica, porque acao pode nao ser idempotente
-   * (doc 02, secao 8). O erro volta para o agente como observacao.
+   * Tool call over MCP: no automatic retry, because the action may not be
+   * idempotent (reference doc 02 §8). The error goes back to the agent as an
+   * observation.
    */
   TOOL: {
     name: 'tool',
@@ -81,7 +84,7 @@ export const POLICIES = {
     bulkhead: { maxConcurrent: 5, acquireTimeoutMs: 1_000, leaseTtlMs: 30_000 },
   },
 
-  /** Guardrails: rapido e obrigatorio; falhar aberto seria um risco de seguranca. */
+  /** Guardrails: fast and mandatory; failing open would be a security risk. */
   GUARDRAIL: {
     name: 'guardrail',
     timeout: { connectMs: 500, totalMs: 3_000 },

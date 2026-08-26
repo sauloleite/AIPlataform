@@ -1,16 +1,16 @@
 /**
- * Catalogo de codigos de erro estaveis da plataforma.
+ * Catalogue of stable platform error codes.
  *
- * O codigo e parte do contrato publico: clientes decidem comportamento por ele.
- * Mudar o valor de um codigo e breaking change; adicionar um novo, nao.
+ * The code is part of the public contract: clients branch on it. Changing a
+ * value is a breaking change; adding a new one is not.
  */
 export const ERROR_CODES = {
-  // Orcamento e cota (OWASP LLM10)
+  // Budget and quota (OWASP LLM10)
   BUDGET_EXHAUSTED: 'budget_exhausted',
   QUOTA_EXCEEDED: 'quota_exceeded',
   CONCURRENCY_LIMIT: 'concurrency_limit',
 
-  // Roteamento de modelo (ADR-010)
+  // Model routing (ADR-010)
   NO_COMPATIBLE_DEPLOYMENT: 'no_compatible_deployment',
   ALIAS_NOT_FOUND: 'alias_not_found',
   PROVIDER_UNAVAILABLE: 'provider_unavailable',
@@ -23,23 +23,23 @@ export const ERROR_CODES = {
   GUARDRAIL_BLOCKED: 'guardrail_blocked',
   PROMPT_INJECTION_SUSPECTED: 'prompt_injection_suspected',
 
-  // Identidade e autorizacao
+  // Identity and authorisation
   UNAUTHENTICATED: 'unauthenticated',
   FORBIDDEN: 'forbidden',
   TOKEN_EXPIRED: 'token_expired',
   INVALID_TOKEN: 'invalid_token',
 
-  // Tenant
+  // Tenancy
   PROJECT_REQUIRED: 'project_required',
   PROJECT_NOT_FOUND: 'project_not_found',
 
-  // Contrato
+  // Contract
   VALIDATION_FAILED: 'validation_failed',
   IDEMPOTENCY_CONFLICT: 'idempotency_conflict',
   NOT_FOUND: 'not_found',
   CONFLICT: 'conflict',
 
-  // Dependencias
+  // Dependencies
   UPSTREAM_TIMEOUT: 'upstream_timeout',
   CIRCUIT_OPEN: 'circuit_open',
   INTERNAL_ERROR: 'internal_error',
@@ -47,7 +47,7 @@ export const ERROR_CODES = {
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
-/** Base do campo `type` do Problem Details. Aponta para a documentacao do erro. */
+/** Base for the Problem Details `type` field. Points at the error's docs. */
 export const PROBLEM_TYPE_BASE = 'https://aia.dev/errors';
 
 export function problemTypeFor(code: ErrorCode): string {

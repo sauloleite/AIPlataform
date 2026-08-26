@@ -17,14 +17,14 @@ export interface CircuitBreakerHooks {
 }
 
 /**
- * Circuit breaker por chave, em memoria e por processo.
+ * Circuit breaker per key, in memory and per process.
  *
- * Cada replica aprende sozinha que um deployment esta ruim. Estado compartilhado
- * entre replicas exigiria uma ida ao Redis no caminho critico da inferencia, o que
- * custa mais do que economiza (doc 02, secao 8).
+ * Each replica learns on its own that a deployment is unhealthy. Sharing state
+ * between replicas would mean a network round trip on the critical path of every
+ * inference, which costs more than it saves (reference doc 02 §8).
  *
- * Quando a dependencia devolve `Retry-After`, ele define quanto tempo o circuito
- * fica aberto: a duracao vem de quem sabe, nao de um numero fixo.
+ * When the dependency returns `Retry-After`, that value decides how long the
+ * circuit stays open: the duration comes from the side that knows.
  */
 export class CircuitBreaker {
   private readonly circuits = new Map<string, CircuitEntry>();
@@ -41,7 +41,7 @@ export class CircuitBreaker {
     return this.entry(key).state;
   }
 
-  /** Lanca `CircuitOpenError` se a chave estiver bloqueada neste momento. */
+  /** Throws `CircuitOpenError` if the key is currently blocked. */
   ensureClosed(key: string): void {
     const entry = this.entry(key);
     if (entry.state !== 'open') return;

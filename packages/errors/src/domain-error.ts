@@ -1,22 +1,23 @@
 import { ERROR_CODES, type ErrorCode } from './catalog.js';
 
 /**
- * Detalhes adicionais carregados por um erro de dominio.
- * Viram extensoes do Problem Details, entao precisam ser serializaveis e sem PII.
+ * Extra detail carried by a domain error.
+ * These become Problem Details extensions, so they must be serialisable and
+ * must never contain PII.
  */
 export type ErrorDetails = Record<string, string | number | boolean | null | string[] | number[]>;
 
 /**
- * Raiz de toda excecao de negocio.
+ * Root of every business exception.
  *
- * O dominio lanca subclasses tipadas; a camada de apresentacao traduz para
- * Problem Details (doc 03, secao 5). Nunca retorne `null` para indicar erro.
+ * The domain throws typed subclasses; the presentation layer translates them
+ * into Problem Details. Never return `null` to signal an error.
  */
 export abstract class DomainError extends Error {
   abstract readonly code: ErrorCode;
-  /** Status HTTP sugerido. A apresentacao pode sobrepor, mas raramente deve. */
+  /** Suggested HTTP status. Presentation may override, but rarely should. */
   abstract readonly status: number;
-  /** Se `true`, o cliente pode tentar de novo sem mudar a requisicao. */
+  /** When `true`, the client may retry without changing the request. */
   readonly retryable: boolean = false;
   readonly details: ErrorDetails;
 
@@ -24,19 +25,19 @@ export abstract class DomainError extends Error {
     super(message);
     this.name = new.target.name;
     this.details = details;
-    // `captureStackTrace` so existe em V8; os tipos do Node o declaram como
-    // sempre presente, entao a checagem opcional parece redundante e nao e.
+    // `captureStackTrace` only exists on V8. Node's types declare it as always
+    // present, which makes the optional call look redundant when it is not.
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     Error.captureStackTrace?.(this, new.target);
   }
 }
 
-/** Erro que nao mapeia para nenhuma regra de negocio conhecida. */
+/** An error that maps to no known business rule. */
 export class InternalError extends DomainError {
   readonly code = ERROR_CODES.INTERNAL_ERROR;
   readonly status = 500;
 
-  constructor(message = 'Erro interno', details?: ErrorDetails) {
+  constructor(message = 'Internal error', details?: ErrorDetails) {
     super(message, details);
   }
 }
@@ -55,7 +56,7 @@ export class NotFoundError extends DomainError {
   readonly status = 404;
 
   constructor(resource: string, id: string) {
-    super(`${resource} nao encontrado`, { resource, id });
+    super(`${resource} not found`, { resource, id });
   }
 }
 
@@ -72,7 +73,7 @@ export class UnauthenticatedError extends DomainError {
   readonly code = ERROR_CODES.UNAUTHENTICATED;
   readonly status = 401;
 
-  constructor(message = 'Credencial ausente ou invalida', details?: ErrorDetails) {
+  constructor(message = 'Missing or invalid credential', details?: ErrorDetails) {
     super(message, details);
   }
 }
@@ -91,7 +92,7 @@ export class ProjectRequiredError extends DomainError {
   readonly status = 400;
 
   constructor() {
-    super('O header X-Project-Id e obrigatorio: projeto e o tenant da plataforma');
+    super('The X-Project-Id header is required: project is the platform tenant');
   }
 }
 
@@ -101,7 +102,7 @@ export class UpstreamTimeoutError extends DomainError {
   override readonly retryable = true;
 
   constructor(target: string, timeoutMs: number) {
-    super(`Tempo esgotado ao chamar ${target}`, { target, timeout_ms: timeoutMs });
+    super(`Timed out calling ${target}`, { target, timeout_ms: timeoutMs });
   }
 }
 
@@ -111,7 +112,7 @@ export class CircuitOpenError extends DomainError {
   override readonly retryable = true;
 
   constructor(target: string, reopensInMs: number) {
-    super(`Circuito aberto para ${target}`, { target, reopens_in_ms: reopensInMs });
+    super(`Circuit open for ${target}`, { target, reopens_in_ms: reopensInMs });
   }
 }
 

@@ -1,6 +1,6 @@
 import { DEFAULT_RETRYABLE_STATUSES, type RetryPolicy, type TransportErrorLike } from './types.js';
 
-/** Le status e Retry-After de um erro sem assumir a biblioteca HTTP usada. */
+/** Reads status and Retry-After from an error without assuming an HTTP library. */
 export function asTransportError(error: unknown): TransportErrorLike {
   if (typeof error !== 'object' || error === null) return {};
   const candidate = error as Record<string, unknown>;
@@ -15,17 +15,17 @@ export function asTransportError(error: unknown): TransportErrorLike {
 
 export function isRetryable(error: unknown, policy: RetryPolicy): boolean {
   const { status } = asTransportError(error);
-  // Sem status: falha de rede (ECONNRESET, DNS, socket). Vale tentar de novo.
+  // No status means a network failure (ECONNRESET, DNS, socket). Worth retrying.
   if (status === undefined) return true;
   const retryable = policy.retryableStatuses ?? DEFAULT_RETRYABLE_STATUSES;
   return retryable.includes(status);
 }
 
 /**
- * Backoff exponencial com full jitter.
+ * Exponential backoff with full jitter.
  *
- * O jitter existe para nao sincronizar as retentativas de todos os clientes
- * apos uma indisponibilidade (thundering herd).
+ * The jitter exists so that every client does not retry in lockstep after an
+ * outage (thundering herd).
  */
 export function nextDelayMs(
   attempt: number,
@@ -35,7 +35,7 @@ export function nextDelayMs(
 ): number {
   if (policy.honorRetryAfter !== false) {
     const { retryAfterMs } = asTransportError(error);
-    // A dependencia sabe melhor que nos quando estara pronta.
+    // The dependency knows better than we do when it will be ready.
     if (retryAfterMs !== undefined && retryAfterMs > 0) {
       return Math.min(retryAfterMs, policy.maxDelayMs);
     }
@@ -68,7 +68,7 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** Executa `operation` repetindo apenas o que a politica considera retentavel. */
+/** Runs `operation`, retrying only what the policy considers retryable. */
 export async function withRetry<T>(
   operation: () => Promise<T>,
   policy: RetryPolicy,

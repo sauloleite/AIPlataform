@@ -1,10 +1,10 @@
 import { UpstreamTimeoutError } from '@aia/errors';
 
 /**
- * Aborta a operacao quando o tempo total estoura.
+ * Aborts the operation when the total time budget runs out.
  *
- * O `AbortSignal` e repassado para a operacao para que ela cancele o socket:
- * um timeout que so descarta a promessa deixa a conexao vazando.
+ * The `AbortSignal` is handed to the operation so it can cancel the socket: a
+ * timeout that merely discards the promise leaks the connection.
  */
 export async function withTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
@@ -30,8 +30,8 @@ export async function withTimeout<T>(
   try {
     return await operation(controller.signal);
   } catch (error) {
-    // O abort chega na operacao como o proprio reason, mas nem toda biblioteca
-    // repassa: se o timer disparou, o erro real e o timeout.
+    // The abort reaches the operation as the reason itself, but not every
+    // library forwards it: if the timer fired, the real error is the timeout.
     if (controller.signal.aborted && controller.signal.reason === timeoutError) {
       throw timeoutError;
     }

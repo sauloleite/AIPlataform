@@ -7,7 +7,7 @@ export class ConcurrencyLimitError extends DomainError {
   override readonly retryable = true;
 
   constructor(key: string, maxConcurrent: number) {
-    super(`Limite de ${maxConcurrent} chamadas simultaneas atingido`, {
+    super(`Reached the limit of ${maxConcurrent} concurrent calls`, {
       key,
       max_concurrent: maxConcurrent,
       retry_after: 1,
@@ -15,20 +15,20 @@ export class ConcurrencyLimitError extends DomainError {
   }
 }
 
-/** Vaga adquirida no semaforo. Sempre libere no `finally`. */
+/** A slot acquired from the semaphore. Always release it in a `finally`. */
 export interface BulkheadLease {
   release(): Promise<void>;
 }
 
 /**
- * Limita a concorrencia por chave para que um projeto nao consuma a capacidade
- * dos demais (doc 02, secao 9).
+ * Caps concurrency per key so that one project cannot consume the capacity of
+ * every other one (reference doc 02 §9).
  */
 export interface Bulkhead {
   acquire(key: string): Promise<BulkheadLease>;
 }
 
-/** Semaforo por processo. Suficiente para uma replica so ou para testes. */
+/** Per-process semaphore. Enough for a single replica, or for tests. */
 export class InMemoryBulkhead implements Bulkhead {
   private readonly inFlight = new Map<string, number>();
   private readonly waiting = new Map<string, (() => void)[]>();
@@ -81,16 +81,16 @@ export class InMemoryBulkhead implements Bulkhead {
   }
 }
 
-/** Cliente Redis minimo de que o bulkhead precisa. Evita acoplar ao ioredis. */
+/** The minimal Redis surface the bulkhead needs. Avoids coupling to ioredis. */
 export interface RedisLike {
   eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
 }
 
 /**
- * Semaforo distribuido em Redis: o limite vale para todas as replicas.
+ * Distributed semaphore in Redis: the limit applies across every replica.
  *
- * Cada vaga e um membro de um sorted set com o timestamp de expiracao, entao um
- * processo que morre sem liberar nao trava o semaforo para sempre.
+ * Each slot is a sorted-set member scored with its expiry, so a process that
+ * dies without releasing does not wedge the semaphore forever.
  */
 export class RedisBulkhead implements Bulkhead {
   private static readonly ACQUIRE = `

@@ -1,7 +1,7 @@
 import { type Attributes, type Span, SpanStatusCode, trace } from '@opentelemetry/api';
 import { AIA_ATTR } from './attributes.js';
 
-/** Identificacao de negocio que acompanha uma requisicao ponta a ponta. */
+/** Business identity that follows a request end to end. */
 export interface BusinessContext {
   projectId: string;
   principalId?: string;
@@ -21,18 +21,18 @@ export function businessAttributes(context: BusinessContext): Attributes {
   return attributes;
 }
 
-/** Anexa os atributos de negocio ao span ativo. */
+/** Attaches the business attributes to the active span. */
 export function annotateActiveSpan(context: BusinessContext): void {
   trace.getActiveSpan()?.setAttributes(businessAttributes(context));
 }
 
-/** trace_id do span ativo, para correlacionar o Problem Details com a telemetria. */
+/** trace_id of the active span, to correlate Problem Details with telemetry. */
 export function currentTraceId(): string | undefined {
   const spanContext = trace.getActiveSpan()?.spanContext();
   return spanContext && spanContext.traceId !== '' ? spanContext.traceId : undefined;
 }
 
-/** Marca o span como erro registrando o codigo estavel do catalogo. */
+/** Marks the span as failed, recording the stable code from the catalogue. */
 export function recordSpanError(span: Span, error: unknown, code?: string): void {
   span.setStatus({
     code: SpanStatusCode.ERROR,

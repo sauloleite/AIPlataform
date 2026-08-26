@@ -95,9 +95,13 @@ jobs:
             -t aia-${{ matrix.service }}:scan .
 
       - name: Instalar Trivy
-        uses: aquasecurity/setup-trivy@v0.2.3
-        with:
-          version: v0.70.0
+        # Binario baixado direto, sem action de terceiro: a versao fica visivel
+        # e o passo nao quebra quando o wrapper muda de tag.
+        run: |
+          VERSION=0.74.0
+          curl -sSL "https://github.com/aquasecurity/trivy/releases/download/v${VERSION}/trivy_${VERSION}_Linux-64bit.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin trivy
+          trivy --version
 
       # O binario e chamado direto, e nao pelo wrapper da action, por dois
       # motivos concretos: o input `trivyignores` concatena os arquivos como
