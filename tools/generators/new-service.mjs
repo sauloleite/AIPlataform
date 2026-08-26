@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * Gerador de servico.
+ * Service generator.
  *
- * Produz o esqueleto das secoes 3.2 (NestJS) e 3.3 (FastAPI) do documento 03,
- * ja com camadas, ports, configuracao validada, health checks, Dockerfile e
- * entrada no CI.
+ * Produces the skeleton from reference doc 03 §3.2 (NestJS) and §3.3 (FastAPI),
+ * already carrying layers, ports, validated configuration, health checks, a
+ * Dockerfile and a CI entry.
  *
- * Existe porque a alternativa e copiar um servico existente e esquecer de trocar
- * alguma coisa. O esqueleto correto por construcao e o que faz a regra de
- * dependencia continuar valendo no decimo servico.
+ * It exists because the alternative is copying an existing service and
+ * forgetting to change something. A skeleton that is correct by construction is
+ * what keeps the dependency rule holding at the tenth service.
  *
  *   node tools/generators/new-service.mjs --name registry --runtime node --port 3004
  *   node tools/generators/new-service.mjs --name evaluation --runtime python --port 8003
@@ -36,17 +36,17 @@ const port = args['port'] ?? (runtime === 'node' ? '3010' : '8010');
 const moduleName = args['module'] ?? 'core';
 
 if (name === undefined || !/^[a-z][a-z0-9-]{2,40}$/.test(name)) {
-  console.error('Uso: --name <servico-em-kebab-case> [--runtime node|python] [--port N]');
+  console.error('Usage: --name <service-in-kebab-case> [--runtime node|python] [--port N]');
   process.exit(1);
 }
 if (!['node', 'python'].includes(runtime)) {
-  console.error(`runtime invalido: ${runtime}. Use "node" ou "python".`);
+  console.error(`invalid runtime: ${runtime}. Use "node" or "python".`);
   process.exit(1);
 }
 
 const appDir = join(root, 'apps', name);
 if (existsSync(join(appDir, 'src'))) {
-  console.error(`apps/${name}/src ja existe. Remova antes de gerar de novo.`);
+  console.error(`apps/${name}/src already exists. Remove it before generating again.`);
   process.exit(1);
 }
 
@@ -106,8 +106,13 @@ async function generateNode() {
     )}\n`,
   );
 
+  // Two configs, like the rest of the monorepo: `tsconfig.build.json` emits and
+  // keeps tests out of the image; `tsconfig.json` emits nothing and INCLUDES the
+  // tests, which is what makes `nx run-many -t typecheck` cover a test file.
+  // The references point at each package's BUILD config: the lint one carries
+  // `composite: false`, and `tsc --build` refuses a reference like that.
   await write(
-    'tsconfig.json',
+    'tsconfig.build.json',
     `${JSON.stringify(
       {
         extends: '../../tsconfig.base.json',
@@ -115,9 +120,11 @@ async function generateNode() {
           rootDir: 'src',
           outDir: 'dist',
           tsBuildInfoFile: 'dist/.tsbuildinfo',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
         },
         include: ['src/**/*.ts'],
-        exclude: ['src/**/*.spec.ts', 'test/**/*'],
+        exclude: ['node_modules', 'dist', 'src/**/*.spec.ts', 'src/**/*.test.ts', 'test/**/*'],
         references: [
           '../../packages/auth',
           '../../packages/contracts',
@@ -126,7 +133,28 @@ async function generateNode() {
           '../../packages/nest',
           '../../packages/resilience',
           '../../packages/telemetry',
-        ].map((path) => ({ path })),
+        ].map((path) => ({ path: `${path}/tsconfig.build.json` })),
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  await write(
+    'tsconfig.json',
+    `${JSON.stringify(
+      {
+        extends: './tsconfig.build.json',
+        compilerOptions: {
+          noEmit: true,
+          // The build config roots at src/; this program also takes test/ and
+          // *.config.ts. Nothing is emitted, so the root is the project itself.
+          rootDir: '.',
+          composite: false,
+          incremental: false,
+        },
+        include: ['src/**/*.ts', 'test/**/*.ts', '*.config.ts'],
+        exclude: ['node_modules', 'dist'],
       },
       null,
       2,
@@ -155,7 +183,7 @@ export default defineConfig({
     `import { z } from 'zod';
 import { validateConfig } from '@aia/nest';
 
-/** Configuracao validada no boot. A aplicacao nao sobe com config invalida. */
+/** Configuration validated at boot. The app does not start on invalid config. */
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(${port}),
@@ -191,17 +219,17 @@ export const CONFIG = Symbol('${pascal}Config');
     `import { DomainError, ERROR_CODES, type ErrorCode } from '@aia/errors';
 
 /**
- * Erros de dominio deste servico.
+ * Domain errors for this service.
  *
- * Cada um carrega um codigo ESTAVEL do catalogo: e por ele que o cliente decide
- * comportamento, entao mudar o valor e breaking change.
+ * Each carries a STABLE code from the catalogue: it is what the client keys its
+ * behaviour off, so changing the value is a breaking change.
  */
-export class ExemploError extends DomainError {
+export class ExampleError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.VALIDATION_FAILED;
   readonly status = 400;
 
-  constructor(detalhe: string) {
-    super(detalhe);
+  constructor(detail: string) {
+    super(detail);
   }
 }
 `,
@@ -210,11 +238,11 @@ export class ExemploError extends DomainError {
   await write(
     `src/modules/${moduleName}/application/ports.ts`,
     `/**
- * Ports da camada de aplicacao.
+ * Application layer ports.
  *
- * Interfaces, nunca classes concretas: o caso de uso nao sabe o que ha do outro
- * lado. Os Symbol existem porque o NestJS precisa de um token em runtime, e
- * interface some na compilacao.
+ * Interfaces, never concrete classes: the use case does not know what is on the
+ * other side. The Symbols exist because NestJS needs a runtime token, and an
+ * interface disappears at compile time.
  */
 
 export interface Clock {
@@ -231,40 +259,40 @@ export const ID_GENERATOR = Symbol('IdGenerator');
 
   await write(
     `src/modules/${moduleName}/application/dto.ts`,
-    `/** Comandos e resultados. Sem \`Request\`, sem header, sem decorator de HTTP. */
+    `/** Commands and results. No \`Request\`, no headers, no HTTP decorators. */
 
-export interface ExemploCommand {
+export interface ExampleCommand {
   projectId: string;
 }
 
-export interface ExemploResult {
+export interface ExampleResult {
   id: string;
 }
 `,
   );
 
   await write(
-    `src/modules/${moduleName}/application/use-cases/exemplo.ts`,
+    `src/modules/${moduleName}/application/use-cases/example.ts`,
     `import { Inject, Injectable } from '@nestjs/common';
 import { CLOCK, ID_GENERATOR, type Clock, type IdGenerator } from '../ports.js';
-import type { ExemploCommand, ExemploResult } from '../dto.js';
+import type { ExampleCommand, ExampleResult } from '../dto.js';
 
 /**
- * Caso de uso de exemplo. Troque por um real e apague este.
+ * Placeholder use case. Replace it with a real one and delete this.
  *
- * Regras do template (doc 03, secao 3.2):
- *   - recebe um comando, nunca o \`Request\` do Express;
- *   - fala so com ports;
- *   - todo caminho de erro tem teste.
+ * Template rules (reference doc 03 §3.2):
+ *   - it takes a command, never the Express \`Request\`;
+ *   - it talks only to ports;
+ *   - every error path has a test.
  */
 @Injectable()
-export class Exemplo {
+export class Example {
   constructor(
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(ID_GENERATOR) private readonly ids: IdGenerator,
   ) {}
 
-  async execute(command: ExemploCommand): Promise<ExemploResult> {
+  async execute(command: ExampleCommand): Promise<ExampleResult> {
     void command;
     void this.clock;
     return Promise.resolve({ id: this.ids.next() });
@@ -280,18 +308,18 @@ export class Exemplo {
     `import { Controller, Get, Req } from '@nestjs/common';
 import { POLICY, authorize } from '@aia/auth';
 import { principalOf, projectIdOf, type AuthenticatedRequest } from '@aia/nest';
-import { Exemplo } from '../../application/use-cases/exemplo.js';
+import { Example } from '../../application/use-cases/example.js';
 
-/** Adapta HTTP para os casos de uso. Nenhuma regra de negocio aqui. */
+/** Adapts HTTP to the use cases. No business rule here. */
 @Controller('v1/${name}')
 export class ${pascal}Controller {
-  constructor(private readonly exemplo: Exemplo) {}
+  constructor(private readonly example: Example) {}
 
   @Get()
   async list(@Req() request: AuthenticatedRequest): Promise<{ id: string }> {
     const projectId = projectIdOf(request);
     authorize(POLICY.READ_PROJECT, { principal: principalOf(request), projectId });
-    return this.exemplo.execute({ projectId });
+    return this.example.execute({ projectId });
   }
 }
 `,
@@ -304,11 +332,11 @@ import { Module, type Provider } from '@nestjs/common';
 import { Db } from 'mongodb';
 import { Redis } from 'ioredis';
 import { HEALTH_CHECKS, HealthController, type DependencyCheck } from '@aia/nest';
-import { Exemplo } from './application/use-cases/exemplo.js';
+import { Example } from './application/use-cases/example.js';
 import { CLOCK, ID_GENERATOR, type Clock, type IdGenerator } from './application/ports.js';
 import { ${pascal}Controller } from './presentation/http/${moduleName}.controller.js';
 
-/** Wiring: o unico lugar que conhece as tres camadas ao mesmo tempo. */
+/** Wiring: the only place that knows all three layers at once. */
 const adapters: Provider[] = [
   { provide: CLOCK, useValue: { now: (): Date => new Date() } satisfies Clock },
   { provide: ID_GENERATOR, useValue: { next: (): string => randomUUID() } satisfies IdGenerator },
@@ -338,7 +366,7 @@ const adapters: Provider[] = [
 
 @Module({
   controllers: [${pascal}Controller, HealthController],
-  providers: [Exemplo, ...adapters],
+  providers: [Example, ...adapters],
 })
 export class ${pascal}Module {}
 `,
@@ -365,8 +393,8 @@ import { InfrastructureModule } from './shared/infrastructure.module.js';
 
 @Module({
   imports: [InfrastructureModule, ${pascal}Module],
-  // Guard global: a rota precisa se declarar publica para escapar dele.
-  // Esquecer o decorator falha fechado.
+  // Global guard: a route has to declare itself public to escape it.
+  // Forgetting the decorator fails closed.
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule implements NestModule {
@@ -382,8 +410,8 @@ export class AppModule implements NestModule {
     `import 'reflect-metadata';
 import { startTelemetry } from '@aia/telemetry';
 
-// A telemetria sobe ANTES de qualquer import que faca I/O: a auto-instrumentacao
-// precisa envolver os modulos no momento da carga.
+// Telemetry starts BEFORE any import that does I/O: auto-instrumentation has to
+// wrap the modules at load time.
 startTelemetry({ serviceName: 'aia-${name}' });
 
 const { NestFactory } = await import('@nestjs/core');
@@ -402,23 +430,23 @@ app.useGlobalFilters(new ProblemDetailsFilter());
 app.enableShutdownHooks();
 
 await app.listen(config.PORT, '0.0.0.0');
-logger.log(\`aia-${name} ouvindo na porta \${config.PORT.toString()}\`);
+logger.log(\`aia-${name} listening on port \${config.PORT.toString()}\`);
 `,
   );
 
   await write(
-    'test/exemplo.spec.ts',
+    'test/example.spec.ts',
     `import { describe, expect, it } from 'vitest';
-import { Exemplo } from '../src/modules/${moduleName}/application/use-cases/exemplo.js';
+import { Example } from '../src/modules/${moduleName}/application/use-cases/example.js';
 
 /**
- * Fakes, nao mocks: o teste verifica COMPORTAMENTO, e nao a sequencia de
- * chamadas. Um teste amarrado a mocks quebra em toda refatoracao sem indicar
- * nenhum defeito real.
+ * Fakes, not mocks: the test verifies BEHAVIOUR, not the sequence of calls. A
+ * test tied to mocks breaks on every refactor without pointing at any real
+ * defect.
  */
-describe('Exemplo', () => {
-  it('devolve um identificador', async () => {
-    const useCase = new Exemplo(
+describe('Example', () => {
+  it('returns an identifier', async () => {
+    const useCase = new Example(
       { now: () => new Date('2026-01-01T00:00:00Z') },
       { next: () => 'id-1' },
     );
@@ -440,7 +468,7 @@ async function generatePython() {
     `[project]
 name = "${name}"
 version = "0.1.0"
-description = "Servico ${name} da plataforma AIA"
+description = "The AIA platform ${name} service"
 requires-python = ">=3.12"
 dependencies = [
     "aia-auth",
@@ -466,7 +494,7 @@ packages = ["src/${snake}"]
   await write(`src/${snake}/py.typed`, '');
   await write(
     `src/${snake}/__init__.py`,
-    `"""Servico ${name} da plataforma AIA."""
+    `"""The AIA platform ${name} service."""
 
 __all__: list[str] = []
 `,
@@ -474,10 +502,10 @@ __all__: list[str] = []
 
   await write(
     `src/${snake}/domain/__init__.py`,
-    `"""Dominio do servico.
+    `"""The service domain.
 
-Regras puras: nada de FastAPI, nada de banco, nada de I/O. E o que permite testar
-a regra de negocio sem subir nada.
+Pure rules: no FastAPI, no database, no I/O. That is what makes it possible to
+test the business rule without starting anything.
 """
 
 __all__: list[str] = []
@@ -486,7 +514,7 @@ __all__: list[str] = []
 
   await write(
     `src/${snake}/domain/entities.py`,
-    `"""Entidades e value objects. Dataclasses puras."""
+    `"""Entities and value objects. Plain dataclasses."""
 
 from __future__ import annotations
 
@@ -494,58 +522,59 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
-class Exemplo:
-    """Value object de exemplo. Troque por um real e apague este."""
+class Example:
+    """Placeholder value object. Replace it with a real one and delete this."""
 
     id: str
     project_id: str
 
     def __post_init__(self) -> None:
         if not self.project_id:
-            msg = "project_id e obrigatorio: projeto e o tenant da plataforma"
+            msg = "project_id is required: project is the platform tenant"
             raise ValueError(msg)
 `,
   );
 
   await write(
     `src/${snake}/domain/errors.py`,
-    `"""Erros de dominio deste servico."""
+    `"""Domain errors for this service."""
 
 from __future__ import annotations
 
 from aia_errors import DomainError, ErrorCode
 
 
-class ExemploError(DomainError):
-    def __init__(self, detalhe: str) -> None:
-        super().__init__(detalhe, code=ErrorCode.VALIDATION_FAILED, status=400)
+class ExampleError(DomainError):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail, code=ErrorCode.VALIDATION_FAILED, status=400)
 `,
   );
 
   await write(`src/${snake}/application/__init__.py`, '');
   await write(
     `src/${snake}/application/ports.py`,
-    `"""Ports como Protocol.
+    `"""Ports as Protocols.
 
-Adapters nao herdam: so cumprem a assinatura, e o mypy verifica (duck typing).
+Adapters do not inherit: they merely satisfy the signature, and mypy checks it
+(duck typing).
 """
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from ${snake}.domain.entities import Exemplo
+from ${snake}.domain.entities import Example
 
 
-class ExemploRepository(Protocol):
-    async def find(self, exemplo_id: str) -> Exemplo | None: ...
-    async def save(self, exemplo: Exemplo) -> None: ...
+class ExampleRepository(Protocol):
+    async def find(self, example_id: str) -> Example | None: ...
+    async def save(self, example: Example) -> None: ...
 `,
   );
 
   await write(
     `src/${snake}/application/dto.py`,
-    `"""Comandos e resultados. Sem detalhe de HTTP."""
+    `"""Commands and results. No HTTP detail."""
 
 from __future__ import annotations
 
@@ -553,64 +582,64 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
-class ExemploCommand:
+class ExampleCommand:
     project_id: str
 `,
   );
 
   await write(`src/${snake}/application/use_cases/__init__.py`, '');
   await write(
-    `src/${snake}/application/use_cases/exemplo.py`,
-    `"""Caso de uso de exemplo. Troque por um real e apague este."""
+    `src/${snake}/application/use_cases/example.py`,
+    `"""Placeholder use case. Replace it with a real one and delete this."""
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
 
-from ${snake}.application.dto import ExemploCommand
-from ${snake}.application.ports import ExemploRepository
-from ${snake}.domain.entities import Exemplo
+from ${snake}.application.dto import ExampleCommand
+from ${snake}.application.ports import ExampleRepository
+from ${snake}.domain.entities import Example
 
 
 @dataclass(slots=True)
-class ExecutarExemplo:
-    repository: ExemploRepository
+class RunExample:
+    repository: ExampleRepository
 
-    async def execute(self, command: ExemploCommand) -> Exemplo:
-        exemplo = Exemplo(id=str(uuid.uuid4()), project_id=command.project_id)
-        await self.repository.save(exemplo)
-        return exemplo
+    async def execute(self, command: ExampleCommand) -> Example:
+        example = Example(id=str(uuid.uuid4()), project_id=command.project_id)
+        await self.repository.save(example)
+        return example
 `,
   );
 
   await write(`src/${snake}/infrastructure/__init__.py`, '');
   await write(
     `src/${snake}/infrastructure/in_memory.py`,
-    `"""Adapters em memoria. Substitua por MongoDB quando houver estado real."""
+    `"""In-memory adapters. Swap for MongoDB once there is real state."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ${snake}.domain.entities import Exemplo
+from ${snake}.domain.entities import Example
 
 
 @dataclass(slots=True)
-class InMemoryExemploRepository:
-    _items: dict[str, Exemplo] = field(default_factory=dict)
+class InMemoryExampleRepository:
+    _items: dict[str, Example] = field(default_factory=dict)
 
-    async def find(self, exemplo_id: str) -> Exemplo | None:
-        return self._items.get(exemplo_id)
+    async def find(self, example_id: str) -> Example | None:
+        return self._items.get(example_id)
 
-    async def save(self, exemplo: Exemplo) -> None:
-        self._items[exemplo.id] = exemplo
+    async def save(self, example: Example) -> None:
+        self._items[example.id] = example
 `,
   );
 
   await write(
     `src/${snake}/config.py`,
-    `"""Configuracao validada na inicializacao. 12-factor."""
+    `"""Configuration validated at startup. 12-factor."""
 
 from __future__ import annotations
 
@@ -645,7 +674,7 @@ def get_settings() -> Settings:
 
   await write(
     `src/${snake}/container.py`,
-    `"""Composicao de dependencias. Nunca dentro de um caso de uso."""
+    `"""Dependency composition. Never inside a use case."""
 
 from __future__ import annotations
 
@@ -654,15 +683,15 @@ from functools import lru_cache
 
 from aia_auth import JwtVerifier
 
-from ${snake}.application.use_cases.exemplo import ExecutarExemplo
+from ${snake}.application.use_cases.example import RunExample
 from ${snake}.config import Settings, get_settings
-from ${snake}.infrastructure.in_memory import InMemoryExemploRepository
+from ${snake}.infrastructure.in_memory import InMemoryExampleRepository
 
 
 @dataclass(slots=True)
 class Container:
     settings: Settings
-    exemplo: ExecutarExemplo
+    example: RunExample
     verifier: JwtVerifier
 
 
@@ -671,7 +700,7 @@ def get_container() -> Container:
     settings = get_settings()
     return Container(
         settings=settings,
-        exemplo=ExecutarExemplo(repository=InMemoryExemploRepository()),
+        example=RunExample(repository=InMemoryExampleRepository()),
         verifier=JwtVerifier(
             issuer=settings.identity_issuer,
             jwks_uri=settings.jwks_url,
@@ -685,7 +714,7 @@ def get_container() -> Container:
   await write(`src/${snake}/presentation/http/__init__.py`, '');
   await write(
     `src/${snake}/presentation/http/routes.py`,
-    `"""Routers FastAPI. So adaptam entrada e saida."""
+    `"""FastAPI routers. They only adapt input and output."""
 
 from __future__ import annotations
 
@@ -696,7 +725,7 @@ from aia_errors import ProjectRequiredError
 from aia_telemetry import AiaAttr, annotate_active_span
 from fastapi import APIRouter, Depends, Header
 
-from ${snake}.application.dto import ExemploCommand
+from ${snake}.application.dto import ExampleCommand
 from ${snake}.container import get_container
 
 router = APIRouter(prefix="/v1/${name}", tags=["${name}"])
@@ -707,7 +736,7 @@ def _authenticate(
     authorization: Annotated[str | None, Header()] = None,
     x_project_id: Annotated[str | None, Header()] = None,
 ) -> tuple[Principal, str]:
-    """\`Depends\` so existe na apresentacao (doc 03, secao 3.3)."""
+    """\`Depends\` exists only in presentation (reference doc 03 §3.3)."""
     principal = get_container().verifier.verify(bearer_token(authorization))
     if not x_project_id:
         raise ProjectRequiredError()
@@ -724,10 +753,10 @@ Authenticated = Annotated[tuple[Principal, str], Depends(_authenticate)]
 
 
 @router.get("")
-async def listar(auth: Authenticated) -> dict[str, str]:
+async def list_items(auth: Authenticated) -> dict[str, str]:
     _, project_id = auth
-    exemplo = await get_container().exemplo.execute(ExemploCommand(project_id=project_id))
-    return {"id": exemplo.id, "project_id": exemplo.project_id}
+    example = await get_container().example.execute(ExampleCommand(project_id=project_id))
+    return {"id": example.id, "project_id": example.project_id}
 
 
 @health_router.get("/live")
@@ -743,7 +772,7 @@ def ready() -> dict[str, str]:
 
   await write(
     `src/${snake}/main.py`,
-    `"""Aplicacao FastAPI do aia-${name}."""
+    `"""FastAPI application for aia-${name}."""
 
 from __future__ import annotations
 
@@ -784,8 +813,8 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, error: Exception) -> JSONResponse:
-        # Stack no log, correlacionado pelo trace_id; nunca na resposta.
-        logger.exception("requisicao falhou em %s", request.url.path)
+        # Stack in the log, correlated by trace_id; never in the response.
+        logger.exception("request failed at %s", request.url.path)
         problem = problem_from_unknown(
             error, instance=request.url.path, trace_id=current_trace_id()
         )
@@ -803,51 +832,50 @@ app = create_app()
   );
 
   await write(
-    'tests/test_exemplo.py',
-    `"""Teste do caso de uso de exemplo."""
+    'tests/test_example.py',
+    `"""Test for the placeholder use case."""
 
 from __future__ import annotations
 
-from ${snake}.application.dto import ExemploCommand
-from ${snake}.application.use_cases.exemplo import ExecutarExemplo
-from ${snake}.infrastructure.in_memory import InMemoryExemploRepository
+from ${snake}.application.dto import ExampleCommand
+from ${snake}.application.use_cases.example import RunExample
+from ${snake}.infrastructure.in_memory import InMemoryExampleRepository
 
 
-async def test_cria_e_persiste() -> None:
-    repository = InMemoryExemploRepository()
-    resultado = await ExecutarExemplo(repository=repository).execute(
-        ExemploCommand(project_id="proj-1")
-    )
+async def test_creates_and_persists() -> None:
+    repository = InMemoryExampleRepository()
+    result = await RunExample(repository=repository).execute(ExampleCommand(project_id="proj-1"))
 
-    assert resultado.project_id == "proj-1"
-    assert await repository.find(resultado.id) == resultado
+    assert result.project_id == "proj-1"
+    assert await repository.find(result.id) == result
 `,
   );
 }
 
 /* ------------------------------------------------------------------ */
 
-console.log(`Gerando apps/${name} (${runtime}, porta ${port}):\n`);
+console.log(`Generating apps/${name} (${runtime}, port ${port}):\n`);
 await (runtime === 'node' ? generateNode() : generatePython());
 
-const proximosPassos =
+const nextSteps =
   runtime === 'node'
-    ? `  1. Adicione "apps/${name}" a pnpm-workspace.yaml
-  2. Adicione { "path": "./apps/${name}" } a tsconfig.json (referencias)
-  3. pnpm install && pnpm exec tsc --build`
-    : `  1. O uv workspace ja inclui apps/* — rode: uv sync --all-packages
-  2. Adicione os contratos de camada ao .importlinter (root_packages e layers)`;
+    ? `  1. Add "apps/${name}" to pnpm-workspace.yaml
+  2. Add { "path": "./apps/${name}/tsconfig.build.json" } to the references in
+     tsconfig.build.json at the repository root
+  3. pnpm install && pnpm exec tsc --build tsconfig.build.json`
+    : `  1. The uv workspace already includes apps/* — run: uv sync --all-packages
+  2. Add the layer contracts to .importlinter (root_packages and layers)`;
 
 console.log(`
-Servico apps/${name} criado.
+Service apps/${name} created.
 
-Proximos passos:
-${proximosPassos}
-  4. Adicione o servico a deploy/compose/docker-compose.yml
-  5. Adicione ao chart em deploy/helm/aia-platform/values.yaml e services.yaml
-  6. Escreva o contrato em contracts/openapi/${name}.v1.yaml
-  7. Troque o "Exemplo" por um caso de uso real e apague o esqueleto
+Next steps:
+${nextSteps}
+  4. Add the service to deploy/compose/docker-compose.yml
+  5. Add it to the chart in deploy/helm/aia-platform/values.yaml and services.yaml
+  6. Write the contract in contracts/openapi/${name}.v1.yaml
+  7. Replace "Example" with a real use case and delete the skeleton
 
-A regra de dependencia ja vale: 'make arch' reprova se domain/ importar de
+The dependency rule already applies: 'make arch' fails if domain/ imports from
 infrastructure/.
 `);

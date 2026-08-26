@@ -1,13 +1,13 @@
 /**
- * Padrao Specification para autorizacao (doc 03, secao 4).
+ * Specification pattern for authorisation (reference doc 03 §4).
  *
- * Regras de acesso sao objetos combinaveis com `and`, `or` e `not`, testaveis
- * isoladamente e legiveis no proprio nome. Uma decisao carrega o motivo, que
- * vai para o trace: auditoria precisa saber POR QUE algo foi negado.
+ * Access rules are objects composable with `and`, `or` and `not`, testable in
+ * isolation and readable from their own name. A decision carries its reason,
+ * which goes into the trace: audit needs to know WHY something was denied.
  */
 export interface Decision {
   allowed: boolean;
-  /** Explicacao curta e estavel. Nunca carrega PII. */
+  /** Short, stable explanation. Never carries PII. */
   reason: string;
 }
 
@@ -48,7 +48,7 @@ class AndSpecification<T> extends Specification<T> {
 
   evaluate(subject: T): Decision {
     const leftDecision = this.left.evaluate(subject);
-    // Curto-circuito: o motivo do primeiro que nega e o motivo util.
+    // Short circuit: the reason from the first denial is the useful one.
     if (!leftDecision.allowed) return leftDecision;
     return this.right.evaluate(subject);
   }
@@ -85,12 +85,12 @@ class NotSpecification<T> extends Specification<T> {
   evaluate(subject: T): Decision {
     const decision = this.inner.evaluate(subject);
     return decision.allowed
-      ? deny(`negado por ${this.inner.name}`)
-      : allow(`nao ${this.inner.name}`);
+      ? deny(`denied by ${this.inner.name}`)
+      : allow(`not ${this.inner.name}`);
   }
 }
 
-/** Especificacao construida a partir de um predicado simples. */
+/** Builds a specification from a plain predicate. */
 export function spec<T>(
   name: string,
   predicate: (subject: T) => boolean,

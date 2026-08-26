@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Validacao de borda. Fica na apresentacao porque descreve o CONTRATO HTTP;
- * as regras de negocio moram no dominio.
+ * Edge validation. It lives in presentation because it describes the HTTP
+ * CONTRACT; business rules live in the domain.
  */
 export const tokenRequestSchema = z.discriminatedUnion('grant_type', [
   z.object({

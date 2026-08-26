@@ -1,7 +1,7 @@
-"""Placeholder do pacote aia_contracts.
+"""Placeholder for the aia_contracts package.
 
-Sera preenchido quando o gerador de contratos (make contracts) rodar a trilha
-Python, na mesma etapa em que o SDK publico entrar (Fase 4 do roadmap).
+It gets filled in when the contract generator (make contracts) runs the Python
+track, in the same step that brings the public SDK (roadmap phase 4).
 """
 
 __all__: list[str] = []

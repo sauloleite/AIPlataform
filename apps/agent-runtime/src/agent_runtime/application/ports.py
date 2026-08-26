@@ -1,6 +1,7 @@
-"""Ports como Protocol.
+"""Ports as Protocols.
 
-Adapters nao herdam: so cumprem a assinatura, e o mypy verifica (doc 03, 3.3).
+Adapters do not inherit: they merely satisfy the signature, and mypy checks it
+(reference doc 03 §3.3).
 """
 
 from __future__ import annotations
@@ -17,14 +18,14 @@ class RunRepository(Protocol):
 
 
 class Checkpointer(Protocol):
-    """Persiste o estado para que a execucao sobreviva a um restart."""
+    """Persists the state so a run survives a restart."""
 
     async def save(self, state: RunState) -> None: ...
     async def load(self, run_id: str) -> RunState | None: ...
 
 
 class ToolGateway(Protocol):
-    """Invoca tools atras do aia-mcp-gateway, com a identidade do usuario."""
+    """Invokes tools behind aia-mcp-gateway, with the user identity."""
 
     async def invoke(
         self, *, call: ToolCall, principal_id: str, project_id: str
@@ -32,7 +33,7 @@ class ToolGateway(Protocol):
 
 
 class ModelClient(Protocol):
-    """Cliente do inference-router. O agente nunca fala com provedor direto."""
+    """Inference-router client. An agent never talks to a provider directly."""
 
     async def chat(
         self, *, alias: str, messages: list[dict[str, Any]], project_id: str

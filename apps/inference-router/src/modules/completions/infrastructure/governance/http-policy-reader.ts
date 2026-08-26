@@ -30,25 +30,25 @@ interface CacheEntry {
 
 export interface HttpPolicyReaderOptions {
   governanceUrl: string;
-  /** Token de servico. O router chama o governance como servico, nao como usuario. */
+  /** Service token. The router calls governance as a service, not as a user. */
   serviceToken: () => Promise<string>;
   cacheTtlSeconds: number;
   defaultCurrency: string;
-  /** Limite implicito quando o projeto nao tem orcamento configurado. */
+  /** Implicit limit when the project has no configured budget. */
   unlimitedMicros?: bigint;
 }
 
 /**
- * Politica do projeto com cache local e degradacao graciosa.
+ * Project policy with a local cache and graceful degradation.
  *
- * Este e o endpoint mais chamado da plataforma: uma ida ao governance por
- * requisicao de inferencia colocaria um servico de controle no caminho critico.
- * O cache com TTL curto resolve isso.
+ * This is the platform's busiest endpoint: one round trip to governance per
+ * inference request would put a control-plane service on the critical path. The
+ * short-TTL cache solves that.
  *
- * Quando o governance cai, a ultima politica conhecida continua valendo e a
- * resposta e marcada com `policy_stale=true` (doc 02, secao 8). Recusar toda a
- * inferencia porque o servico de politicas reiniciou seria trocar um risco
- * pequeno por uma indisponibilidade completa.
+ * When governance goes down, the last known policy stays in force and the
+ * response is flagged `policy_stale=true` (reference doc 02 §8). Refusing all
+ * inference because the policy service restarted would trade a small risk for a
+ * total outage.
  */
 @Injectable()
 export class HttpPolicyReader implements PolicyReader {
@@ -58,7 +58,7 @@ export class HttpPolicyReader implements PolicyReader {
 
   constructor(private readonly options: HttpPolicyReaderOptions) {}
 
-  /** Chamado pelo consumidor de `PolicyChanged`, para invalidar antes do TTL. */
+  /** Called by the `PolicyChanged` consumer, to invalidate ahead of the TTL. */
   invalidate(projectId: string): void {
     this.cache.delete(projectId);
   }
@@ -79,9 +79,9 @@ export class HttpPolicyReader implements PolicyReader {
 
       if (cached !== undefined) {
         this.logger.warn(
-          `governance indisponivel (${describe(error)}); usando politica em cache para ${projectId}`,
+          `governance unreachable (${describe(error)}); serving cached policy for ${projectId}`,
         );
-        // Estende o cache vencido: sem isso, cada request repetiria a falha.
+        // Extends the expired cache: without this, every request would repeat the failure.
         const stale: PolicyResult = { ...cached.value, stale: true };
         this.cache.set(projectId, { value: stale, expiresAt: Date.now() + 10_000 });
         return stale;
@@ -103,16 +103,16 @@ export class HttpPolicyReader implements PolicyReader {
       { key: 'governance' },
     );
 
-    if (response.status === 404) throw new NotFoundError('Projeto', projectId);
+    if (response.status === 404) throw new NotFoundError('Project', projectId);
     if (!response.ok) {
-      throw new Error(`governance respondeu ${response.status.toString()}`);
+      throw new Error(`governance responded ${response.status.toString()}`);
     }
 
     return toPolicyResult((await response.json()) as PolicyResponse, this.options);
   }
 }
 
-/** `2026-03` para orcamento mensal, `2026-03-15` para diario. */
+/** `2026-03` for a monthly budget, `2026-03-15` for a daily one. */
 export function periodKeyFrom(periodEnd: Date, period: 'daily' | 'monthly'): string {
   const year = periodEnd.getUTCFullYear().toString();
   const month = (periodEnd.getUTCMonth() + 1).toString().padStart(2, '0');
@@ -134,14 +134,14 @@ function toPolicyResult(payload: PolicyResponse, options: HttpPolicyReaderOption
 
   const budget = payload.budget;
   if (budget === undefined) {
-    // Projeto sem orcamento configurado nao e bloqueado: a governanca decide
-    // quando exigir orcamento, o router so aplica o que existe.
+    // A project with no configured budget is not blocked: governance decides
+    // when to require a budget, the router only enforces what exists.
     return {
       policy: snapshot,
       limitMicros: options.unlimitedMicros ?? UNLIMITED_MICROS,
       currency: options.defaultCurrency,
       blockAtLimit: false,
-      periodKey: 'sem-orcamento',
+      periodKey: 'no-budget',
       periodEndsInSeconds: 3600,
       maxConcurrentRequests: payload.max_concurrent_requests,
       contentCapture: payload.content_capture,
@@ -151,7 +151,7 @@ function toPolicyResult(payload: PolicyResponse, options: HttpPolicyReaderOption
 
   const periodEnd = new Date(budget.period_end);
   const secondsToEnd = Math.max(60, Math.ceil((periodEnd.getTime() - Date.now()) / 1000));
-  // Periodo maior que 2 dias so pode ser mensal.
+  // A period longer than two days can only be monthly.
   const period = secondsToEnd > 2 * 24 * 60 * 60 ? 'monthly' : 'daily';
 
   return {

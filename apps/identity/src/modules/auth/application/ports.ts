@@ -4,11 +4,11 @@ import type { PrincipalEntity } from '../domain/entities/principal.js';
 import type { Email } from '../domain/value-objects/email.js';
 
 /**
- * Ports da camada de aplicacao.
+ * Application layer ports.
  *
- * Interfaces, nunca classes concretas: o caso de uso nao sabe se por tras ha
- * MongoDB, Redis ou memoria. Os Symbol existem porque o NestJS precisa de um
- * token de injecao em runtime, e interface some na compilacao.
+ * Interfaces, never concrete classes: the use case does not know whether MongoDB,
+ * Redis or memory sits behind them. The Symbols exist because NestJS needs an
+ * injection token at runtime, and an interface disappears at compile time.
  */
 
 export interface PrincipalRepository {
@@ -21,7 +21,7 @@ export const PRINCIPAL_REPOSITORY = Symbol('PrincipalRepository');
 export interface ServiceClientRepository {
   findByClientId(clientId: string): Promise<ServiceClient | null>;
   save(client: ServiceClient): Promise<void>;
-  /** Compara o segredo apresentado com o hash guardado, em tempo constante. */
+  /** Compares the presented secret against the stored hash, in constant time. */
   matches(client: ServiceClient, presentedSecret: string): boolean;
 }
 export const SERVICE_CLIENT_REPOSITORY = Symbol('ServiceClientRepository');
@@ -42,8 +42,8 @@ export interface PatRepository {
 export const PAT_REPOSITORY = Symbol('PatRepository');
 
 /**
- * Hash de SENHA. Lento e com salt aleatorio por design (Argon2id).
- * Cada chamada de `hash` produz um valor diferente: sempre use `verify`.
+ * PASSWORD hashing. Slow and randomly salted by design (Argon2id).
+ * Every `hash` call yields a different value: always use `verify`.
  */
 export interface PasswordHasher {
   hash(plain: string): Promise<string>;
@@ -52,12 +52,12 @@ export interface PasswordHasher {
 export const PASSWORD_HASHER = Symbol('PasswordHasher');
 
 /**
- * Hash de TOKEN OPACO. Deterministico, porque o token precisa ser encontrado
- * por busca indexada — um salt aleatorio tornaria a consulta impossivel.
+ * OPAQUE TOKEN hashing. Deterministic, because the token has to be found by an
+ * indexed lookup — a random salt would make that query impossible.
  *
- * Usar hash rapido aqui e seguro justamente porque um PAT nao e uma senha:
- * sao 32 bytes aleatorios, sem espaco de busca que compense forca bruta.
- * O pepper do servidor impede que um vazamento do banco vire tokens validos.
+ * A fast hash is safe here precisely because a PAT is not a password: it is 32
+ * random bytes, with no search space worth brute forcing. The server pepper
+ * stops a database leak from turning into usable tokens.
  */
 export interface TokenHasher {
   hash(token: string): string;
@@ -71,12 +71,12 @@ export interface SignedToken {
 
 export interface TokenSigner {
   sign(claims: Record<string, unknown>, ttlSeconds: number): Promise<SignedToken>;
-  /** Chaves publicas para o endpoint JWKS. */
+  /** Public keys for the JWKS endpoint. */
   publicJwks(): Promise<{ keys: unknown[] }>;
 }
 export const TOKEN_SIGNER = Symbol('TokenSigner');
 
-/** Cache curto para introspeccao de PAT (ADR-004). */
+/** Short-lived cache for PAT introspection (ADR-004). */
 export interface IntrospectionCache {
   get(tokenHash: string): Promise<string | null>;
   set(tokenHash: string, value: string, ttlSeconds: number): Promise<void>;
@@ -86,7 +86,7 @@ export const INTROSPECTION_CACHE = Symbol('IntrospectionCache');
 
 export interface IdGenerator {
   next(): string;
-  /** Segredo com entropia suficiente para virar um PAT. */
+  /** A secret with enough entropy to serve as a PAT. */
   secret(bytes: number): string;
 }
 export const ID_GENERATOR = Symbol('IdGenerator');

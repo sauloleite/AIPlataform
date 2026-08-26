@@ -20,14 +20,14 @@ export interface SigningKeyMaterial {
 export interface JoseSignerOptions {
   issuer: string;
   audience: string;
-  /** Chaves ja conhecidas na construcao (vindas da configuracao). */
+  /** Keys already known at construction time, coming from configuration. */
   keys?: SigningKeyMaterial[];
   /**
-   * Carregador tardio, usado quando a chave nao vem da configuracao.
+   * Lazy loader, used when no key comes from configuration.
    *
-   * Existe para que o servico persista a chave que gerou, em vez de criar uma
-   * nova a cada restart: chave efemera invalida todo token ja emitido e ainda
-   * deixa os outros servicos com um JWKS obsoleto em cache.
+   * It exists so the service persists the key it generated instead of minting a
+   * new one on each restart: an ephemeral key invalidates every issued token and
+   * leaves the other services holding a stale JWKS in cache.
    */
   loadKeys?: () => Promise<SigningKeyMaterial[]>;
 }
@@ -35,13 +35,14 @@ export interface JoseSignerOptions {
 const ALG = 'RS256';
 
 /**
- * Emissor de JWT RS256 com JWKS proprio.
+ * RS256 JWT issuer with its own JWKS.
  *
- * Chave privada assina; chave publica vai para o `/.well-known/jwks.json`, e e
- * assim que todo servico valida token localmente sem chamar este aqui (ADR-004).
+ * The private key signs; the public key is published at
+ * `/.well-known/jwks.json`, and that is how every service validates tokens
+ * locally without calling this one (ADR-004).
  *
- * Chaves antigas continuam no JWKS depois da rotacao, para que tokens ja emitidos
- * nao sejam invalidados de uma vez.
+ * Retired keys stay in the JWKS after rotation, so tokens already issued are not
+ * invalidated all at once.
  */
 @Injectable()
 export class JoseTokenSigner implements TokenSigner {
@@ -60,8 +61,8 @@ export class JoseTokenSigner implements TokenSigner {
     }
 
     if (configured.length === 0) {
-      // Ultimo recurso: par efemero em memoria. So acontece quando nao ha chave
-      // configurada NEM store persistente (por exemplo, em teste unitario).
+      // Last resort: an ephemeral in-memory pair. This only happens when there
+      // is neither a configured key NOR a persistent store, e.g. in a unit test.
       const { privateKey, publicKey } = await generateKeyPair(ALG, { extractable: true });
       const kid = 'ephemeral-1';
       this.privateKey = privateKey;
@@ -80,7 +81,7 @@ export class JoseTokenSigner implements TokenSigner {
           use: 'sig',
         });
       }
-      // A primeira chave com privada e a ativa; as demais so validam tokens antigos.
+      // The first key with a private half is active; the rest only validate old tokens.
       if (key.privateKeyPem !== undefined && this.privateKey === undefined) {
         this.privateKey = await importPKCS8(key.privateKeyPem, ALG);
         this.activeKid = key.kid;

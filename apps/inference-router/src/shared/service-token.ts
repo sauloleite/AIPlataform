@@ -13,17 +13,17 @@ interface TokenResponse {
 }
 
 /**
- * Credencial do proprio router para falar com governance e guardrails.
+ * The router's own credential for talking to governance and guardrails.
  *
- * Substitui a identidade gerenciada que uma nuvem forneceria (doc 02, secao 6 e
- * ADR-012): o router se autentica no `aia-identity` pelo grant
- * `client_credentials` e reusa o token ate perto do vencimento.
+ * It replaces the managed identity a cloud would provide (reference doc 02 §6
+ * and ADR-012): the router authenticates against `aia-identity` through the
+ * `client_credentials` grant and reuses the token until it is close to expiry.
  *
- * O token e renovado ANTES de expirar, com uma margem: renovar no momento exato
- * do vencimento faria a requisicao em voo falhar por diferenca de relogio.
+ * The token is refreshed BEFORE it expires, with a margin: refreshing at the
+ * exact moment of expiry would fail an in-flight request over clock skew.
  *
- * Uma renovacao em curso e compartilhada por todas as chamadas concorrentes;
- * sem isso, um pico simultaneo dispararia dezenas de logins iguais.
+ * A refresh in progress is shared by every concurrent caller; without that, a
+ * simultaneous spike would fire dozens of identical logins.
  */
 @Injectable()
 export class ServiceTokenProvider {
@@ -50,7 +50,7 @@ export class ServiceTokenProvider {
     return this.inFlight;
   }
 
-  /** Descarta o token atual. Chamado quando uma dependencia devolve 401. */
+  /** Discards the current token. Called when a dependency returns 401. */
   invalidate(): void {
     this.token = undefined;
     this.expiresAt = 0;
@@ -72,10 +72,10 @@ export class ServiceTokenProvider {
     if (!response.ok) {
       const body = await response.text().catch(() => '');
       this.logger.error(
-        `nao foi possivel obter token de servico (${response.status.toString()}): ${body.slice(0, 200)}`,
+        `could not obtain a service token (${response.status.toString()}): ${body.slice(0, 200)}`,
       );
       throw new Error(
-        `identity respondeu ${response.status.toString()} ao emitir token de servico`,
+        `identity responded ${response.status.toString()} when issuing a service token`,
       );
     }
 
@@ -84,7 +84,7 @@ export class ServiceTokenProvider {
     this.expiresAt =
       Date.now() + payload.expires_in * 1000 - ServiceTokenProvider.REFRESH_MARGIN_MS;
 
-    this.logger.log(`token de servico obtido, valido por ${payload.expires_in.toString()}s`);
+    this.logger.log(`service token obtained, valid for ${payload.expires_in.toString()}s`);
     return this.token;
   }
 }

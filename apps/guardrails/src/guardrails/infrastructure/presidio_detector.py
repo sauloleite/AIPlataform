@@ -1,9 +1,9 @@
-"""Detector de PII sobre o Presidio, com reconhecedores brasileiros.
+"""PII detector on top of Presidio, with Brazilian recognisers.
 
-Presidio nao traz CPF, CNPJ nem agencia/conta prontos, e sao justamente os dados
-que mais importam no contexto de LGPD em uma instituicao financeira. Cada
-reconhecedor combina padrao com VALIDACAO de digito verificador, porque regex
-sozinho transforma numero de protocolo em falso positivo.
+Presidio ships no CPF, CNPJ or branch/account recogniser, and those are exactly
+the data that matter most under LGPD at a financial institution. Each recogniser
+pairs a pattern with check-digit VALIDATION, because a regex on its own turns a
+ticket number into a false positive.
 """
 
 from __future__ import annotations
@@ -53,8 +53,9 @@ def _build_br_recognizers() -> list[Any]:
             )
 
         def validate_result(self, pattern_text: str) -> bool | None:
-            # Sobe a confianca quando o digito verificador confere, e derruba o
-            # resultado quando nao confere: e o que separa CPF de protocolo.
+            # Raises confidence when the check digit matches and drops the
+            # result when it does not: that is what separates a CPF from a
+            # ticket number.
             return is_valid_cpf(pattern_text)
 
     class CnpjRecognizer(PatternRecognizer):
@@ -82,7 +83,7 @@ def _build_br_recognizers() -> list[Any]:
 
 
 class PresidioDetector:
-    """Adapter do Presidio para o port `PiiDetector`."""
+    """Presidio adapter for the `PiiDetector` port."""
 
     def __init__(self, *, languages: Sequence[str] = ("pt", "en")) -> None:
         from presidio_analyzer import AnalyzerEngine
@@ -121,8 +122,8 @@ class PresidioDetector:
 
         findings: list[Finding] = []
         for result in results:
-            # Cartao passa por Luhn: 16 digitos sem Luhn valido costuma ser
-            # numero de pedido, nao cartao.
+            # A card goes through Luhn: 16 digits that fail Luhn are usually
+            # an order number, not a card.
             if result.entity_type == "CREDIT_CARD" and not luhn_is_valid(
                 text[result.start : result.end]
             ):

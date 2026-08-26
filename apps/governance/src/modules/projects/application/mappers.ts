@@ -2,7 +2,7 @@ import type { Budget } from '../domain/entities/budget.js';
 import type { Project } from '../domain/entities/project.js';
 import type { BudgetView, ProjectPolicyView, ProjectView } from './dto.js';
 
-/** Traducoes de entidade para DTO. Ficam juntas para nao se espalharem. */
+/** Entity-to-DTO translations. Kept together so they do not scatter. */
 
 export function toProjectView(project: Project): ProjectView {
   const snapshot = project.toSnapshot();

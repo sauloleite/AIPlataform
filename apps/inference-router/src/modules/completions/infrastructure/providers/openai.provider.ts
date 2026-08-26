@@ -42,12 +42,12 @@ function normalizeFinishReason(raw: string | null | undefined): ChatResult['fini
 }
 
 /**
- * Adapter OpenAI.
+ * OpenAI adapter.
  *
- * A API canonica da plataforma JA e compativel com OpenAI, entao este adapter e
- * quase passthrough. Ele existe assim mesmo porque e o ponto onde erros de
- * transporte viram erros tipados e onde o `usage` e normalizado — sem isso, a
- * substituibilidade entre provedores (LSP) se perderia.
+ * The platform's canonical API is ALREADY OpenAI-compatible, so this adapter is
+ * nearly a passthrough. It exists anyway because it is the point where transport
+ * errors become typed errors and where `usage` is normalised — without that,
+ * substitutability between providers (LSP) would be lost.
  */
 @Injectable()
 export class OpenAiProvider implements ModelProvider {
@@ -138,7 +138,7 @@ export class OpenAiProvider implements ModelProvider {
       const chunk: ChatChunk = { delta };
       const finishReason = normalizeFinishReason(choice?.finish_reason);
       if (finishReason !== null) chunk.finishReason = finishReason;
-      // Com `include_usage`, o consumo real vem no ultimo evento.
+      // With `include_usage`, the real consumption arrives in the last event.
       if (payload.usage !== undefined) {
         chunk.usage = {
           promptTokens: payload.usage.prompt_tokens ?? 0,

@@ -51,6 +51,11 @@ jobs:
       - name: ESLint
         run: pnpm exec eslint . --max-warnings 0
 
+      - name: tsc (inclui os testes)
+        # `tsconfig.build.json` deixa os testes de fora para nao irem para a
+        # imagem, entao sem este passo nada checa o tipo de um arquivo de teste.
+        run: pnpm exec nx run-many -t typecheck --all
+
       - name: Ruff (lint)
         run: uv run ruff check --output-format=github .
 

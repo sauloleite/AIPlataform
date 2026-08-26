@@ -26,13 +26,13 @@ export class SetBudget {
 
   async execute(command: SetBudgetCommand): Promise<BudgetView> {
     const project = await this.projects.findById(command.projectId);
-    if (project === null) throw new NotFoundError('Projeto', command.projectId);
+    if (project === null) throw new NotFoundError('Project', command.projectId);
 
     const now = this.clock.now();
     const limit = Money.of(BigInt(command.limitMicros), command.currency);
     const existing = await this.budgets.findByProject(command.projectId);
 
-    // Alterar o limite preserva o gasto do periodo; so criar do zero reinicia.
+    // Changing the limit preserves the period's spend; only creating anew resets.
     const budget =
       existing === null
         ? Budget.create({

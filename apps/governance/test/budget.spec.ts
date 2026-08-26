@@ -14,20 +14,20 @@ const budget = (overrides: Partial<Parameters<typeof Budget.create>[0]> = {}): B
   });
 
 describe('Budget', () => {
-  it('comeca zerado e com o periodo alinhado ao inicio do mes', () => {
+  it('starts at zero with the period aligned to the start of the month', () => {
     const b = budget();
     expect(b.spent.micros).toBe(0n);
     expect(b.periodStart.toISOString()).toBe('2026-03-01T00:00:00.000Z');
     expect(b.periodEnd().toISOString()).toBe('2026-04-01T00:00:00.000Z');
   });
 
-  it('periodo diario vira a meia-noite UTC', () => {
+  it('a daily period rolls at UTC midnight', () => {
     const b = budget({ period: 'daily' });
     expect(b.periodStart.toISOString()).toBe('2026-03-15T00:00:00.000Z');
     expect(b.periodEnd().toISOString()).toBe('2026-03-16T00:00:00.000Z');
   });
 
-  it('committed soma gasto e reservado, para nao autorizar duas vezes o mesmo saldo', () => {
+  it('committed adds spend and reserved, so the same balance is not authorised twice', () => {
     const b = Budget.rehydrate({
       projectId: 'proj-1',
       limit: Money.fromUnits(100, 'BRL'),
@@ -44,7 +44,7 @@ describe('Budget', () => {
     expect(b.usageRatio()).toBeCloseTo(0.9);
   });
 
-  it('recusa gasto que ultrapassa o limite quando bloqueia', () => {
+  it('rejects spend past the limit when blocking is on', () => {
     const b = Budget.rehydrate({
       projectId: 'proj-1',
       limit: Money.fromUnits(10, 'BRL'),
@@ -64,7 +64,7 @@ describe('Budget', () => {
     }).toThrow(BudgetExhaustedError);
   });
 
-  it('o erro de orcamento diz quando vale a pena tentar de novo', () => {
+  it('the budget error says when retrying is worthwhile', () => {
     const b = Budget.rehydrate({
       projectId: 'proj-1',
       limit: Money.zero('BRL'),
@@ -78,14 +78,14 @@ describe('Budget', () => {
 
     try {
       b.ensureCanAfford(Money.of(1n, 'BRL'), NOW);
-      expect.unreachable('deveria ter lancado');
+      expect.unreachable('should have thrown');
     } catch (error) {
-      // Faltam 14 h para a virada do periodo diario.
+      // 14 hours remain until the daily period rolls over.
       expect((error as BudgetExhaustedError).details['retry_after']).toBe(14 * 60 * 60);
     }
   });
 
-  it('projeto que nao bloqueia no limite continua atendendo e so alerta', () => {
+  it('a project that does not block at the limit keeps serving and only alerts', () => {
     const b = Budget.rehydrate({
       projectId: 'proj-1',
       limit: Money.fromUnits(1, 'BRL'),
@@ -102,7 +102,7 @@ describe('Budget', () => {
     }).not.toThrow();
   });
 
-  it('a virada do periodo zera o gasto', () => {
+  it('the period roll-over resets spend', () => {
     const b = budget({ period: 'daily' });
     const later = new Date('2026-03-16T00:00:01Z');
 
@@ -112,7 +112,7 @@ describe('Budget', () => {
     expect(b.periodStart.toISOString()).toBe('2026-03-16T00:00:00.000Z');
   });
 
-  it('crossedThresholds dispara so na travessia, nao a cada chamada', () => {
+  it('crossedThresholds fires only on the crossing, not on every call', () => {
     const b = Budget.rehydrate({
       projectId: 'proj-1',
       limit: Money.fromUnits(100, 'BRL'),
@@ -129,13 +129,13 @@ describe('Budget', () => {
     expect(b.crossedThresholds(0.1)).toEqual([0.5, 0.8]);
   });
 
-  it('recusa trocar a moeda de um orcamento em uso', () => {
+  it('refuses to change the currency of a budget in use', () => {
     expect(() => {
       budget().changeLimit(Money.fromUnits(100, 'USD'));
     }).toThrow(ValidationError);
   });
 
-  it('recusa limiar de alerta fora da faixa', () => {
+  it('rejects an alert threshold outside the allowed range', () => {
     expect(() => budget({ alertThresholds: [0, 0.5] })).toThrow(ValidationError);
     expect(() => budget({ alertThresholds: [3] })).toThrow(ValidationError);
   });

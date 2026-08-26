@@ -1,15 +1,16 @@
-"""Ports como Protocol.
+"""Ports as Protocols.
 
-Adapters nao herdam: so cumprem a assinatura, e o mypy verifica (duck typing).
+Adapters do not inherit: they merely satisfy the signature, and mypy checks it
+(duck typing).
 """
 
 from __future__ import annotations
 
 from typing import Protocol
 
-from evaluation.domain.entities import Exemplo
+from evaluation.domain.entities import Example
 
 
-class ExemploRepository(Protocol):
-    async def find(self, exemplo_id: str) -> Exemplo | None: ...
-    async def save(self, exemplo: Exemplo) -> None: ...
+class ExampleRepository(Protocol):
+    async def find(self, example_id: str) -> Example | None: ...
+    async def save(self, example: Example) -> None: ...

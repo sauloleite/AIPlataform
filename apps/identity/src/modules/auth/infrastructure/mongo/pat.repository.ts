@@ -33,7 +33,7 @@ function toEntity(document: PatDocument): PersonalAccessToken {
   return PersonalAccessToken.rehydrate(props);
 }
 
-/** Cursor opaco: base64 de `createdAt|id`. O cliente nao deve interpretar. */
+/** Opaque cursor: base64 of `createdAt|id`. Clients must not interpret it. */
 function encodeCursor(createdAt: Date, id: string): string {
   return Buffer.from(`${createdAt.toISOString()}|${id}`).toString('base64url');
 }
@@ -60,7 +60,7 @@ export class MongoPatRepository implements PatRepository {
   async ensureIndexes(): Promise<void> {
     await this.collection.createIndex({ tokenHash: 1 }, { unique: true });
     await this.collection.createIndex({ principalId: 1, createdAt: -1, _id: -1 });
-    // Expirado ha mais de 30 dias nao serve nem para auditoria de uso.
+    // Expired for more than 30 days is not even useful for usage audit.
     await this.collection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
   }
 
@@ -88,7 +88,7 @@ export class MongoPatRepository implements PatRepository {
       ];
     }
 
-    // Busca um a mais para saber se existe proxima pagina sem um count separado.
+    // Fetch one extra to learn whether a next page exists without a separate count.
     const documents = await this.collection
       .find(filter)
       .sort({ createdAt: -1, _id: -1 })

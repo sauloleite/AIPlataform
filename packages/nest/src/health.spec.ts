@@ -17,46 +17,46 @@ const down = (name: string, critical: boolean): DependencyCheck => ({
 const throws = (name: string, critical: boolean): DependencyCheck => ({
   name,
   critical,
-  check: () => Promise.reject(new Error('conexao recusada')),
+  check: () => Promise.reject(new Error('connection refused')),
 });
 
 describe('HealthController', () => {
-  it('liveness nao consulta dependencia', () => {
-    // Reiniciar o pod porque o banco piscou transformaria degradacao em
-    // indisponibilidade. Liveness responde enquanto o processo vive.
+  it('liveness does not consult dependencies', () => {
+    // Restarting the pod because the database blinked would turn degradation
+    // into an outage. Liveness answers while the process is alive.
     expect(new HealthController([down('mongodb', true)]).live()).toEqual({ status: 'ok' });
   });
 
-  it('readiness fica ok quando todas as dependencias estao ok', async () => {
+  it('readiness is ok when every dependency is ok', async () => {
     const result = await new HealthController([ok('mongodb'), ok('redis', false)]).ready();
 
     expect(result.status).toBe('ok');
     expect(result.dependencies).toEqual({ mongodb: { status: 'ok' }, redis: { status: 'ok' } });
   });
 
-  it('dependencia NAO critica fora degrada, mas mantem a replica servindo', async () => {
+  it('a NON-critical dependency being down degrades but keeps the replica serving', async () => {
     const result = await new HealthController([ok('mongodb'), down('redis', false)]).ready();
 
     expect(result.status).toBe('degraded');
     expect(result.dependencies['redis']).toMatchObject({ status: 'down' });
   });
 
-  it('dependencia critica fora tira a replica do balanceador', async () => {
+  it('a critical dependency being down pulls the replica from the balancer', async () => {
     const controller = new HealthController([down('mongodb', true)]);
     await expect(controller.ready()).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
-  it('verificacao que lanca conta como down, e nao como erro do endpoint', async () => {
+  it('a check that throws counts as down, not as an endpoint error', async () => {
     const result = await new HealthController([ok('mongodb'), throws('redis', false)]).ready();
 
     expect(result.status).toBe('degraded');
     expect(result.dependencies['redis']).toMatchObject({
       status: 'down',
-      detail: 'conexao recusada',
+      detail: 'connection refused',
     });
   });
 
-  it('sem dependencia declarada, readiness responde ok', async () => {
+  it('with no declared dependency, readiness answers ok', async () => {
     await expect(new HealthController([]).ready()).resolves.toEqual({
       status: 'ok',
       dependencies: {},

@@ -1,12 +1,16 @@
-"""Heuristicas de injecao de prompt (OWASP LLM01).
+"""Prompt injection heuristics (OWASP LLM01).
 
-Deliberadamente conservadoras. Um detector agressivo bloqueia trabalho legitimo
-("me explique como funciona um ataque de prompt injection") e, na pratica, e
-desligado pelo time — que e o pior resultado possivel.
+Deliberately conservative. An aggressive detector blocks legitimate work
+("explain to me how a prompt injection attack works") and, in practice, gets
+switched off by the team -- which is the worst possible outcome.
 
-Nao substituem os outros controles: conteudo recuperado continua marcado como
-dado, argumentos de tool continuam validados por schema e a saida do modelo
-continua sem ser executada.
+They do not replace the other controls: retrieved content is still marked as
+data, tool arguments are still schema-validated, and model output is still never
+executed.
+
+The patterns match Portuguese and English alike: the attempt arrives in whatever
+language the user writes, and a detector that only reads English would be blind
+to most of the traffic this platform serves.
 """
 
 from __future__ import annotations
@@ -31,8 +35,8 @@ _RULES: Final[tuple[_Rule, ...]] = (
     _Rule(
         "ignore_previous_instructions",
         re.compile(
-            # Duas ordens porque o portugues posterga o adjetivo:
-            # "ignore TODAS as INSTRUCOES" e "esqueca as REGRAS ACIMA".
+            # Two orderings because Portuguese defers the adjective:
+            # "ignore TODAS as INSTRUCOES" and "esqueca as REGRAS ACIMA".
             r"\b(ignor[ae]|esquec[ae]|desconsidere|disregard|forget)\b"
             r"(?:"
             r".{0,40}\b(previous|anterior(es)?|acima|above|all|todas?|todos?)\b"
@@ -65,7 +69,7 @@ _RULES: Final[tuple[_Rule, ...]] = (
     ),
     _Rule(
         "fake_system_turn",
-        # Tenta forjar um turno de sistema dentro do texto do usuario.
+        # An attempt to forge a system turn inside the user text.
         re.compile(r"(^|\n)\s*(<\|?\s*)?(system|assistant)\s*(\|?>|:)\s", re.IGNORECASE),
         0.6,
     ),
@@ -81,7 +85,7 @@ _RULES: Final[tuple[_Rule, ...]] = (
 
 
 class InjectionHeuristics:
-    """Aplica as regras e devolve os sinais encontrados."""
+    """Applies the rules and returns the signals found."""
 
     def analyze(self, text: str) -> tuple[InjectionSignal, ...]:
         signals: list[InjectionSignal] = []
@@ -93,7 +97,7 @@ class InjectionHeuristics:
                 InjectionSignal(
                     rule=rule.name,
                     score=rule.score,
-                    # Trecho curto e truncado: o sinal nao pode virar um vazamento.
+                    # Short, truncated excerpt: the signal must not become a leak.
                     excerpt=match.group(0)[:_EXCERPT_LENGTH],
                 )
             )

@@ -1,7 +1,7 @@
 [project]
 name = "aia-contracts"
 version = "0.1.0"
-description = "Tipos gerados a partir de contracts/openapi"
+description = "Types generated from contracts/openapi"
 requires-python = ">=3.12"
 dependencies = ["pydantic>=2.10.5"]
 

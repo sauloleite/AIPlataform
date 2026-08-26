@@ -4,8 +4,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { runWithRequestContext } from './request-context.js';
 
 /**
- * Abre o contexto da requisicao e devolve o `X-Request-Id` ao cliente,
- * para que um relato de erro possa ser localizado no log.
+ * Opens the request context and echoes `X-Request-Id` back to the client, so a
+ * reported error can be located in the log.
  */
 @Injectable()
 export class RequestContextMiddleware implements NestMiddleware {

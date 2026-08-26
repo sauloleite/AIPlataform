@@ -43,10 +43,10 @@ export interface ProjectView {
 }
 
 /**
- * Politica efetiva consumida pelo inference-router.
+ * The effective policy consumed by the inference router.
  *
- * `version` permite ao router saber se o cache local envelheceu sem precisar
- * comparar o objeto inteiro.
+ * `version` lets the router tell whether its local cache went stale without
+ * comparing the whole object.
  */
 export interface ProjectPolicyView {
   projectId: string;

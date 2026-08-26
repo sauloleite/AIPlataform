@@ -21,10 +21,11 @@ const schema = z.array(
 );
 
 /**
- * Registra os clientes de servico da configuracao.
+ * Registers the service clients declared in configuration.
  *
- * Idempotente e sempre reescreve o hash do segredo: rotacionar a credencial de
- * um servico e mudar a variavel de ambiente e reiniciar, sem passo manual.
+ * Idempotent, and it always rewrites the secret hash: rotating a service
+ * credential is changing the environment variable and restarting, with no manual
+ * step in between.
  */
 export async function bootstrapServiceClients(
   app: INestApplication,
@@ -40,10 +41,10 @@ export async function bootstrapServiceClients(
   try {
     entries = schema.parse(JSON.parse(config.IDENTITY_BOOTSTRAP_SERVICE_CLIENTS));
   } catch (error) {
-    // Configuracao malformada nao pode passar silenciosamente: sem cliente de
-    // servico, o router nao consegue ler politica e a plataforma para.
+    // Malformed configuration must not pass silently: without a service client
+    // the router cannot read policy and the platform stops.
     throw new Error(
-      `IDENTITY_BOOTSTRAP_SERVICE_CLIENTS invalido: ${
+      `Invalid IDENTITY_BOOTSTRAP_SERVICE_CLIENTS: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
@@ -62,7 +63,7 @@ export async function bootstrapServiceClients(
           scopes: TokenScopes.of(entry.scopes),
         }),
       );
-      logger.log(`cliente de servico registrado: ${entry.clientId}`);
+      logger.log(`service client registered: ${entry.clientId}`);
       continue;
     }
 

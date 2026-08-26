@@ -2,11 +2,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Principal } from '@aia/auth';
 
 /**
- * Contexto da requisicao em curso.
+ * Context of the request in flight.
  *
- * Fica em AsyncLocalStorage para que camadas profundas (repositorio, publisher de
- * evento) possam carimbar `project_id` e `principal_id` sem que todo caso de uso
- * precise repassar isso por parametro.
+ * Held in AsyncLocalStorage so deeper layers (a repository, an event publisher)
+ * can stamp `project_id` and `principal_id` without every use case threading
+ * them through as parameters.
  */
 export interface RequestContext {
   requestId: string;
@@ -25,7 +25,7 @@ export function currentRequestContext(): RequestContext | undefined {
   return storage.getStore();
 }
 
-/** `project_id` da requisicao. Lanca em codigo que exige tenant e nao o tem. */
+/** The request's `project_id`. */
 export function currentProjectId(): string | undefined {
   return storage.getStore()?.projectId;
 }

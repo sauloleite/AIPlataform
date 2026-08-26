@@ -1,4 +1,4 @@
-"""Validacao de borda com Pydantic. Descreve o CONTRATO HTTP, nao o dominio."""
+"""Edge validation with Pydantic. Describes the HTTP CONTRACT, not the domain."""
 
 from __future__ import annotations
 

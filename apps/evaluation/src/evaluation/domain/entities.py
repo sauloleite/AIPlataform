@@ -1,4 +1,4 @@
-"""Entidades e value objects. Dataclasses puras."""
+"""Entities and value objects. Plain dataclasses."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
-class Exemplo:
-    """Value object de exemplo. Troque por um real e apague este."""
+class Example:
+    """Placeholder value object. Replace it with a real one and delete this."""
 
     id: str
     project_id: str

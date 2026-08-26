@@ -1,4 +1,4 @@
-"""Ports da camada de aplicacao. Protocols, nao classes base."""
+"""Application layer ports. Protocols, not base classes."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from guardrails.domain.entities import Finding
 
 
 class PiiDetector(Protocol):
-    """Encontra dados pessoais no texto.
+    """Finds personal data in the text.
 
-    Protocol, e nao heranca: o adapter cumpre a assinatura e pronto (duck typing
-    verificado por mypy). Trocar Presidio por outro motor nao toca no caso de uso.
+    A Protocol, not inheritance: the adapter satisfies the signature and that is
+    all (duck typing checked by mypy). Swapping Presidio for another engine does
+    not touch the use case.
     """
 
     def detect(

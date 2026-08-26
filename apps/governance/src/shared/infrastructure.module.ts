@@ -60,7 +60,7 @@ export class InfrastructureModule implements OnApplicationShutdown {
   ) {}
 
   async onApplicationShutdown(): Promise<void> {
-    this.logger.log('encerrando conexoes');
+    this.logger.log('closing connections');
     await Promise.allSettled([this.mongo.close(), this.redis.quit()]);
   }
 }

@@ -1,27 +1,28 @@
 import { ValidationError } from '@aia/errors';
 
 /**
- * Envelope CloudEvents 1.0 (doc 02, secao 5 e doc 03, secao 6).
+ * CloudEvents 1.0 envelope (reference doc 02 §5 and doc 03 §6).
  *
- * `subject` carrega sempre o `project_id`: o tenant acompanha o evento por todo
- * o pipeline, ate o analitico. `traceparent` propaga o contexto de trace atraves
- * da fronteira assincrona, que de outro modo quebraria o trace.
+ * `subject` always carries the `project_id`: the tenant follows the event
+ * through the whole pipeline, all the way to analytics. `traceparent` carries
+ * the trace context across the asynchronous boundary, which would otherwise
+ * break the trace.
  */
 export interface CloudEvent<T = unknown> {
   specversion: '1.0';
-  /** Ex.: `aia.inference.usage.recorded.v1`. Mudanca incompativel cria novo type. */
+  /** E.g. `aia.inference.usage.recorded.v1`. A breaking change creates a new type. */
   type: string;
-  /** URI do produtor. Ex.: `/aia/inference-router`. */
+  /** Producer URI. E.g. `/aia/inference-router`. */
   source: string;
   id: string;
   time: string;
-  /** `project_id`. Obrigatorio na plataforma, ainda que opcional na spec. */
+  /** `project_id`. Required by this platform even though the spec makes it optional. */
   subject: string;
   datacontenttype: 'application/json';
   data: T;
-  /** Extensao: contexto de trace do W3C. */
+  /** Extension: W3C trace context. */
   traceparent?: string;
-  /** Extensao: chave de deduplicacao para consumidores idempotentes. */
+  /** Extension: deduplication key for idempotent consumers. */
   idempotencykey?: string;
 }
 
@@ -32,7 +33,7 @@ export interface NewEventInput<T> {
   data: T;
   traceparent?: string;
   idempotencyKey?: string;
-  /** Injetavel para tornar o evento deterministico em teste. */
+  /** Injectable so the event is deterministic in tests. */
   id?: string;
   time?: Date;
 }
@@ -46,7 +47,7 @@ export function newEvent<T>(input: NewEventInput<T>): CloudEvent<T> {
     });
   }
   if (input.projectId === '') {
-    throw new ValidationError('projectId e obrigatorio: projeto e o tenant da plataforma');
+    throw new ValidationError('projectId is required: project is the platform tenant');
   }
 
   return {
@@ -63,7 +64,7 @@ export function newEvent<T>(input: NewEventInput<T>): CloudEvent<T> {
   };
 }
 
-/** Tipos de evento publicados pela plataforma. Um lugar so, para evitar typo. */
+/** Event types the platform publishes. One place, so typos cannot happen. */
 export const EVENT_TYPES = {
   USAGE_RECORDED: 'aia.inference.usage.recorded.v1',
   PROJECT_CREATED: 'aia.governance.project.created.v1',

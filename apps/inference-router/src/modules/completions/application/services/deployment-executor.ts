@@ -26,15 +26,15 @@ export interface OpenedStream {
 }
 
 /**
- * Balanceamento por prioridade, failover e circuit breaker por deployment.
+ * Priority-based balancing, failover and a circuit breaker per deployment.
  *
- * E o que um AI Gateway gerenciado entregaria pronto. Sem cloud, e nosso — e
- * fica aqui, sobre o port `ModelProvider`, para continuar testavel sem rede
- * (ADR-012).
+ * This is what a managed AI gateway would provide out of the box. With no cloud
+ * it is ours — and it lives here, over the `ModelProvider` port, so it stays
+ * testable without a network (ADR-012).
  *
- * Streaming tem uma regra propria: a troca de deployment so vale ANTES do
- * primeiro token. Depois disso o cliente ja recebeu conteudo, e recomecar
- * duplicaria a resposta (doc 02, secao 8).
+ * Streaming has a rule of its own: switching deployment is only valid BEFORE the
+ * first token. After that the client already received content, and starting over
+ * would duplicate the answer (reference doc 02 §8).
  */
 @Injectable()
 export class DeploymentExecutor {
@@ -47,11 +47,11 @@ export class DeploymentExecutor {
   private readonly embeddingsExecutor: ResilienceExecutor;
 
   /**
-   * Tracer proprio do executor.
+   * The executor's own tracer.
    *
-   * A instrumentacao das chamadas de modelo fica AQUI, e nao em cada adapter:
-   * assim os quatro provedores emitem exatamente os mesmos atributos, e um
-   * provedor novo herda a telemetria correta sem que ninguem precise lembrar.
+   * Instrumentation of model calls lives HERE rather than in each adapter: that
+   * way all four providers emit exactly the same attributes, and a new provider
+   * inherits correct telemetry without anyone having to remember.
    */
   private readonly tracer = getTracer('aia.inference-router');
 
@@ -67,7 +67,7 @@ export class DeploymentExecutor {
       from: string;
       to: string;
     }): void => {
-      this.logger.warn(`circuito de ${key}: ${from} -> ${to}`);
+      this.logger.warn(`circuit for ${key}: ${from} -> ${to}`);
     };
 
     this.chatExecutor = new ResilienceExecutor(POLICIES.INFERENCE, {}, { onCircuitStateChange });
@@ -94,11 +94,11 @@ export class DeploymentExecutor {
   }
 
   /**
-   * Envolve a chamada em um span com as convencoes GenAI do OpenTelemetry.
+   * Wraps the call in a span using OpenTelemetry's GenAI conventions.
    *
-   * O nome e os atributos seguem as Semantic Conventions for Generative AI, e
-   * nao um padrao nosso: e o que torna a telemetria legivel por qualquer
-   * ferramenta de observabilidade sem tradutor (ADR-009).
+   * The name and attributes follow the Semantic Conventions for Generative AI
+   * rather than a convention of our own: that is what makes the telemetry
+   * readable by any observability tool without a translator (ADR-009).
    */
   private async traced<T>(
     operation: string,
@@ -106,7 +106,7 @@ export class DeploymentExecutor {
     request: ChatRequestInput | undefined,
     fn: (span: Span) => Promise<T>,
   ): Promise<T> {
-    // `{operation} {model}` e o nome recomendado pelas convencoes GenAI.
+    // `{operation} {model}` is the name the GenAI conventions recommend.
     return this.tracer.startActiveSpan(
       `${operation} ${deployment.model}`,
       {
@@ -139,11 +139,11 @@ export class DeploymentExecutor {
   }
 
   /**
-   * Politica de resiliencia por ZONA.
+   * Resilience policy chosen by ZONE.
    *
-   * Um modelo local carrega do disco na primeira chamada, o que estoura o teto
-   * de tempo ate o primeiro token pensado para provedor em nuvem. Escolher a
-   * politica pela zona resolve isso sem afrouxar o limite de quem esta remoto.
+   * A local model loads from disk on the first call, which blows the
+   * time-to-first-token budget designed for a cloud provider. Picking the policy
+   * by zone solves that without loosening the limit for remote providers.
    */
   private executorFor(deployment: Deployment, streaming: boolean): ResilienceExecutor {
     if (deployment.dataZone === 'local') {
@@ -152,7 +152,7 @@ export class DeploymentExecutor {
     return streaming ? this.streamExecutor : this.chatExecutor;
   }
 
-  /** Deployment cujo provedor esta configurado. Sem chave, o provedor some. */
+  /** Deployments whose provider is configured. With no key, a provider vanishes. */
   private usable(deployments: readonly Deployment[]): Deployment[] {
     return deployments.filter((deployment) => {
       const provider = this.byProvider.get(deployment.provider);
@@ -213,24 +213,24 @@ export class DeploymentExecutor {
       } catch (error) {
         lastError = error;
         this.logger.warn(
-          `deployment ${deployment.id} falhou (${describe(error)}); tentando o proximo`,
+          `deployment ${deployment.id} failed (${describe(error)}); trying the next one`,
         );
       }
     }
 
     throw new AllDeploymentsFailedError(
-      deployments[0]?.id ?? 'desconhecido',
+      deployments[0]?.id ?? 'unknown',
       attempts,
       describe(lastError),
     );
   }
 
   /**
-   * Abre o stream percorrendo os deployments ate um responder.
+   * Opens the stream, walking the deployments until one answers.
    *
-   * O primeiro chunk e consumido aqui, e nao no chamador: e o unico jeito de
-   * saber se o provedor realmente respondeu antes de desistir dele. Ele e
-   * reinjetado no iterador devolvido para que nenhum token se perca.
+   * The first chunk is consumed here rather than by the caller: that is the only
+   * way to know whether the provider really responded before giving up on it. It
+   * is replayed into the returned iterator so no token is lost.
    */
   async openStream(
     request: ChatRequestInput,
@@ -271,13 +271,13 @@ export class DeploymentExecutor {
       } catch (error) {
         lastError = error;
         this.logger.warn(
-          `stream de ${deployment.id} nao abriu (${describe(error)}); tentando o proximo`,
+          `stream for ${deployment.id} did not open (${describe(error)}); trying the next one`,
         );
       }
     }
 
     throw new AllDeploymentsFailedError(
-      deployments[0]?.id ?? 'desconhecido',
+      deployments[0]?.id ?? 'unknown',
       attempts,
       describe(lastError),
     );
@@ -312,14 +312,14 @@ export class DeploymentExecutor {
     }
 
     throw new AllDeploymentsFailedError(
-      deployments[0]?.id ?? 'desconhecido',
+      deployments[0]?.id ?? 'unknown',
       attempts,
       describe(lastError),
     );
   }
 }
 
-/** Reinjeta o primeiro chunk, ja consumido para validar a abertura do stream. */
+/** Replays the first chunk, already consumed to validate that the stream opened. */
 async function* replay(
   first: IteratorResult<ChatChunk>,
   iterator: AsyncIterator<ChatChunk>,

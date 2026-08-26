@@ -1,4 +1,4 @@
-"""Aplicacao FastAPI do aia-evaluation."""
+"""FastAPI application for aia-evaluation."""
 
 from __future__ import annotations
 
@@ -39,8 +39,8 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, error: Exception) -> JSONResponse:
-        # Stack no log, correlacionado pelo trace_id; nunca na resposta.
-        logger.exception("requisicao falhou em %s", request.url.path)
+        # Stack in the log, correlated by trace_id; never in the response.
+        logger.exception("request failed at %s", request.url.path)
         problem = problem_from_unknown(
             error, instance=request.url.path, trace_id=current_trace_id()
         )

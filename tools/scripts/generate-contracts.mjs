@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Gera os tipos TypeScript a partir dos contratos OpenAPI.
+ * Generates the TypeScript types from the OpenAPI contracts.
  *
- * O arquivo YAML e a fonte da verdade (contract-first, doc 03 secao 6).
- * O CI roda este script e falha se o resultado divergir do commitado, para que
- * ninguem altere a API mexendo so no codigo.
+ * The YAML file is the source of truth (contract-first, reference doc 03 §6).
+ * CI runs this script and fails if the result differs from what was committed,
+ * so nobody changes the API by touching only the code.
  */
 import { execFile } from 'node:child_process';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
@@ -18,8 +18,8 @@ const openapiDir = join(root, 'contracts/openapi');
 const outDir = join(root, 'packages/contracts/src/generated');
 
 const HEADER = `/**
- * GERADO AUTOMATICAMENTE. Nao edite.
- * Fonte: contracts/openapi/. Regenere com \`make contracts\`.
+ * AUTOMATICALLY GENERATED. Do not edit.
+ * Source: contracts/openapi/. Regenerate with \`make contracts\`.
  */
 `;
 
@@ -58,7 +58,7 @@ async function main() {
 
     await writeFile(target, HEADER + stdout, 'utf8');
     modules.push(moduleName);
-    console.log(`gerado ${moduleName}.ts a partir de ${file}`);
+    console.log(`generated ${moduleName}.ts from ${file}`);
   }
 
   const barrel =
@@ -66,7 +66,7 @@ async function main() {
     modules.map((m) => `export type * as ${identifierFor(m)} from './${m}.js';`).join('\n') +
     '\n';
   await writeFile(join(outDir, 'index.ts'), barrel, 'utf8');
-  console.log(`gerado index.ts com ${modules.length.toString()} modulos`);
+  console.log(`generated index.ts with ${modules.length.toString()} modules`);
 }
 
 await main();

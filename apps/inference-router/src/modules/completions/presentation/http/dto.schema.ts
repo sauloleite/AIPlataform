@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-/** Validacao de borda do contrato compativel com OpenAI. */
+/** Edge validation for the OpenAI-compatible contract. */
 export const chatCompletionSchema = z.object({
   model: z.string().min(1),
   messages: z

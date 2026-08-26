@@ -1,4 +1,4 @@
-"""Configuracao validada na inicializacao. 12-factor."""
+"""Configuration validated at startup. 12-factor."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     identity_audience: str = "aia-platform"
     identity_jwks_url: str | None = None
 
-    # `regex` nao precisa de modelo de linguagem e sobe instantaneo;
-    # `presidio` detecta tambem nome de pessoa e local, ao custo do spaCy.
+    # `regex` needs no language model and starts instantly; `presidio` also
+    # detects person names and locations, at the cost of spaCy.
     detector: str = "presidio"
     default_language: str = "pt"
     block_threshold: float = 0.8

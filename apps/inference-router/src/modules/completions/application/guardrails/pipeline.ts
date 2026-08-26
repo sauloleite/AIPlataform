@@ -2,10 +2,10 @@ import { GuardrailBlockedError, PromptInjectionSuspectedError } from '../../doma
 import type { GuardrailVerdict } from '../ports.js';
 
 /**
- * Pipeline de guardrails como Chain of Responsibility (doc 03, secao 4).
+ * Guardrail pipeline as a Chain of Responsibility (reference doc 03 §4).
  *
- * Cada etapa e testavel isoladamente e a ordem e configuravel. A etapa recebe o
- * texto e devolve o texto (possivelmente alterado) ou interrompe lancando.
+ * Each stage is testable in isolation and the order is configurable. A stage
+ * receives the text and returns it, possibly altered, or stops by throwing.
  */
 export interface GuardrailStage {
   readonly name: string;
@@ -16,7 +16,7 @@ export interface GuardrailContext {
   text: string;
   projectId: string;
   verdict?: GuardrailVerdict;
-  /** Etapas que efetivamente alteraram ou marcaram o conteudo. */
+  /** Stages that actually altered or flagged the content. */
   applied: string[];
   redactedCount: number;
 }
@@ -43,19 +43,19 @@ export class GuardrailPipeline {
   }
 }
 
-/** Bloqueia quando o servico de guardrails decide bloquear. */
+/** Blocks when the guardrails service decides to block. */
 export class BlockOnDecisionStage implements GuardrailStage {
   readonly name = 'block_on_decision';
 
   apply(context: GuardrailContext): GuardrailContext {
     if (context.verdict?.decision === 'block') {
-      throw new GuardrailBlockedError(this.name, 'Conteudo bloqueado pela politica de seguranca');
+      throw new GuardrailBlockedError(this.name, 'Content blocked by the security policy');
     }
     return { ...context, applied: [...context.applied, this.name] };
   }
 }
 
-/** OWASP LLM01: recusa conteudo com indicios fortes de injecao de prompt. */
+/** OWASP LLM01: rejects content showing strong signs of prompt injection. */
 export class RejectInjectionStage implements GuardrailStage {
   constructor(private readonly threshold = 0.8) {}
 

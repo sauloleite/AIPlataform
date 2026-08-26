@@ -1,8 +1,8 @@
 import { DomainError, ERROR_CODES, type ErrorCode } from '@aia/errors';
 
 /**
- * Erro de transporte com o que a politica de resiliencia precisa saber:
- * `status` decide se retenta, `retryAfterMs` decide quando.
+ * A transport error carrying what the resilience policy needs to know:
+ * `status` decides whether to retry, `retryAfterMs` decides when.
  */
 export class ProviderHttpError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.PROVIDER_UNAVAILABLE;
@@ -11,10 +11,10 @@ export class ProviderHttpError extends DomainError {
   override readonly retryable: boolean;
 
   constructor(input: { provider: string; status: number; body: string; retryAfterMs?: number }) {
-    super(`Provedor ${input.provider} respondeu ${input.status.toString()}`, {
+    super(`Provider ${input.provider} responded ${input.status.toString()}`, {
       provider: input.provider,
       upstream_status: input.status,
-      // Corpo truncado: mensagem de erro de provedor pode ecoar o prompt.
+      // Truncated body: a provider error message can echo back the prompt.
       upstream_body: input.body.slice(0, 300),
     });
     this.status = input.status;
@@ -23,7 +23,7 @@ export class ProviderHttpError extends DomainError {
   }
 }
 
-/** Converte o header `Retry-After` (segundos ou data HTTP) em milissegundos. */
+/** Converts the `Retry-After` header (seconds or HTTP date) into milliseconds. */
 export function parseRetryAfter(header: string | null): number | undefined {
   if (header === null || header === '') return undefined;
 
@@ -48,17 +48,18 @@ export async function ensureOk(response: Response, provider: string): Promise<vo
 }
 
 /**
- * Le um corpo `text/event-stream` linha a linha.
+ * Reads a `text/event-stream` body line by line.
  *
- * Nao usa EventSource porque precisamos do controle do AbortSignal e porque o
- * corpo chega como stream de bytes, com eventos podendo ser partidos entre chunks.
+ * It does not use EventSource because we need control of the AbortSignal, and
+ * because the body arrives as a byte stream where an event can be split across
+ * chunks.
  */
 export async function* readSseLines(response: Response): AsyncGenerator<string> {
   const body = response.body;
   if (body === null) return;
 
-  // Tipagem explicita: `response.body` chega como `ReadableStream<any>` nos
-  // tipos padrao, e sem isto todo `read()` propaga `any` adiante.
+  // Explicit typing: `response.body` arrives as `ReadableStream<any>` in the
+  // default lib types, and without this every `read()` propagates `any`.
   const reader = body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
   const decoder = new TextDecoder();
   let buffer = '';
@@ -78,14 +79,14 @@ export async function* readSseLines(response: Response): AsyncGenerator<string> 
         newlineIndex = buffer.indexOf('\n');
       }
     }
-    // Ultima linha sem quebra final.
+    // Final line with no trailing newline.
     if (buffer.trim() !== '') yield buffer.trim();
   } finally {
     reader.releaseLock();
   }
 }
 
-/** Extrai o payload de uma linha `data: ...`. `null` quando nao e dado util. */
+/** Extracts the payload from a `data: ...` line. `null` when it carries nothing useful. */
 export function sseData(line: string): string | null {
   if (!line.startsWith('data:')) return null;
   const payload = line.slice(5).trim();

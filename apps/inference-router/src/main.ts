@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { startTelemetry } from '@aia/telemetry';
-// Import de TIPO: some na compilacao, entao nao antecipa nenhum modulo com I/O.
+// TYPE-only import: erased at compile time, so it pulls in no I/O module early.
 import type { AuditRepository, UsagePublisher } from './modules/completions/application/ports.js';
 
 startTelemetry({ serviceName: 'aia-inference-router' });
@@ -26,7 +26,7 @@ const logger = new Logger('bootstrap');
 const app = await NestFactory.create(AppModule, {
   logger:
     config.LOG_LEVEL === 'debug' ? ['debug', 'log', 'warn', 'error'] : ['log', 'warn', 'error'],
-  // Corpo maior que 1 MB indica prompt fora de escala; o limite protege memoria.
+  // A body over 1 MB signals an out-of-scale prompt; the limit protects memory.
   bodyParser: true,
 });
 
@@ -39,9 +39,9 @@ if (audit instanceof MongoAuditRepository) await audit.ensureIndexes();
 const publisher = app.get<UsagePublisher>(USAGE_PUBLISHER);
 if (publisher instanceof OutboxUsagePublisher) await publisher.ensureIndexes();
 
-// Relay da outbox: leva os UsageRecorded gravados junto da auditoria para o
-// barramento. Publicar direto no caminho da requisicao criaria duas fontes de
-// verdade quando a publicacao falhasse.
+// Outbox relay: carries the UsageRecorded events written alongside the audit
+// record to the bus. Publishing directly in the request path would create two
+// sources of truth whenever publishing failed.
 const relay = new OutboxRelay(new MongoOutbox(app.get(Db)), app.get(EVENT_PUBLISHER), {
   batchSize: 200,
   intervalMs: 1_000,
@@ -52,4 +52,4 @@ const relay = new OutboxRelay(new MongoOutbox(app.get(Db)), app.get(EVENT_PUBLIS
 relay.start();
 
 await app.listen(config.PORT, '0.0.0.0');
-logger.log(`aia-inference-router ouvindo na porta ${config.PORT.toString()}`);
+logger.log(`aia-inference-router listening on port ${config.PORT.toString()}`);

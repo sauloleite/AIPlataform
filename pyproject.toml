@@ -1,7 +1,7 @@
 [project]
 name = "aia-platform-python"
 version = "0.1.0"
-description = "AIA 2.0 OSS - workspace Python (servicos FastAPI e bibliotecas compartilhadas)"
+description = "AIA 2.0 OSS - Python workspace (FastAPI services and shared libraries)"
 requires-python = ">=3.12"
 dependencies = [
     "aia-contracts",

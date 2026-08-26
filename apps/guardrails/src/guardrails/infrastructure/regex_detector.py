@@ -1,12 +1,12 @@
-"""Detector sem dependencia de modelo de linguagem.
+"""Detector with no language-model dependency.
 
-Existe por dois motivos: e o fallback quando o modelo do spaCy nao esta baixado
-(primeiro `docker compose up`, CI leve) e e o detector usado nos testes de
-dominio, que precisam ser deterministicos.
+It exists for two reasons: it is the fallback when the spaCy model has not been
+downloaded (first `docker compose up`, lightweight CI), and it is the detector
+used by the domain tests, which have to be deterministic.
 
-Encontra o que padrao mais validacao resolve: CPF, CNPJ, cartao, email, telefone
-e IP. Nao encontra NOME DE PESSOA, que exige modelo — a diferenca esta
-documentada para que ninguem confunda os dois modos.
+It finds what pattern-plus-validation can settle: CPF, CNPJ, card, email, phone
+and IP. It does NOT find a PERSON NAME, which needs a model -- the difference is
+documented so nobody confuses the two modes.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ SUPPORTED: Final[tuple[str, ...]] = tuple(entity for entity, _, _ in _PATTERNS)
 
 
 class RegexPiiDetector:
-    """Adapter deterministico do port `PiiDetector`."""
+    """Deterministic adapter for the `PiiDetector` port."""
 
     @property
     def supported_entities(self) -> Sequence[str]:
@@ -72,8 +72,8 @@ class RegexPiiDetector:
                     )
                 )
 
-        # Ordena e resolve sobreposicao pelo maior score: um IP dentro de um
-        # numero de telefone nao deve gerar duas ocorrencias.
+        # Sorts and resolves overlaps by highest score: an IP inside a phone
+        # number must not produce two findings.
         findings.sort(key=lambda finding: (finding.start, -finding.score))
         deduped: list[Finding] = []
         for finding in findings:

@@ -125,10 +125,11 @@ export class MongoProjectRepository implements ProjectRepository {
   }
 
   /**
-   * Estado e eventos na MESMA transacao (padrao outbox).
+   * State and events in the SAME transaction (outbox pattern).
    *
-   * Sem transacao, um crash entre o `updateOne` e o `append` publicaria um evento
-   * sobre um estado que nao existe, ou perderia o evento de um estado que existe.
+   * Without a transaction, a crash between the `updateOne` and the `append`
+   * would publish an event about state that does not exist, or lose the event
+   * for state that does.
    */
   async save(project: Project, events: CloudEvent[] = []): Promise<void> {
     const snapshot = project.toSnapshot();

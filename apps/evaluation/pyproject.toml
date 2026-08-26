@@ -1,7 +1,7 @@
 [project]
 name = "evaluation"
 version = "0.1.0"
-description = "Servico evaluation da plataforma AIA"
+description = "AIA platform evaluation service"
 requires-python = ">=3.12"
 dependencies = [
     "aia-auth",

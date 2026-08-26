@@ -16,11 +16,11 @@ const INACTIVE: IntrospectionResult = { active: false };
 const CACHE_TTL_SECONDS = 60;
 
 /**
- * Introspeccao de token opaco (PAT).
+ * Opaque token (PAT) introspection.
  *
- * JWT nao passa por aqui: e validado localmente pelo JWKS (ADR-004). Este caso de
- * uso existe so para os clientes que nao suportam OAuth, e o cache de 60 s evita
- * que eles transformem o identity em gargalo.
+ * A JWT never comes through here: it is validated locally against the JWKS
+ * (ADR-004). This use case exists only for clients that cannot do OAuth, and the
+ * 60 s cache keeps them from turning identity into a bottleneck.
  */
 @Injectable()
 export class IntrospectToken {
@@ -32,10 +32,10 @@ export class IntrospectToken {
   ) {}
 
   async execute(command: IntrospectCommand): Promise<IntrospectionResult> {
-    // Um JWT que chegue aqui por engano nao deve virar consulta ao banco.
+    // A JWT that lands here by mistake must not become a database query.
     if (!command.token.startsWith(PAT_PREFIX)) return INACTIVE;
 
-    // A chave do cache e o HASH, nunca o token em claro: o Redis nao guarda segredo.
+    // The cache key is the HASH, never the plaintext: Redis stores no secrets.
     const tokenHash = this.hasher.hash(command.token);
 
     const cached = await this.cache.get(tokenHash);
@@ -45,7 +45,7 @@ export class IntrospectToken {
     if (pat === null) return INACTIVE;
 
     const now = this.clock.now();
-    // Nao cacheia resultado negativo: revogacao precisa valer imediatamente.
+    // Negative results are not cached: revocation must take effect immediately.
     if (pat.isRevoked || pat.isExpired(now)) return INACTIVE;
 
     pat.markUsed(now);

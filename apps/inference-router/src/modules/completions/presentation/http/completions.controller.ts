@@ -13,10 +13,10 @@ import { SseWriter } from './sse.js';
 import { toChatCompletionResponse, toEmbeddingsResponse } from '../mappers/openai.mapper.js';
 
 /**
- * API canonica de inferencia, compativel com OpenAI.
+ * The canonical inference API, OpenAI-compatible.
  *
- * O controller apenas adapta entrada e saida: nao ha regra de negocio aqui.
- * A unica logica propria e o protocolo SSE, que e detalhe de transporte.
+ * The controller only adapts input and output: there is no business rule here.
+ * Its only logic of its own is the SSE protocol, which is a transport detail.
  */
 @Controller('v1')
 export class CompletionsController {
@@ -34,7 +34,7 @@ export class CompletionsController {
   ): Promise<void> {
     const parsed = chatCompletionSchema.safeParse(body);
     if (!parsed.success) {
-      throw new ValidationError('Requisicao invalida', {
+      throw new ValidationError('Invalid request', {
         issues: parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
       });
     }
@@ -54,7 +54,7 @@ export class CompletionsController {
         ...(message.name !== undefined && { name: message.name }),
       })),
       stream: parsed.data.stream,
-      // `max_completion_tokens` e o nome atual; `max_tokens` continua aceito.
+      // `max_completion_tokens` is the current name; `max_tokens` is still accepted.
       ...(pickMaxTokens(parsed.data) !== undefined && { maxTokens: pickMaxTokens(parsed.data) }),
       ...(parsed.data.temperature !== undefined && { temperature: parsed.data.temperature }),
       ...(parsed.data.top_p !== undefined && { topP: parsed.data.top_p }),
@@ -80,9 +80,9 @@ export class CompletionsController {
   /**
    * Streaming.
    *
-   * Um erro ANTES do primeiro evento vira Problem Details com status HTTP. Depois
-   * do primeiro evento os headers ja foram enviados, entao o erro so pode chegar
-   * como um evento `error` no proprio stream.
+   * An error BEFORE the first event becomes Problem Details with an HTTP status.
+   * After the first event the headers are already sent, so the error can only
+   * arrive as an `error` event inside the stream itself.
    */
   private async streamChat(
     command: Parameters<CreateChatCompletion['stream']>[0],
@@ -111,7 +111,7 @@ export class CompletionsController {
       writer?.close();
     } catch (error) {
       if (writer === undefined) {
-        // Nada foi enviado ainda: da para responder com o status correto.
+        // Nothing has been sent yet: the correct status can still be returned.
         const problem = fromUnknown(error, {
           instance: '/v1/chat/completions',
           ...(currentTraceId() !== undefined && { traceId: currentTraceId() }),
@@ -135,7 +135,7 @@ export class CompletionsController {
   ): Promise<Record<string, unknown>> {
     const parsed = embeddingsSchema.safeParse(body);
     if (!parsed.success) {
-      throw new ValidationError('Requisicao invalida', {
+      throw new ValidationError('Invalid request', {
         issues: parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
       });
     }

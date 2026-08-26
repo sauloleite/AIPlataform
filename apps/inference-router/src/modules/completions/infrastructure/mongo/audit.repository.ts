@@ -4,18 +4,19 @@ import type { AuditRecord, AuditRepository } from '../../application/ports.js';
 
 interface AuditDocument extends Omit<AuditRecord, 'costMicros'> {
   _id: string;
-  /** String para nao perder precisao de int64 em BSON. */
+  /** A string so int64 precision survives BSON. */
   costMicros: string;
 }
 
 /**
- * Trilha de auditoria de inferencia.
+ * The inference audit trail.
  *
- * Guarda quem chamou, qual projeto, qual deployment e em qual ZONA DE DADOS o
- * conteudo foi processado: e essa ultima coluna que transforma o ADR-010 de
- * intencao em evidencia.
+ * It records who called, which project, which deployment and in which DATA ZONE
+ * the content was processed: that last column is what turns ADR-010 from an
+ * intention into evidence.
  *
- * Conteudo de prompt e resposta so entra com opt-in do projeto, e ja redigido.
+ * Prompt and response content only enters with the project's opt-in, and only
+ * already redacted.
  */
 @Injectable()
 export class MongoAuditRepository implements AuditRepository {
@@ -29,7 +30,7 @@ export class MongoAuditRepository implements AuditRepository {
   }
 
   async ensureIndexes(): Promise<void> {
-    // project_id primeiro: toda consulta de auditoria e por tenant.
+    // project_id first: every audit query is by tenant.
     await this.collection.createIndex({ projectId: 1, occurredAt: -1 });
     await this.collection.createIndex({ principalId: 1, occurredAt: -1 });
     await this.collection.createIndex({ dataZone: 1, occurredAt: -1 });

@@ -23,49 +23,49 @@ describe('ModelSelectionPolicy.compatible (ADR-010)', () => {
   });
   const alias = anAlias([local, openai, gemini]);
 
-  it('ordena por prioridade, do menor para o maior', () => {
+  it('orders by priority, lowest first', () => {
     const chosen = ModelSelectionPolicy.compatible(alias, aPolicy(), 'chat');
     expect(chosen.map((d) => d.id)).toEqual(['openai-us', 'gemini-global', 'ollama-local']);
   });
 
-  it('projeto restrito e atendido SOMENTE pelo modelo local', () => {
+  it('a restricted project is served ONLY by the local model', () => {
     const chosen = ModelSelectionPolicy.compatible(
       alias,
-      aPolicy({ classification: 'restrito', allowedZones: ['local'] }),
+      aPolicy({ classification: 'restricted', allowedZones: ['local'] }),
       'chat',
     );
     expect(chosen.map((d) => d.id)).toEqual(['ollama-local']);
   });
 
-  it('projeto confidencial nao alcanca provedor fora do pais', () => {
+  it('a confidential project cannot reach a provider outside the country', () => {
     const chosen = ModelSelectionPolicy.compatible(
       alias,
-      aPolicy({ classification: 'confidencial', allowedZones: ['local', 'br'] }),
+      aPolicy({ classification: 'confidential', allowedZones: ['local', 'br'] }),
       'chat',
     );
     expect(chosen.every((d) => d.dataZone === 'local' || d.dataZone === 'br')).toBe(true);
   });
 
-  it('falha em vez de enviar o dado quando nao ha destino compativel', () => {
+  it('fails rather than sending the data when no compatible destination exists', () => {
     const soExterno = anAlias([openai, gemini]);
     try {
       ModelSelectionPolicy.compatible(
         soExterno,
-        aPolicy({ classification: 'restrito', allowedZones: ['local'] }),
+        aPolicy({ classification: 'restricted', allowedZones: ['local'] }),
         'chat',
       );
-      expect.unreachable('deveria ter lancado');
+      expect.unreachable('should have thrown');
     } catch (error) {
       expect(error).toBeInstanceOf(NoCompatibleDeploymentError);
       const details = (error as NoCompatibleDeploymentError).details;
-      // A auditoria precisa saber o que foi pedido e o que existia.
-      expect(details['data_classification']).toBe('restrito');
+      // Audit needs to know what was asked for and what existed.
+      expect(details['data_classification']).toBe('restricted');
       expect(details['allowed_zones']).toEqual(['local']);
       expect(details['available_zones']).toEqual(['us', 'global']);
     }
   });
 
-  it('ignora deployment desabilitado', () => {
+  it('ignores a disabled deployment', () => {
     const desligado = anAlias([
       aDeployment({ id: 'off', dataZone: 'local', enabled: false }),
       openai,
@@ -75,7 +75,7 @@ describe('ModelSelectionPolicy.compatible (ADR-010)', () => {
     ]);
   });
 
-  it('deployment desabilitado nao conta como zona disponivel no erro', () => {
+  it('a disabled deployment does not count as an available zone in the error', () => {
     const soDesligadoLocal = anAlias([
       aDeployment({ id: 'off', dataZone: 'local', enabled: false }),
     ]);
@@ -84,24 +84,24 @@ describe('ModelSelectionPolicy.compatible (ADR-010)', () => {
     );
   });
 
-  it('recusa alias bloqueado pela politica do projeto', () => {
+  it('rejects an alias blocked by the project policy', () => {
     expect(() =>
-      ModelSelectionPolicy.compatible(alias, aPolicy({ blockedAliases: ['chat-rapido'] }), 'chat'),
+      ModelSelectionPolicy.compatible(alias, aPolicy({ blockedAliases: ['chat-fast'] }), 'chat'),
     ).toThrow(AliasNotAllowedError);
   });
 
-  it('recusa capacidade que o alias nao tem', () => {
+  it('rejects a capability the alias does not have', () => {
     expect(() => ModelSelectionPolicy.compatible(alias, aPolicy(), 'embeddings')).toThrow(
       CapabilityNotSupportedError,
     );
   });
 
-  it('checa a permissao do alias antes da zona: o motivo do erro precisa ser o real', () => {
+  it('checks alias permission before zone: the error reason has to be the real one', () => {
     const soExterno = anAlias([openai]);
     expect(() =>
       ModelSelectionPolicy.compatible(
         soExterno,
-        aPolicy({ blockedAliases: ['chat-rapido'], allowedZones: ['local'] }),
+        aPolicy({ blockedAliases: ['chat-fast'], allowedZones: ['local'] }),
         'chat',
       ),
     ).toThrow(AliasNotAllowedError);
@@ -111,42 +111,39 @@ describe('ModelSelectionPolicy.compatible (ADR-010)', () => {
 describe('ModelSelectionPolicy.effectiveMaxOutputTokens (OWASP LLM10)', () => {
   const deployment = aDeployment({ maxOutputTokens: 4096 });
 
-  it('sem pedido do cliente, usa o teto do deployment', () => {
+  it('with no client request, uses the deployment ceiling', () => {
     expect(
-      ModelSelectionPolicy.effectiveMaxOutputTokens(
-        undefined,
-        deployment,
-        aPolicy(),
-        'chat-rapido',
-      ),
+      ModelSelectionPolicy.effectiveMaxOutputTokens(undefined, deployment, aPolicy(), 'chat-fast'),
     ).toBe(4096);
   });
 
-  it('respeita o pedido do cliente quando cabe', () => {
+  it('honours the client request when it fits', () => {
     expect(
-      ModelSelectionPolicy.effectiveMaxOutputTokens(500, deployment, aPolicy(), 'chat-rapido'),
+      ModelSelectionPolicy.effectiveMaxOutputTokens(500, deployment, aPolicy(), 'chat-fast'),
     ).toBe(500);
   });
 
-  it('nao deixa o cliente pedir mais do que o deployment aguenta', () => {
+  it('does not let the client ask for more than the deployment can take', () => {
     expect(
-      ModelSelectionPolicy.effectiveMaxOutputTokens(999_999, deployment, aPolicy(), 'chat-rapido'),
+      ModelSelectionPolicy.effectiveMaxOutputTokens(999_999, deployment, aPolicy(), 'chat-fast'),
     ).toBe(4096);
   });
 
-  it('o limite da politica do projeto vence o pedido do cliente', () => {
-    const policy = aPolicy({ maxOutputTokens: { 'chat-rapido': 256 } });
+  it('the project policy limit beats the client request', () => {
+    const policy = aPolicy({ maxOutputTokens: { 'chat-fast': 256 } });
     expect(
-      ModelSelectionPolicy.effectiveMaxOutputTokens(2000, deployment, policy, 'chat-rapido'),
+      ModelSelectionPolicy.effectiveMaxOutputTokens(2000, deployment, policy, 'chat-fast'),
     ).toBe(256);
   });
 });
 
 describe('ModelSelectionPolicy.visibleAliases', () => {
-  it('esconde alias sem nenhum deployment compativel com o projeto', () => {
+  it('hides an alias with no deployment compatible with the project', () => {
     const localOnly = anAlias([aDeployment({ dataZone: 'local' })], { id: 'chat-local' });
-    const externoOnly = anAlias([aDeployment({ id: 'x', dataZone: 'us' })], { id: 'chat-externo' });
-    const policy = aPolicy({ classification: 'restrito', allowedZones: ['local'] });
+    const externoOnly = anAlias([aDeployment({ id: 'x', dataZone: 'us' })], {
+      id: 'chat-external',
+    });
+    const policy = aPolicy({ classification: 'restricted', allowedZones: ['local'] });
 
     expect(
       ModelSelectionPolicy.visibleAliases([localOnly, externoOnly], policy).map((a) => a.id),
@@ -155,8 +152,8 @@ describe('ModelSelectionPolicy.visibleAliases', () => {
 });
 
 describe('Deployment.costOf', () => {
-  it('calcula o custo a partir da tabela de precos do deployment', () => {
-    // R$ 0,50 por milhao de tokens de entrada, R$ 1,50 de saida.
+  it('computes the cost from the deployment price table', () => {
+    // 0.50 per million input tokens, 1.50 per million output tokens.
     const deployment = aDeployment({
       inputCostPerMillion: 500_000n,
       outputCostPerMillion: 1_500_000n,
@@ -166,12 +163,12 @@ describe('Deployment.costOf', () => {
     expect(cost.toUnits()).toBe(2);
   });
 
-  it('arredonda para cima: nunca cobrar a menos do orcamento', () => {
+  it('rounds up: never undercharge the budget', () => {
     const deployment = aDeployment({ inputCostPerMillion: 1n, outputCostPerMillion: 0n });
     expect(deployment.costOf(1, 0).micros).toBe(1n);
   });
 
-  it('modelo local custa zero, e por isso a plataforma roda sem chave de API', () => {
+  it('a local model costs zero, which is why the platform runs without an API key', () => {
     expect(aDeployment({ provider: 'ollama' }).costOf(10_000, 10_000).micros).toBe(0n);
   });
 });

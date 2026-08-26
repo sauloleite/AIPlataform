@@ -1,31 +1,31 @@
 asyncapi: 3.0.0
 info:
-  title: AIA Platform - eventos
+  title: AIA Platform - events
   version: '1.0.0'
   description: |
-    Eventos de negocio da plataforma. Envelope CloudEvents 1.0, `subject` sempre
-    com o `project_id` e `traceparent` como extensao, para que o trace atravesse
-    a fronteira assincrona.
+    Business events of the platform. CloudEvents 1.0 envelope, `subject` always
+    carrying the `project_id` and `traceparent` as an extension, so the trace
+    crosses the asynchronous boundary.
 
-    Transporte: Redis Streams, um stream por tipo de evento, com grupos de
-    consumidores e ack explicito (ADR-008 na versao OSS). Produtores usam o
-    padrao outbox; consumidores sao idempotentes.
+    Transport: Redis Streams, one stream per event type, with consumer groups and
+    explicit ack (ADR-008 in the OSS version). Producers use the outbox pattern;
+    consumers are idempotent.
 
-    Mudanca incompativel de payload cria um NOVO `type` com sufixo de versao.
-    Depreciacao com prazo minimo de 90 dias.
+    A breaking payload change creates a NEW `type` with a version suffix.
+    Deprecation carries a minimum notice of 90 days.
 
 servers:
   redis:
     host: redis:6379
     protocol: redis
-    description: Redis Streams (local e self-host)
+    description: Redis Streams (local and self-hosted)
 
 defaultContentType: application/json
 
 channels:
   usageRecorded:
     address: 'aia:events:aia.inference.usage.recorded.v1'
-    description: Uma chamada de inferencia terminou e consumiu orcamento.
+    description: An inference call finished and consumed budget.
     messages:
       UsageRecorded:
         $ref: '#/components/messages/UsageRecorded'
@@ -45,7 +45,7 @@ channels:
   policyChanged:
     address: 'aia:events:aia.governance.policy.changed.v1'
     description: |
-      O router escuta para invalidar o cache local de politica antes do TTL.
+      The router listens to invalidate its local policy cache ahead of the TTL.
     messages:
       PolicyChanged:
         $ref: '#/components/messages/PolicyChanged'
@@ -54,17 +54,17 @@ operations:
   publishUsageRecorded:
     action: send
     channel: { $ref: '#/channels/usageRecorded' }
-    summary: Publicado pelo aia-inference-router via outbox.
+    summary: Published by aia-inference-router through the outbox.
 
   consumeUsageRecorded:
     action: receive
     channel: { $ref: '#/channels/usageRecorded' }
-    summary: Consumido pelo aia-data-platform (Bronze) e pelo aia-governance.
+    summary: Consumed by aia-data-platform (Bronze) and by aia-governance.
 
   publishPolicyChanged:
     action: send
     channel: { $ref: '#/channels/policyChanged' }
-    summary: Publicado pelo aia-governance.
+    summary: Published by aia-governance.
 
 components:
   messages:
@@ -145,10 +145,10 @@ components:
         time: { type: string, format: date-time }
         subject:
           type: string
-          description: project_id. O tenant acompanha o evento ate o analitico.
+          description: project_id. The tenant follows the event all the way to analytics.
         datacontenttype: { type: string, const: application/json }
-        traceparent: { type: string, description: 'Extensao: contexto W3C de trace.' }
-        idempotencykey: { type: string, description: 'Extensao: deduplicacao no consumidor.' }
+        traceparent: { type: string, description: 'Extension: W3C trace context.' }
+        idempotencykey: { type: string, description: 'Extension: deduplication at the consumer.' }
         data: { type: object }
 
     UsageRecordedData:
@@ -179,11 +179,11 @@ components:
         data_zone:
           type: string
           enum: [local, br, us, eu, global]
-          description: Evidencia de residencia de dados para auditoria (ADR-010).
+          description: Data residency evidence for audit (ADR-010).
         data_classification: { type: string }
         prompt_tokens: { type: integer }
         completion_tokens: { type: integer }
-        cost_micros: { type: integer, description: Custo calculado, em micros da moeda. }
+        cost_micros: { type: integer, description: The computed cost, in micros of the currency. }
         currency: { type: string }
         duration_ms: { type: integer }
         time_to_first_token_ms: { type: [integer, 'null'] }
@@ -192,8 +192,8 @@ components:
           type: string
           enum: [completed, partial, failed]
           description: |
-            `partial` quando o stream caiu antes do fim: o commit usa o que foi
-            contabilizado ate o corte e a reconciliacao ajusta depois.
+            `partial` when the stream dropped before the end: the commit uses
+            what was counted up to the cut and reconciliation adjusts it later.
         error_code: { type: [string, 'null'] }
         budget_unverified: { type: boolean }
         policy_stale: { type: boolean }

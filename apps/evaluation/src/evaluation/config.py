@@ -1,4 +1,4 @@
-"""Configuracao validada na inicializacao. 12-factor."""
+"""Configuration validated at startup. 12-factor."""
 
 from __future__ import annotations
 

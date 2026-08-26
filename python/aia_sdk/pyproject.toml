@@ -1,7 +1,7 @@
 [project]
 name = "aia-sdk"
 version = "0.1.0"
-description = "Cliente da API canonica da plataforma"
+description = "Client for the platform canonical API"
 requires-python = ">=3.12"
 dependencies = ["aia-contracts", "aia-errors", "httpx>=0.28.1"]
 

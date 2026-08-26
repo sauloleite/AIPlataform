@@ -9,8 +9,8 @@ import { CONFIG, type IdentityConfig } from '../../../../config/index.js';
 import { introspectRequestSchema, tokenRequestSchema } from './dto.schema.js';
 
 /**
- * Adapta HTTP para os casos de uso. Nenhuma regra de negocio aqui: o controller
- * so traduz entrada e saida (doc 03, secao 3.2).
+ * Adapts HTTP to the use cases. No business rule here: the controller only
+ * translates input and output (reference doc 03 §3.2).
  */
 @Controller()
 export class AuthController {
@@ -33,7 +33,7 @@ export class AuthController {
   }> {
     const parsed = tokenRequestSchema.safeParse(body);
     if (!parsed.success) {
-      throw new ValidationError('Requisicao de token invalida', {
+      throw new ValidationError('Invalid token request', {
         issues: parsed.error.issues.map((issue) => issue.path.join('.')),
       });
     }
@@ -98,7 +98,7 @@ export class AuthController {
   @HttpCode(200)
   async introspectToken(@Body() body: unknown): Promise<Record<string, unknown>> {
     const parsed = introspectRequestSchema.safeParse(body);
-    if (!parsed.success) throw new ValidationError('Corpo invalido');
+    if (!parsed.success) throw new ValidationError('Invalid body');
 
     const result = await this.introspect.execute({ token: parsed.data.token });
     if (!result.active) return { active: false };

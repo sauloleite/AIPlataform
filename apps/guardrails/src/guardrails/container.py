@@ -1,6 +1,6 @@
-"""Composicao de dependencias.
+"""Dependency composition.
 
-Todo o wiring vive aqui, nunca dentro de um caso de uso (doc 03, secao 3.3).
+All the wiring lives here, never inside a use case (reference doc 03 §3.3).
 """
 
 from __future__ import annotations
@@ -39,12 +39,12 @@ def _build_detector(settings: Settings) -> tuple[PiiDetector, str]:
 
         return PresidioDetector(), "presidio"
     except Exception:
-        # Modelo do spaCy ausente e o caso comum no primeiro boot. Degradar para
-        # regex mantem a redacao de CPF, CNPJ e cartao funcionando; o que se
-        # perde e a deteccao de nome de pessoa. Melhor do que subir sem guardrail.
+        # A missing spaCy model is the common case on first boot. Degrading to
+        # regex keeps CPF, CNPJ and card redaction working; what is lost is
+        # person-name detection. Better than starting with no guardrail at all.
         logger.warning(
-            "Presidio indisponivel (modelo do spaCy ausente?); usando detector por regex. "
-            "Nome de pessoa NAO sera detectado."
+            "Presidio unavailable (missing spaCy model?); falling back to the regex "
+            "detector. Person names will NOT be detected."
         )
         return RegexPiiDetector(), "regex-fallback"
 

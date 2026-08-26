@@ -4,32 +4,32 @@ import { Cost, type DataZone, type ProviderName } from '../value-objects/index.j
 export interface DeploymentProps {
   id: string;
   provider: ProviderName;
-  /** Nome do modelo NO PROVEDOR. O consumidor nunca ve isto. */
+  /** The model name AT THE PROVIDER. Consumers never see this. */
   model: string;
-  /** Onde o dado e processado. Base do roteamento por classificacao (ADR-010). */
+  /** Where the data is processed. The basis of classification routing (ADR-010). */
   dataZone: DataZone;
-  /** Menor numero atende primeiro. Empate resolve por ordem de declaracao. */
+  /** Lower number serves first. Ties break by declaration order. */
   priority: number;
-  /** Custo por milhao de tokens, em micros da moeda. */
+  /** Cost per million tokens, in micros of the currency. */
   inputCostPerMillion: bigint;
   outputCostPerMillion: bigint;
   currency: string;
   maxOutputTokens: number;
   enabled: boolean;
-  /** Descontinuacao anunciada. Alerta dispara 60 dias antes (doc 02, secao 8). */
+  /** Announced retirement. The alert fires 60 days ahead (reference doc 02 §8). */
   deprecatedAt?: Date;
 }
 
 /**
- * Um jeito concreto de atender um alias.
+ * One concrete way to serve an alias.
  *
- * Trocar de provedor e trocar o deployment de um alias: a aplicacao que consome
- * nao muda uma linha.
+ * Switching provider means switching an alias's deployment: the consuming
+ * application does not change a line.
  */
 export class Deployment {
   constructor(private readonly props: DeploymentProps) {
-    if (props.priority < 0) throw new ValidationError('Prioridade nao pode ser negativa');
-    if (props.maxOutputTokens < 1) throw new ValidationError('maxOutputTokens deve ser positivo');
+    if (props.priority < 0) throw new ValidationError('Priority cannot be negative');
+    if (props.maxOutputTokens < 1) throw new ValidationError('maxOutputTokens must be positive');
   }
 
   get id(): string {
@@ -68,14 +68,14 @@ export class Deployment {
     return this.props.deprecatedAt;
   }
 
-  /** Faltam 60 dias ou menos para a descontinuacao? Gatilho do runbook. */
+  /** Is retirement 60 days away or less? The runbook trigger. */
   isNearingRetirement(now: Date, windowDays = 60): boolean {
     if (this.props.deprecatedAt === undefined) return false;
     const remainingMs = this.props.deprecatedAt.getTime() - now.getTime();
     return remainingMs <= windowDays * 24 * 60 * 60 * 1000;
   }
 
-  /** Custo real da chamada. Arredonda para cima: nunca cobrar a menos do orcamento. */
+  /** Real cost of the call. Rounds up: never undercharge the budget. */
   costOf(promptTokens: number, completionTokens: number): Cost {
     const input = (BigInt(promptTokens) * this.props.inputCostPerMillion + 999_999n) / 1_000_000n;
     const output =
@@ -83,7 +83,7 @@ export class Deployment {
     return Cost.of(input + output, this.props.currency);
   }
 
-  /** Teto de saida efetivo, respeitando o limite do deployment. */
+  /** Effective output ceiling, respecting the deployment's own limit. */
   clampOutputTokens(requested: number | undefined): number {
     if (requested === undefined) return this.props.maxOutputTokens;
     return Math.min(requested, this.props.maxOutputTokens);

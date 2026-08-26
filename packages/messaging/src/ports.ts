@@ -1,12 +1,12 @@
 import type { CloudEvent } from './cloud-events.js';
 
-/** Publica fatos consumados. Quem publica nao sabe quem consome. */
+/** Publishes accomplished facts. The publisher does not know who consumes. */
 export interface EventPublisher {
   publish(event: CloudEvent): Promise<void>;
   publishAll(events: CloudEvent[]): Promise<void>;
 }
 
-/** Handler de um evento. Deve ser idempotente: pode ser chamado mais de uma vez. */
+/** Handler for one event. Must be idempotent: it may be called more than once. */
 export type EventHandler = (event: CloudEvent) => Promise<void>;
 
 export interface EventSubscriber {
@@ -15,7 +15,7 @@ export interface EventSubscriber {
   stop(): Promise<void>;
 }
 
-/** Trabalho pesado que sai do caminho da request (doc 02, principio 6). */
+/** Heavy work moved off the request path (reference doc 02, principle 6). */
 export interface JobQueue<TPayload = unknown> {
   enqueue(
     payload: TPayload,

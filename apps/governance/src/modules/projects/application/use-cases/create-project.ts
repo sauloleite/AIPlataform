@@ -27,7 +27,7 @@ export class CreateProject {
   async execute(command: CreateProjectCommand): Promise<ProjectView> {
     const existing = await this.projects.findBySlug(command.slug);
     if (existing !== null) {
-      throw new ConflictError('Ja existe um projeto com este slug', { slug: command.slug });
+      throw new ConflictError('A project with this slug already exists', { slug: command.slug });
     }
 
     const project = Project.create({
@@ -43,7 +43,7 @@ export class CreateProject {
       now: this.clock.now(),
     });
 
-    // O evento vai na mesma transacao do estado (outbox), nunca depois dela.
+    // The event goes in the same transaction as the state (outbox), never after.
     await this.projects.save(project, [
       newEvent({
         type: EVENT_TYPES.PROJECT_CREATED,

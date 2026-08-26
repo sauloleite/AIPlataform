@@ -1,7 +1,7 @@
-"""Validacao local de JWT com JWKS em cache (ADR-004).
+"""Local JWT validation with a cached JWKS (ADR-004).
 
-Nenhuma chamada ao servico de identidade no caminho da requisicao: as chaves
-publicas sao baixadas uma vez e reutilizadas ate expirarem.
+No call to the identity service on the request path: the public keys are
+fetched once and reused until they expire.
 """
 
 from __future__ import annotations
@@ -26,24 +26,24 @@ ROLES: Final[frozenset[str]] = frozenset(
     }
 )
 
-# ADR-010: zonas maximas por classificacao. A politica pode restringir, nunca ampliar.
+# ADR-010: maximum zones per classification. A policy may narrow, never widen.
 ZONES_BY_CLASSIFICATION: Final[dict[str, tuple[str, ...]]] = {
-    "publico": ("local", "br", "us", "eu", "global"),
-    "interno": ("local", "br", "us", "eu", "global"),
-    "confidencial": ("local", "br"),
-    "restrito": ("local",),
+    "public": ("local", "br", "us", "eu", "global"),
+    "internal": ("local", "br", "us", "eu", "global"),
+    "confidential": ("local", "br"),
+    "restricted": ("local",),
 }
 
 
 class TokenExpiredError(DomainError):
     def __init__(self) -> None:
-        super().__init__("Token expirado", code=ErrorCode.TOKEN_EXPIRED, status=401)
+        super().__init__("Token expired", code=ErrorCode.TOKEN_EXPIRED, status=401)
 
 
 class InvalidTokenError(DomainError):
     def __init__(self, reason: str) -> None:
         super().__init__(
-            "Token invalido",
+            "Invalid token",
             code=ErrorCode.INVALID_TOKEN,
             status=401,
             details={"reason": reason},
@@ -83,9 +83,9 @@ class Principal:
 
 
 def _parse_roles(raw: Any) -> tuple[str, ...]:
-    """Papel desconhecido e DESCARTADO, nunca aceito.
+    """An unknown role is DISCARDED, never accepted.
 
-    Um emissor externo mal configurado nao deve conseguir inventar privilegio.
+    A misconfigured external issuer must not be able to invent privilege.
     """
     if not isinstance(raw, list):
         return ()
@@ -138,9 +138,9 @@ class JwtVerifier:
         try:
             claims = self._decode(token)
         except (jwt.InvalidSignatureError, jwt.PyJWKClientError):
-            # Assinatura desconhecida quase sempre significa JWKS obsoleto em
-            # cache, e nao token forjado: o emissor rotacionou a chave. Recarrega
-            # UMA vez e tenta de novo; se falhar de novo, ai sim e token invalido.
+            # An unknown signature almost always means a stale cached JWKS,
+            # not a forged token: the issuer rotated its key. Reload ONCE and
+            # retry; if it fails again, then it really is an invalid token.
             self._client = None
             try:
                 claims = self._decode(token)
@@ -174,21 +174,21 @@ class JwtVerifier:
 
 def bearer_token(authorization_header: str | None) -> str:
     if not authorization_header:
-        raise UnauthenticatedError("Header Authorization ausente")
+        raise UnauthenticatedError("Missing Authorization header")
     scheme, _, token = authorization_header.partition(" ")
     if scheme.lower() != "bearer" or not token:
-        raise UnauthenticatedError("Esperado o esquema Bearer no header Authorization")
+        raise UnauthenticatedError("Expected the Bearer scheme in the Authorization header")
     return token
 
 
 def require_membership(principal: Principal, project_id: str) -> None:
     if principal.is_platform_admin or principal.belongs_to(project_id):
         return
-    raise ForbiddenError("principal nao pertence ao projeto", project_id=project_id)
+    raise ForbiddenError("principal does not belong to the project", project_id=project_id)
 
 
 def zone_is_compatible(classification: str, zone: str) -> bool:
-    """ADR-010. Classificacao desconhecida falha FECHADA."""
+    """ADR-010. An unknown classification fails CLOSED."""
     return zone in ZONES_BY_CLASSIFICATION.get(classification, ())
 
 

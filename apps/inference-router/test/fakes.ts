@@ -29,11 +29,11 @@ import type { ModelAlias } from '../src/modules/completions/domain/entities/mode
 import type { ProjectPolicySnapshot } from '../src/modules/completions/domain/services/model-selection-policy.js';
 
 /**
- * Fakes que cumprem o contrato de verdade.
+ * Fakes that honour the contract for real.
  *
- * O objetivo e testar COMPORTAMENTO (o orcamento foi debitado? o evento saiu?),
- * e nao a sequencia de chamadas — um teste amarrado a mocks quebra em toda
- * refatoracao sem indicar nenhum defeito real.
+ * The goal is to test BEHAVIOUR — was the budget charged? did the event go out?
+ * — rather than a call sequence. A test bound to mocks breaks on every
+ * refactoring without pointing at a real defect.
  */
 
 export class FakeBudgetLedger implements BudgetLedger {
@@ -51,7 +51,7 @@ export class FakeBudgetLedger implements BudgetLedger {
     return this.available;
   }
 
-  /** Simula o Redis fora do ar, para exercitar o modo budget_unverified. */
+  /** Simulates Redis being down, to exercise budget_unverified mode. */
   goDown(): void {
     this.available = false;
   }
@@ -101,7 +101,7 @@ export class FakePolicyReader implements PolicyReader {
     const blocked = new Set<string>();
     const policy: ProjectPolicySnapshot = {
       projectId: 'proj-1',
-      classification: 'interno',
+      classification: 'internal',
       allowedZones: ['local', 'br', 'us', 'eu', 'global'],
       isAliasAllowed: (alias) => !blocked.has(alias),
       maxOutputTokensFor: () => undefined,
@@ -122,7 +122,7 @@ export class FakePolicyReader implements PolicyReader {
     };
   }
 
-  /** Simula o governance fora: a politica em cache continua valendo, marcada. */
+  /** Simulates governance being down: the cached policy stays in force, flagged. */
   goStale(): void {
     this.result = { ...this.result, stale: true };
   }
@@ -150,10 +150,10 @@ export class FakeAliasRegistry implements AliasRegistry {
 }
 
 /**
- * Provedor deterministico.
+ * Deterministic provider.
  *
- * Devolve sempre o mesmo texto e o mesmo consumo, o que torna possivel afirmar
- * exatamente quanto o orcamento deveria ter sido debitado.
+ * It always returns the same text and the same usage, which makes it possible to
+ * assert exactly how much the budget should have been charged.
  */
 export class FakeModelProvider implements ModelProvider {
   readonly calls: { deploymentId: string; request: ChatRequestInput }[] = [];
@@ -164,17 +164,17 @@ export class FakeModelProvider implements ModelProvider {
 
   constructor(
     readonly provider: 'openai' | 'gemini' | 'anthropic' | 'ollama',
-    private readonly reply = 'resposta determinada',
+    private readonly reply = 'deterministic answer',
     private readonly usage = { promptTokens: 100, completionTokens: 50 },
   ) {}
 
-  /** Faz as proximas `times` chamadas falharem, para exercitar o failover. */
+  /** Makes the next `times` calls fail, to exercise the failover. */
   failNext(error: Error, times = 1): void {
     this.failure = error;
     this.failuresRemaining = times;
   }
 
-  /** Deixa o stream cair depois de N chunks, para exercitar o commit parcial. */
+  /** Drops the stream after N chunks, to exercise the partial commit. */
   breakStreamAfter(chunks: number): void {
     this.failMidStreamAfter = chunks;
   }
@@ -199,7 +199,7 @@ export class FakeModelProvider implements ModelProvider {
     const words = this.reply.split(' ');
     for (const [index, word] of words.entries()) {
       if (this.failMidStreamAfter !== null && index >= this.failMidStreamAfter) {
-        throw new Error('conexao caiu no meio do stream');
+        throw new Error('connection dropped mid-stream');
       }
       yield { delta: index === 0 ? word : ` ${word}` };
     }
@@ -288,7 +288,7 @@ export class FakeSemanticCache implements SemanticCache {
   }
 }
 
-/** Estimativa simples e previsivel: uma palavra, um token. */
+/** A simple, predictable estimate: one word, one token. */
 export class WordTokenEstimator implements TokenEstimator {
   countText(text: string): number {
     return text.trim() === '' ? 0 : text.trim().split(/\s+/).length;

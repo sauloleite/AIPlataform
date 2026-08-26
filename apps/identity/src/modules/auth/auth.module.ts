@@ -34,8 +34,8 @@ import { PatsController } from './presentation/http/pats.controller.js';
 import { CONFIG, type IdentityConfig } from '../../config/index.js';
 
 /**
- * Wiring do modulo: o unico lugar que conhece dominio, aplicacao e infraestrutura
- * ao mesmo tempo. Os casos de uso continuam falando so com ports.
+ * Module wiring: the only place that knows domain, application and
+ * infrastructure at once. The use cases still talk only to ports.
  */
 const adapters: Provider[] = [
   { provide: PASSWORD_HASHER, useClass: Argon2PasswordHasher },
@@ -55,8 +55,8 @@ const adapters: Provider[] = [
       new JoseTokenSigner({
         issuer: config.IDENTITY_ISSUER,
         audience: config.IDENTITY_AUDIENCE,
-        // Chave da configuracao vence (producao). Sem ela, a chave e gerada uma
-        // vez e persistida, para que restart nao invalide os tokens emitidos.
+        // A configured key wins (production). Without one, the key is generated
+        // once and persisted, so a restart does not invalidate issued tokens.
         ...(config.IDENTITY_SIGNING_PRIVATE_KEY !== undefined
           ? {
               keys: [
@@ -110,7 +110,7 @@ const adapters: Provider[] = [
       },
       {
         name: 'redis',
-        // Sem Redis, a introspeccao perde o cache mas continua correta.
+        // Without Redis, introspection loses its cache but stays correct.
         critical: false,
         check: async () => {
           await redis.ping();

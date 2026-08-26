@@ -14,7 +14,7 @@ const schema = z.object({
   IDENTITY_AUDIENCE: z.string().default('aia-platform'),
   IDENTITY_JWKS_URL: z.string().url().optional(),
 
-  /** Moeda padrao de orcamento quando o cliente nao informa. */
+  /** Default budget currency when the client does not supply one. */
   DEFAULT_CURRENCY: z.string().length(3).default('BRL'),
 
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),

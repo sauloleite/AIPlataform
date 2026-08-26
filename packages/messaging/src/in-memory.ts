@@ -2,10 +2,11 @@ import type { CloudEvent } from './cloud-events.js';
 import type { EventHandler, EventPublisher, EventSubscriber } from './ports.js';
 
 /**
- * Publisher em memoria para testes de aplicacao.
+ * In-memory publisher for application tests.
  *
- * E um fake, nao um mock: cumpre o contrato de verdade e deixa inspecionar o que
- * foi publicado, sem acoplar o teste a chamadas especificas (doc 03, secao 7).
+ * A fake, not a mock: it honours the contract for real and lets the test inspect
+ * what was published, without coupling the test to specific calls
+ * (reference doc 03 §7).
  */
 export class InMemoryEventBus implements EventPublisher, EventSubscriber {
   readonly published: CloudEvent[] = [];
@@ -15,7 +16,7 @@ export class InMemoryEventBus implements EventPublisher, EventSubscriber {
   async publish(event: CloudEvent): Promise<void> {
     if (this.failNext > 0) {
       this.failNext -= 1;
-      throw new Error('falha simulada ao publicar');
+      throw new Error('simulated publish failure');
     }
     this.published.push(event);
     for (const handler of this.handlers.get(event.type) ?? []) {
@@ -42,7 +43,7 @@ export class InMemoryEventBus implements EventPublisher, EventSubscriber {
     return Promise.resolve();
   }
 
-  /** Faz as proximas `count` publicacoes falharem, para exercitar o relay. */
+  /** Makes the next `count` publishes fail, to exercise the relay. */
   failNextPublishes(count: number): void {
     this.failNext = count;
   }

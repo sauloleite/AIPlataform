@@ -1,4 +1,4 @@
-"""Configuracao validada na inicializacao."""
+"""Configuration validated at startup."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     inference_router_url: str = "http://inference-router:3000"
     agent_runtime_service_token: str = ""
-    default_alias: str = "chat-rapido"
+    default_alias: str = "chat-fast"
 
     otel_exporter_otlp_endpoint: str | None = None
 

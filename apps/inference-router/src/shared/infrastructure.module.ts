@@ -32,8 +32,8 @@ export const EVENT_PUBLISHER = Symbol('EventPublisher');
       useFactory: (config: RouterConfig): Redis =>
         new Redis(config.REDIS_URL, {
           maxRetriesPerRequest: 2,
-          // Sem fila offline: quando o Redis cai, o ledger precisa SABER na hora
-          // para entrar em budget_unverified, e nao acumular comandos pendentes.
+          // No offline queue: when Redis drops, the ledger has to KNOW right away
+          // so it can enter budget_unverified instead of piling up commands.
           enableOfflineQueue: false,
         }),
       inject: [CONFIG],
@@ -65,7 +65,7 @@ export class InfrastructureModule implements OnApplicationShutdown {
   ) {}
 
   async onApplicationShutdown(): Promise<void> {
-    this.logger.log('encerrando conexoes');
+    this.logger.log('closing connections');
     await Promise.allSettled([this.mongo.close(), this.redis.quit()]);
   }
 }

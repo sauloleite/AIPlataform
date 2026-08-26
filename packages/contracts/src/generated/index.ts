@@ -1,6 +1,6 @@
 /**
- * GERADO AUTOMATICAMENTE. Nao edite.
- * Fonte: contracts/openapi/. Regenere com `make contracts`.
+ * AUTOMATICALLY GENERATED. Do not edit.
+ * Source: contracts/openapi/. Regenerate with `make contracts`.
  */
 export type * as governance from './governance.js';
 export type * as guardrails from './guardrails.js';

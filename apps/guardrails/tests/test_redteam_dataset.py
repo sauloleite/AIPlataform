@@ -1,8 +1,8 @@
-"""Executa os datasets de red team contra as heuristicas.
+"""Runs the red team datasets against the heuristics.
 
-Um dataset adversarial que ninguem roda e documentacao, nao defesa. Este teste
-faz `evals/redteam/*.jsonl` valer no CI: um ataque conhecido que passar a
-escapar, ou um uso legitimo que passar a ser bloqueado, reprova a PR.
+An adversarial dataset nobody runs is documentation, not defence. This test
+makes `evals/redteam/*.jsonl` count in CI: a known attack that starts slipping
+through, or a legitimate use that starts being blocked, fails the PR.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ REDTEAM_DIR = Path(__file__).resolve().parents[3] / "evals" / "redteam"
 
 def _load(filename: str) -> list[dict[str, Any]]:
     path = REDTEAM_DIR / filename
-    if not path.exists():  # pragma: no cover - protege contra mover o diretorio
-        pytest.skip(f"dataset ausente: {path}")
+    if not path.exists():  # pragma: no cover - guards against moving the directory
+        pytest.skip(f"missing dataset: {path}")
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
@@ -35,53 +35,55 @@ def inspect() -> InspectContent:
 
 
 def _ids(cases: list[dict[str, Any]]) -> list[str]:
-    return [f"{case['id']}-{case['categoria']}" for case in cases]
+    return [f"{case['id']}-{case['category']}" for case in cases]
 
 
-ATAQUES = _load("injecao-de-prompt.jsonl")
-LEGITIMOS = _load("falso-positivo.jsonl")
+ATTACKS = _load("prompt-injection.jsonl")
+LEGITIMATE = _load("false-positive.jsonl")
 
 
 @pytest.mark.parametrize(
     "case",
-    [c for c in ATAQUES if c["esperado"] == "block"],
-    ids=_ids([c for c in ATAQUES if c["esperado"] == "block"]),
+    [c for c in ATTACKS if c["expected"] == "block"],
+    ids=_ids([c for c in ATTACKS if c["expected"] == "block"]),
 )
-def test_ataque_conhecido_e_bloqueado(inspect: InspectContent, case: dict[str, Any]) -> None:
+def test_a_known_attack_is_blocked(inspect: InspectContent, case: dict[str, Any]) -> None:
     result = inspect.execute(InspectCommand(text=case["input"], project_id="platform-ci"))
 
     assert result.decision is Decision.BLOCK, (
-        f"{case['id']} ({case['referencia']}) deveria ser bloqueado. "
-        f"Sinais detectados: {[s.rule for s in result.injection_signals]}"
+        f"{case['id']} ({case['reference']}) should have been blocked. "
+        f"Signals detected: {[s.rule for s in result.injection_signals]}"
     )
 
 
 @pytest.mark.parametrize(
     "case",
-    [c for c in ATAQUES if c["esperado"] == "flag"],
-    ids=_ids([c for c in ATAQUES if c["esperado"] == "flag"]),
+    [c for c in ATTACKS if c["expected"] == "flag"],
+    ids=_ids([c for c in ATTACKS if c["expected"] == "flag"]),
 )
-def test_sinal_fraco_e_detectado_mas_nao_bloqueia(
+def test_a_weak_signal_is_detected_but_does_not_block(
     inspect: InspectContent, case: dict[str, Any]
 ) -> None:
     result = inspect.execute(InspectCommand(text=case["input"], project_id="platform-ci"))
 
-    # Detectar e registrar sem bloquear: o sinal vai para o trace e para o
-    # alerta, e o operador decide. Bloquear um padrao que tem leitura legitima
-    # (um webhook interno, um log colado) geraria falso positivo.
-    assert result.injection_suspected, f"{case['id']} deveria ao menos disparar sinal"
+    # Detect and record without blocking: the signal goes to the trace and to
+    # the alert, and the operator decides. Blocking a pattern that has a
+    # legitimate reading (an internal webhook, a pasted log) would produce a
+    # false positive.
+    assert result.injection_suspected, f"{case['id']} should at least raise a signal"
     assert result.decision is not Decision.BLOCK, (
-        f"{case['id']} e sinal fraco isolado ({case['nota']}) e nao deveria bloquear"
+        f"{case['id']} is a lone weak signal ({case['note']}) and should not block"
     )
 
 
-@pytest.mark.parametrize("case", LEGITIMOS, ids=_ids(LEGITIMOS))
-def test_uso_legitimo_nao_e_bloqueado(inspect: InspectContent, case: dict[str, Any]) -> None:
+@pytest.mark.parametrize("case", LEGITIMATE, ids=_ids(LEGITIMATE))
+def test_legitimate_use_is_not_blocked(inspect: InspectContent, case: dict[str, Any]) -> None:
     result = inspect.execute(InspectCommand(text=case["input"], project_id="platform-ci"))
 
-    # Bloquear trabalho legitimo faz o time desligar o guardrail, e um guardrail
-    # desligado nao protege nada. Este teste e tao importante quanto o de cima.
+    # Blocking legitimate work makes the team switch the guardrail off, and a
+    # guardrail that is off protects nothing. This test matters as much as the
+    # one above.
     assert result.decision is not Decision.BLOCK, (
-        f"{case['id']} e uso legitimo ({case['nota']}) e foi bloqueado por "
+        f"{case['id']} is legitimate use ({case['note']}) and was blocked by "
         f"{[s.rule for s in result.injection_signals]}"
     )

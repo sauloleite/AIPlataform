@@ -3,10 +3,10 @@ import { ValidationError } from '@aia/errors';
 const MICROS_PER_UNIT = 1_000_000n;
 
 /**
- * Valor monetario em micros (1 unidade = 1.000.000 micros).
+ * A monetary amount in micros (1 unit = 1,000,000 micros).
  *
- * Inteiro, e nao ponto flutuante: somar milhares de custos fracionarios de
- * inferencia em `number` acumula erro, e orcamento errado vira incidente.
+ * Integer rather than floating point: summing thousands of fractional inference
+ * costs in a `number` accumulates error, and a wrong budget becomes an incident.
  */
 export class Money {
   private constructor(
@@ -16,9 +16,9 @@ export class Money {
 
   static of(micros: bigint | number, currency: string): Money {
     const normalized = typeof micros === 'number' ? BigInt(Math.round(micros)) : micros;
-    if (normalized < 0n) throw new ValidationError('Valor monetario nao pode ser negativo');
+    if (normalized < 0n) throw new ValidationError('A monetary amount cannot be negative');
     if (!/^[A-Z]{3}$/.test(currency)) {
-      throw new ValidationError('Moeda deve ser um codigo ISO 4217 de tres letras', { currency });
+      throw new ValidationError('Currency must be a three-letter ISO 4217 code', { currency });
     }
     return new Money(normalized, currency);
   }
@@ -33,7 +33,7 @@ export class Money {
 
   private ensureSameCurrency(other: Money): void {
     if (this.currency !== other.currency) {
-      throw new ValidationError('Nao e possivel operar entre moedas diferentes', {
+      throw new ValidationError('Cannot operate across different currencies', {
         left: this.currency,
         right: other.currency,
       });
@@ -61,7 +61,7 @@ export class Money {
     return this.micros >= other.micros;
   }
 
-  /** Fracao consumida, entre 0 e 1 (ou acima, se estourou). */
+  /** Fraction consumed, between 0 and 1 — or above it, if the budget was blown. */
   ratioOf(total: Money): number {
     this.ensureSameCurrency(total);
     if (total.micros === 0n) return this.micros === 0n ? 0 : 1;

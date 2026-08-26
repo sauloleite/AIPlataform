@@ -1,26 +1,26 @@
 /**
- * Quem esta chamando. Tres tipos de principal (doc 02, secao 6):
- * usuario, aplicacao (client credentials ou PAT) e servico (chamada interna).
+ * Who is calling. Three kinds of principal (reference doc 02 §6): a user, an
+ * application (client credentials or PAT), and a service (internal call).
  */
 export type PrincipalType = 'user' | 'application' | 'service';
 
-/** Papeis de plataforma (RBAC). ABAC cuida do que depende de atributo. */
+/** Platform roles (RBAC). ABAC covers whatever depends on an attribute. */
 export const ROLES = {
-  /** Administra a plataforma inteira. */
+  /** Administers the whole platform. */
   PLATFORM_ADMIN: 'platform_admin',
-  /** Dono de um projeto: orcamento, membros, politicas. */
+  /** Owns a project: budget, members, policies. */
   PROJECT_OWNER: 'project_owner',
-  /** Cria e altera ativos dentro do projeto. */
+  /** Creates and edits assets inside the project. */
   PROJECT_EDITOR: 'project_editor',
-  /** So consome e le. */
+  /** Consumes and reads only. */
   PROJECT_VIEWER: 'project_viewer',
-  /** Le auditoria e consumo de todos os projetos, sem alterar nada. */
+  /** Reads audit and usage across every project, changing nothing. */
   AUDITOR: 'auditor',
 } as const;
 
 export type Role = (typeof ROLES)[keyof typeof ROLES];
 
-/** Vinculo de um principal com um projeto. Projeto e o tenant. */
+/** A principal's membership in a project. Project is the tenant. */
 export interface ProjectMembership {
   projectId: string;
   roles: Role[];
@@ -29,15 +29,15 @@ export interface ProjectMembership {
 export interface Principal {
   id: string;
   type: PrincipalType;
-  /** Ausente para principais que nao sao pessoas. */
+  /** Absent for principals that are not people. */
   email?: string;
   displayName?: string;
-  /** Papeis validos em toda a plataforma, independentes de projeto. */
+  /** Roles valid platform-wide, independent of any project. */
   globalRoles: Role[];
   memberships: ProjectMembership[];
-  /** Escopos do token (OAuth). Restringem o que aquele token pode fazer. */
+  /** OAuth scopes on the token. They narrow what this token may do. */
   scopes: string[];
-  /** Emissor que assinou o token, para auditoria. */
+  /** Issuer that signed the token, for audit. */
   issuer: string;
   expiresAt: Date;
 }

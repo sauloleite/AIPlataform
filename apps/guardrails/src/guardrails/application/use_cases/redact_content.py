@@ -1,8 +1,8 @@
-"""Analisa e devolve o conteudo com a PII substituida.
+"""Analyses and returns the content with its PII replaced.
 
-Chamado pelo inference-router ANTES de qualquer chamada a provedor externo e
-antes de qualquer persistencia: e o que garante que o texto bruto nao sai do
-fluxo da requisicao (doc 02, secao 10.2).
+Called by the inference-router BEFORE any call to an external provider and
+before any persistence: it is what guarantees the raw text never leaves the
+request flow (reference doc 02 §10.2).
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ class RedactContent:
         signals = self.heuristics.analyze(command.text) if command.check_injection else ()
         decision = decide(findings, signals)
 
-        # Conteudo bloqueado nao e redigido: nao ha versao segura para seguir.
+        # Blocked content is not redacted: there is no safe version to carry on with.
         if decision is Decision.BLOCK:
             return InspectionResult(
                 text="",

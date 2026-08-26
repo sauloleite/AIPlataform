@@ -15,10 +15,10 @@ import type { PrincipalEntity } from '../../src/modules/auth/domain/entities/pri
 import type { Email } from '../../src/modules/auth/domain/value-objects/email.js';
 
 /**
- * Fakes, nao mocks (doc 03, secao 7).
+ * Fakes, not mocks (reference doc 03 §7).
  *
- * Cumprem o contrato de verdade, entao o teste verifica COMPORTAMENTO em vez de
- * amarrar-se a quais metodos foram chamados e em que ordem.
+ * They honour the contract for real, so the test checks BEHAVIOUR rather than
+ * binding itself to which methods were called and in what order.
  */
 
 export class FakePrincipalRepository implements PrincipalRepository {
@@ -68,7 +68,7 @@ export class FakePatRepository implements PatRepository {
   }
 }
 
-/** Hash reversivel e deterministico: o teste precisa ser previsivel, nao seguro. */
+/** Reversible, deterministic hash: the test needs predictability, not security. */
 export class FakePasswordHasher implements PasswordHasher {
   async hash(plain: string): Promise<string> {
     return `hashed:${plain}`;
@@ -80,8 +80,8 @@ export class FakePasswordHasher implements PasswordHasher {
 }
 
 /**
- * SHA-256 de verdade, e nao um prefixo: um fake que embutisse o token no hash
- * tornaria vazia a assercao de que o valor em claro nao e persistido.
+ * A real SHA-256 rather than a prefix: a fake that embedded the token inside the
+ * hash would make the assertion about plaintext never being persisted vacuous.
  */
 export class FakeTokenHasher implements TokenHasher {
   hash(token: string): string {

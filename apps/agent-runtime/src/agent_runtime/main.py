@@ -1,4 +1,4 @@
-"""Aplicacao FastAPI do aia-agent-runtime."""
+"""FastAPI application for aia-agent-runtime."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level.upper())
     start_telemetry("aia-agent-runtime")
-    logger.info("agent-runtime pronto (esqueleto da Fase 0; LangGraph entra na Fase 3)")
+    logger.info("agent-runtime ready (phase 0 skeleton; LangGraph arrives in phase 3)")
     yield
 
 
@@ -44,7 +44,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, error: Exception) -> JSONResponse:
-        logger.exception("requisicao falhou em %s", request.url.path)
+        logger.exception("request failed at %s", request.url.path)
         problem = problem_from_unknown(
             error, instance=request.url.path, trace_id=current_trace_id()
         )

@@ -1,7 +1,7 @@
 [project]
 name = "aia-auth"
 version = "0.1.0"
-description = "Validacao local de JWT com JWKS, Principal, RBAC e ABAC"
+description = "Local JWT validation with JWKS, Principal, RBAC and ABAC"
 requires-python = ">=3.12"
 dependencies = [
     "aia-errors",

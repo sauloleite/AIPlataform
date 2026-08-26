@@ -1,22 +1,22 @@
 import { ValidationError } from '@aia/errors';
 
-export const CLASSIFICATIONS = ['publico', 'interno', 'confidencial', 'restrito'] as const;
+export const CLASSIFICATIONS = ['public', 'internal', 'confidential', 'restricted'] as const;
 export type ClassificationLevel = (typeof CLASSIFICATIONS)[number];
 
 export const DATA_ZONES = ['local', 'br', 'us', 'eu', 'global'] as const;
 export type DataZone = (typeof DATA_ZONES)[number];
 
 /**
- * Zonas maximas por classificacao (ADR-010).
+ * Maximum zones per classification (ADR-010).
  *
- * A politica do projeto pode RESTRINGIR essa lista, nunca amplia-la: um projeto
- * `restrito` continua sem poder sair da maquina mesmo que alguem edite a politica.
+ * A project policy may NARROW this list, never widen it: a `restricted` project
+ * still cannot leave the machine even if someone edits its policy.
  */
 const MAX_ZONES: Record<ClassificationLevel, readonly DataZone[]> = {
-  publico: ['local', 'br', 'us', 'eu', 'global'],
-  interno: ['local', 'br', 'us', 'eu', 'global'],
-  confidencial: ['local', 'br'],
-  restrito: ['local'],
+  public: ['local', 'br', 'us', 'eu', 'global'],
+  internal: ['local', 'br', 'us', 'eu', 'global'],
+  confidential: ['local', 'br'],
+  restricted: ['local'],
 };
 
 export class DataClassification {
@@ -24,7 +24,7 @@ export class DataClassification {
 
   static of(raw: string): DataClassification {
     if (!CLASSIFICATIONS.includes(raw as ClassificationLevel)) {
-      throw new ValidationError('Classificacao de dados desconhecida', {
+      throw new ValidationError('Unknown data classification', {
         value: raw,
         allowed: [...CLASSIFICATIONS],
       });
@@ -32,7 +32,7 @@ export class DataClassification {
     return new DataClassification(raw as ClassificationLevel);
   }
 
-  /** Zonas permitidas por esta classificacao, antes de qualquer restricao. */
+  /** Zones this classification permits, before any further restriction. */
   allowedZones(): DataZone[] {
     return [...MAX_ZONES[this.level]];
   }
@@ -41,13 +41,13 @@ export class DataClassification {
     return MAX_ZONES[this.level].includes(zone);
   }
 
-  /** Interseccao com as zonas pedidas: nunca amplia o que a classificacao permite. */
+  /** Intersects with the requested zones: never widens what the level allows. */
   restrictTo(requested: readonly DataZone[]): DataZone[] {
     return this.allowedZones().filter((zone) => requested.includes(zone));
   }
 
   get requiresLocalOnly(): boolean {
-    return this.level === 'restrito';
+    return this.level === 'restricted';
   }
 
   toString(): string {

@@ -14,17 +14,17 @@ interface SigningKeyDocument {
 const ALG = 'RS256';
 
 /**
- * Chave de assinatura persistida.
+ * Persisted signing key.
  *
- * Existe por causa de um problema concreto: uma chave gerada em memoria muda a
- * cada restart do processo, e todo token emitido antes vira invalido — com o
- * agravante de que os outros servicos ainda tem o JWKS antigo em cache e passam
- * a devolver 401 sem motivo aparente.
+ * This exists because of a concrete problem: a key generated in memory changes
+ * on every process restart, and every token issued before it becomes invalid —
+ * made worse by the other services still holding the old JWKS in cache and
+ * returning 401 for no apparent reason.
  *
- * Persistindo a chave, o ambiente de desenvolvimento se comporta como producao
- * sem exigir que ninguem gere e commite um segredo. Em producao a chave continua
- * vindo da configuracao (Vault, Infisical, Secret do Kubernetes), e este store
- * nem e consultado.
+ * By persisting the key, development behaves like production without anyone
+ * having to generate and commit a secret. In production the key still comes from
+ * configuration (Vault, Infisical, a Kubernetes Secret) and this store is never
+ * consulted.
  */
 @Injectable()
 export class MongoSigningKeyStore {
@@ -36,10 +36,10 @@ export class MongoSigningKeyStore {
   }
 
   /**
-   * Chaves disponiveis para assinar e validar.
+   * Keys available for signing and validation.
    *
-   * A primeira e a ativa. As aposentadas continuam no JWKS para que tokens ja
-   * emitidos sigam validos ate expirarem.
+   * The first one is active. Retired keys stay in the JWKS so tokens already
+   * issued remain valid until they expire.
    */
   async loadOrCreate(kid: string): Promise<SigningKeyMaterial[]> {
     const existing = await this.collection.find({}).sort({ createdAt: -1 }).toArray();
@@ -61,20 +61,20 @@ export class MongoSigningKeyStore {
       createdAt: new Date(),
     };
 
-    // `upsert: false` com insert: se duas replicas subirem juntas, uma perde a
-    // corrida e recarrega a chave da outra, em vez de sobrescrever.
+    // Insert without upsert: if two replicas start together, one loses the race
+    // and reloads the other's key instead of overwriting it.
     try {
       await this.collection.insertOne(document);
-      this.logger.log(`chave de assinatura ${kid} gerada e persistida`);
+      this.logger.log(`signing key ${kid} generated and persisted`);
     } catch {
-      this.logger.log('outra replica gerou a chave primeiro; recarregando');
+      this.logger.log('another replica generated the key first; reloading');
       return this.loadOrCreate(kid);
     }
 
     return [{ kid, privateKeyPem: document.privateKeyPem, publicKeyPem: document.publicKeyPem }];
   }
 
-  /** Aposenta a chave ativa e gera outra. A antiga fica no JWKS. */
+  /** Retires the active key and generates another. The old one stays in the JWKS. */
   async rotate(newKid: string): Promise<SigningKeyMaterial[]> {
     await this.collection.updateMany(
       { retiredAt: { $exists: false } },

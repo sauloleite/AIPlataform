@@ -8,7 +8,7 @@ import type {
   ProviderName,
 } from '../src/modules/completions/domain/value-objects/index.js';
 
-/** Construtores de teste. Existem para que cada teste diga so o que importa nele. */
+/** Test builders. They exist so each test states only what matters to it. */
 
 export function aDeployment(
   overrides: Partial<{
@@ -45,7 +45,7 @@ export function anAlias(
   overrides: { id?: string; capabilities?: Capability[] } = {},
 ): ModelAlias {
   return ModelAlias.of({
-    id: overrides.id ?? 'chat-rapido',
+    id: overrides.id ?? 'chat-fast',
     capabilities: overrides.capabilities ?? ['chat'],
     deployments,
   });
@@ -64,7 +64,7 @@ export function aPolicy(
   const limits = overrides.maxOutputTokens ?? {};
   return {
     projectId: overrides.projectId ?? 'proj-1',
-    classification: overrides.classification ?? 'interno',
+    classification: overrides.classification ?? 'internal',
     allowedZones: overrides.allowedZones ?? ['local', 'br', 'us', 'eu', 'global'],
     isAliasAllowed: (alias) => !blocked.includes(alias),
     maxOutputTokensFor: (alias) => limits[alias],

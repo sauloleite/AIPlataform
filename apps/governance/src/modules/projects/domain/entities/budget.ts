@@ -9,7 +9,7 @@ export class BudgetExhaustedError extends DomainError {
   override readonly retryable = true;
 
   constructor(projectId: string, retryAfterSeconds: number) {
-    super('Orcamento do projeto esgotado no periodo', {
+    super('Project budget exhausted for the period', {
       project_id: projectId,
       retry_after: retryAfterSeconds,
     });
@@ -28,11 +28,11 @@ export interface BudgetProps {
 }
 
 /**
- * Orcamento em MOEDA, nao em tokens.
+ * Budget in CURRENCY, not in tokens.
  *
- * O custo por token varia por provedor e por modelo; o que o negocio controla e
- * o gasto (doc 01, achado 3.3). A conversao de tokens para moeda acontece no
- * router, que conhece a tabela de precos de cada deployment.
+ * Cost per token varies by provider and by model; what the business controls is
+ * spend (reference doc 01, finding 3.3). Converting tokens to currency happens
+ * in the router, which knows each deployment's price table.
  */
 export class Budget {
   private constructor(private props: BudgetProps) {}
@@ -51,7 +51,7 @@ export class Budget {
   }): Budget {
     const thresholds = input.alertThresholds ?? [0.5, 0.8, 1.0];
     if (thresholds.some((threshold) => threshold <= 0 || threshold > 2)) {
-      throw new ValidationError('Limiar de alerta deve ficar entre 0 e 2', {
+      throw new ValidationError('An alert threshold must sit between 0 and 2', {
         thresholds,
       });
     }
@@ -113,7 +113,7 @@ export class Budget {
       : new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
   }
 
-  /** Gasto mais o que esta reservado por chamadas em voo. */
+  /** Spend plus whatever is reserved by calls in flight. */
   committed(): Money {
     return this.props.spent.plus(this.props.reserved);
   }
@@ -127,8 +127,8 @@ export class Budget {
   }
 
   /**
-   * O periodo virou? Quem chama decide reiniciar; a entidade nao le o relogio
-   * sozinha, para continuar deterministica em teste.
+   * Has the period rolled over? The caller decides to reset; the entity never
+   * reads the clock itself, so it stays deterministic in tests.
    */
   isExpired(now: Date): boolean {
     return now.getTime() >= this.periodEnd().getTime();
@@ -140,7 +140,7 @@ export class Budget {
     this.props.reserved = Money.zero(this.props.limit.currency);
   }
 
-  /** Lanca se o custo estimado nao couber e o projeto bloquear no limite. */
+  /** Throws if the estimate does not fit and the project blocks at its limit. */
   ensureCanAfford(estimated: Money, now: Date): void {
     if (!this.props.blockAtLimit) return;
     if (this.committed().plus(estimated).isGreaterThan(this.props.limit)) {
@@ -154,8 +154,8 @@ export class Budget {
 
   changeLimit(limit: Money): void {
     if (limit.currency !== this.props.limit.currency) {
-      // Trocar de moeda invalidaria o gasto ja acumulado no periodo.
-      throw new ValidationError('Nao e possivel trocar a moeda do orcamento em uso', {
+      // Switching currency would invalidate the spend already accrued this period.
+      throw new ValidationError('Cannot change the currency of a budget in use', {
         current: this.props.limit.currency,
         requested: limit.currency,
       });
@@ -170,7 +170,7 @@ export class Budget {
     }
   }
 
-  /** Limiares que a razao atual acabou de ultrapassar em relacao a anterior. */
+  /** Thresholds the current ratio just crossed relative to the previous one. */
   crossedThresholds(previousRatio: number): number[] {
     const current = this.usageRatio();
     return this.props.alertThresholds.filter(

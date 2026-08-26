@@ -7,8 +7,8 @@ import { InfrastructureModule } from './shared/infrastructure.module.js';
 @Module({
   imports: [InfrastructureModule, AuthModule],
   providers: [
-    // Guard global: a rota precisa se declarar publica para escapar dele,
-    // e nao o contrario. Esquecer o decorator falha fechado.
+    // Global guard: a route must declare itself public to escape it, not the
+    // other way round. Forgetting the decorator fails closed.
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
 })

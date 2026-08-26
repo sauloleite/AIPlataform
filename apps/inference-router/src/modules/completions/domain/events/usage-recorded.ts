@@ -3,10 +3,10 @@ import type { Cost, DataClassification, DataZone, ProviderName } from '../value-
 export type UsageStatus = 'completed' | 'partial' | 'failed';
 
 /**
- * Fato consumado de uma chamada de inferencia.
+ * The accomplished fact of an inference call.
  *
- * Alimenta o analitico (custo por projeto, alias e usuario) e serve de evidencia
- * de residencia de dados: `data_zone` diz onde o conteudo foi processado.
+ * It feeds analytics (cost per project, alias and user) and stands as data
+ * residency evidence: `data_zone` says where the content was processed.
  */
 export interface UsageRecorded {
   requestId: string;
@@ -31,7 +31,7 @@ export interface UsageRecorded {
   occurredAt: Date;
 }
 
-/** Converte para o payload do evento (snake_case, conforme o AsyncAPI). */
+/** Converts to the event payload (snake_case, matching the AsyncAPI contract). */
 export function usageRecordedPayload(usage: UsageRecorded): Record<string, unknown> {
   return {
     request_id: usage.requestId,

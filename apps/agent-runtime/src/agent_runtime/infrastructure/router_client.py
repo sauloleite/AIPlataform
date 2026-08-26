@@ -1,8 +1,8 @@
-"""Cliente do aia-inference-router.
+"""Client for aia-inference-router.
 
-O agente NUNCA fala com provedor de modelo direto (doc 02, principio 1): sem
-isso, orcamento, roteamento por classificacao e auditoria deixariam de valer
-para tudo que um agente faz.
+An agent NEVER talks to a model provider directly (reference doc 02, principle
+1): without that, budget, classification-based routing and audit would stop
+applying to everything an agent does.
 """
 
 from __future__ import annotations

@@ -6,8 +6,8 @@ import { JWT_VERIFIER } from '@aia/nest';
 import { CONFIG, loadConfig, type IdentityConfig } from '../config/index.js';
 
 /**
- * Conexoes compartilhadas. Global porque um pool de conexao por modulo
- * multiplicaria sockets sem ganho nenhum.
+ * Shared connections. Global because one connection pool per module would
+ * multiply sockets for no gain.
  */
 @Global()
 @Module({
@@ -36,7 +36,7 @@ import { CONFIG, loadConfig, type IdentityConfig } from '../config/index.js';
       useFactory: (config: IdentityConfig): Redis =>
         new Redis(config.REDIS_URL, {
           maxRetriesPerRequest: 2,
-          // Nao deixa o cache travar o caminho da requisicao quando o Redis some.
+          // Keeps the cache from stalling the request path when Redis disappears.
           enableOfflineQueue: false,
           lazyConnect: false,
         }),
@@ -63,9 +63,9 @@ export class InfrastructureModule implements OnApplicationShutdown {
     private readonly redis: Redis,
   ) {}
 
-  /** Graceful shutdown: fecha os pools para nao deixar conexao pendurada. */
+  /** Graceful shutdown: closes the pools so no connection is left hanging. */
   async onApplicationShutdown(): Promise<void> {
-    this.logger.log('encerrando conexoes');
+    this.logger.log('closing connections');
     await Promise.allSettled([this.mongo.close(), this.redis.quit()]);
   }
 }

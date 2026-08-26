@@ -1,4 +1,4 @@
-"""Erros de dominio do runtime."""
+"""Runtime domain errors."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from aia_errors import DomainError, ErrorCode
 class RunNotFoundError(DomainError):
     def __init__(self, run_id: str) -> None:
         super().__init__(
-            "Execucao nao encontrada",
+            "Run not found",
             code=ErrorCode.NOT_FOUND,
             status=404,
             details={"run_id": run_id},
@@ -18,7 +18,7 @@ class RunNotFoundError(DomainError):
 class RunNotWaitingApprovalError(DomainError):
     def __init__(self, run_id: str) -> None:
         super().__init__(
-            "A execucao nao esta aguardando aprovacao",
+            "The run is not waiting for approval",
             code=ErrorCode.CONFLICT,
             status=409,
             details={"run_id": run_id},
@@ -28,7 +28,7 @@ class RunNotWaitingApprovalError(DomainError):
 class ApprovalForbiddenError(DomainError):
     def __init__(self, principal_id: str, risk_level: str) -> None:
         super().__init__(
-            "Principal nao pode aprovar uma tool deste nivel de risco",
+            "The principal cannot approve a tool at this risk level",
             code=ErrorCode.FORBIDDEN,
             status=403,
             details={"principal_id": principal_id, "risk_level": risk_level},

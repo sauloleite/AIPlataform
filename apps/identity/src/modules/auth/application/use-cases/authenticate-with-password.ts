@@ -29,8 +29,8 @@ export class AuthenticateWithPassword {
   ): Promise<IssuedTokenResult> {
     const principal = await this.principals.findByEmail(Email.of(command.email));
 
-    // Verifica a senha mesmo sem principal, contra um hash descartavel, para que
-    // o tempo de resposta nao revele se a conta existe (timing attack).
+    // Verify the password even with no principal, against a throwaway hash, so
+    // response time cannot reveal whether the account exists (timing attack).
     const hash = principal?.passwordHash ?? '$argon2id$v=19$m=4,t=1,p=1$YWFhYWFhYWE$invalid';
     const passwordMatches = await this.hasher.verify(hash, command.password);
 

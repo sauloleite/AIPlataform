@@ -43,11 +43,12 @@ import { CONFIG, type RouterConfig } from '../../config/index.js';
 import { ServiceTokenProvider } from '../../shared/service-token.js';
 
 /**
- * Wiring. Unico lugar que conhece dominio, aplicacao e infraestrutura juntos.
+ * Wiring. The only place that knows domain, application and infrastructure
+ * together.
  *
- * Todo provedor e registrado, tenha chave ou nao: quem decide se ele participa
- * e a flag `configured`, avaliada pelo DeploymentExecutor. Assim a plataforma
- * sobe identica com uma chave, com quatro ou com nenhuma.
+ * Every provider is registered whether it has a key or not: what decides whether
+ * it participates is the `configured` flag, evaluated by the DeploymentExecutor.
+ * That way the platform starts identically with one key, with four, or with none.
  */
 const adapters: Provider[] = [
   {
@@ -155,7 +156,8 @@ const adapters: Provider[] = [
     useFactory: (db: Db, redis: Redis, config: RouterConfig): DependencyCheck[] => [
       {
         name: 'mongodb',
-        // Sem MongoDB nao ha auditoria nem outbox: atender seria perder evidencia.
+        // Without MongoDB there is no audit and no outbox: serving would mean
+        // losing evidence.
         critical: true,
         check: async () => {
           await db.command({ ping: 1 });
@@ -164,7 +166,7 @@ const adapters: Provider[] = [
       },
       {
         name: 'redis',
-        // Sem Redis o router degrada para budget_unverified, mas continua servindo.
+        // Without Redis the router degrades to budget_unverified but keeps serving.
         critical: false,
         check: async () => {
           await redis.ping();
@@ -180,7 +182,7 @@ const adapters: Provider[] = [
           });
           return response.ok
             ? { status: 'ok' as const }
-            : { status: 'degraded' as const, detail: 'politica sera servida do cache' };
+            : { status: 'degraded' as const, detail: 'policy will be served from cache' };
         },
       },
       {
@@ -192,7 +194,7 @@ const adapters: Provider[] = [
           });
           return response.ok
             ? { status: 'ok' as const }
-            : { status: 'degraded' as const, detail: 'modelos locais indisponiveis' };
+            : { status: 'degraded' as const, detail: 'local models unavailable' };
         },
       },
     ],

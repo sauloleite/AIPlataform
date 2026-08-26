@@ -1,7 +1,7 @@
 import type { ChatMessageInput } from './ports.js';
 import type { Cost, DataZone, ProviderName } from '../domain/value-objects/index.js';
 
-/** Comando de caso de uso. Sem `Request`, sem header, sem decorator. */
+/** A use case command. No `Request`, no header, no decorator. */
 export interface CreateChatCompletionCommand {
   requestId: string;
   projectId: string;
@@ -23,7 +23,7 @@ export interface CreateEmbeddingsCommand {
   input: string[];
 }
 
-/** Como a plataforma atendeu. Evidencia de residencia de dados e diagnostico. */
+/** How the platform served the call. Data residency evidence and diagnostics. */
 export interface RoutingInfo {
   deploymentId: string;
   provider: ProviderName;

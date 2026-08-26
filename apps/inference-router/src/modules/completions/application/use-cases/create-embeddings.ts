@@ -20,8 +20,8 @@ import { DeploymentExecutor } from '../services/deployment-executor.js';
 import type { CreateEmbeddingsCommand, EmbeddingsResult } from '../dto.js';
 
 /**
- * Embeddings passam pelo mesmo controle de orcamento e de zona de dados que o
- * chat: e o mesmo conteudo saindo da plataforma, so que em outro formato.
+ * Embeddings go through the same budget and data zone controls as chat: it is
+ * the same content leaving the platform, just in a different shape.
  */
 @Injectable()
 export class CreateEmbeddings {

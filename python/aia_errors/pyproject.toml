@@ -1,7 +1,7 @@
 [project]
 name = "aia-errors"
 version = "0.1.0"
-description = "Problem Details (RFC 9457) e catalogo de erros de dominio"
+description = "Problem Details (RFC 9457) and the domain error catalogue"
 requires-python = ">=3.12"
 dependencies = []
 

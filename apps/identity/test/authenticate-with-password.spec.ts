@@ -33,18 +33,18 @@ describe('AuthenticateWithPassword', () => {
 
     const ana = PrincipalEntity.createUser({
       id: 'user-ana',
-      email: Email.of('ana@banco.com'),
+      email: Email.of('ana@bank.example'),
       displayName: 'Ana',
-      passwordHash: await hasher.hash('senha-correta'),
+      passwordHash: await hasher.hash('correct-password'),
       globalRoles: [ROLES.AUDITOR],
     });
     ana.joinProject('proj-1', [ROLES.PROJECT_OWNER]);
     await principals.save(ana);
   });
 
-  it('emite token com papeis e memberships nas claims', async () => {
+  it('issues a token with roles and memberships in the claims', async () => {
     const result = await useCase.execute(
-      { email: 'ana@banco.com', password: 'senha-correta' },
+      { email: 'ana@bank.example', password: 'correct-password' },
       TTL,
     );
 
@@ -53,65 +53,73 @@ describe('AuthenticateWithPassword', () => {
     expect(signer.lastClaims()).toMatchObject({
       sub: 'user-ana',
       principal_type: 'user',
-      email: 'ana@banco.com',
+      email: 'ana@bank.example',
       roles: [ROLES.AUDITOR],
       memberships: [{ project_id: 'proj-1', roles: [ROLES.PROJECT_OWNER] }],
     });
   });
 
-  it('normaliza o email: maiusculas e espacos nao impedem o login', async () => {
+  it('normalises the email: case and spaces do not block sign-in', async () => {
     await expect(
-      useCase.execute({ email: '  ANA@Banco.com ', password: 'senha-correta' }, TTL),
+      useCase.execute({ email: '  ANA@Bank.Example ', password: 'correct-password' }, TTL),
     ).resolves.toMatchObject({ tokenType: 'Bearer' });
   });
 
-  it('recusa senha errada', async () => {
+  it('rejects a wrong password', async () => {
     await expect(
-      useCase.execute({ email: 'ana@banco.com', password: 'errada' }, TTL),
+      useCase.execute({ email: 'ana@bank.example', password: 'wrong' }, TTL),
     ).rejects.toBeInstanceOf(InvalidCredentialsError);
   });
 
-  it('da a mesma resposta para usuario inexistente, sem enumerar contas', async () => {
+  it('gives the same answer for a nonexistent user, so accounts cannot be enumerated', async () => {
     const inexistente = await useCase
-      .execute({ email: 'ninguem@banco.com', password: 'qualquer' }, TTL)
+      .execute({ email: 'nobody@bank.example', password: 'anything' }, TTL)
       .catch((error: unknown) => error);
     const senhaErrada = await useCase
-      .execute({ email: 'ana@banco.com', password: 'errada' }, TTL)
+      .execute({ email: 'ana@bank.example', password: 'wrong' }, TTL)
       .catch((error: unknown) => error);
 
     expect(inexistente).toBeInstanceOf(InvalidCredentialsError);
     expect((inexistente as Error).message).toBe((senhaErrada as Error).message);
   });
 
-  it('recusa principal desativado mesmo com a senha certa', async () => {
-    const ana = await principals.findByEmail(Email.of('ana@banco.com'));
+  it('rejects a disabled principal even with the right password', async () => {
+    const ana = await principals.findByEmail(Email.of('ana@bank.example'));
     ana?.disable();
 
     await expect(
-      useCase.execute({ email: 'ana@banco.com', password: 'senha-correta' }, TTL),
+      useCase.execute({ email: 'ana@bank.example', password: 'correct-password' }, TTL),
     ).rejects.toBeInstanceOf(PrincipalDisabledError);
   });
 
-  it('limita os escopos aos pedidos', async () => {
+  it('limits scopes to those requested', async () => {
     const result = await useCase.execute(
-      { email: 'ana@banco.com', password: 'senha-correta', requestedScopes: ['inference:read'] },
+      {
+        email: 'ana@bank.example',
+        password: 'correct-password',
+        requestedScopes: ['inference:read'],
+      },
       TTL,
     );
     expect(result.scope).toBe('inference:read');
   });
 
-  it('recusa escopo desconhecido em vez de ignora-lo', async () => {
+  it('rejects an unknown scope instead of silently dropping it', async () => {
     await expect(
       useCase.execute(
-        { email: 'ana@banco.com', password: 'senha-correta', requestedScopes: ['tudo:*'] },
+        {
+          email: 'ana@bank.example',
+          password: 'correct-password',
+          requestedScopes: ['everything:*'],
+        },
         TTL,
       ),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it('recusa email mal formado antes de tocar o repositorio', async () => {
+  it('rejects a malformed email before touching the repository', async () => {
     await expect(
-      useCase.execute({ email: 'nao-e-email', password: 'x' }, TTL),
+      useCase.execute({ email: 'not-an-email', password: 'x' }, TTL),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 });

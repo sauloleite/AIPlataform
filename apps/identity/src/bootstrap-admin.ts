@@ -16,18 +16,18 @@ import { MongoPrincipalRepository } from './modules/auth/infrastructure/mongo/pr
 import type { IdentityConfig } from './config/index.js';
 
 /**
- * Cria indices e, se configurado, o primeiro administrador.
+ * Creates indexes and, when configured, the first administrator.
  *
- * Sem isso a plataforma nasce sem ninguem que possa criar um projeto. O admin so
- * e criado quando nao existe: reiniciar o servico nunca sobrescreve a senha.
+ * Without this the platform starts with nobody able to create a project. The
+ * admin is only created when absent: restarting never overwrites the password.
  */
 export async function bootstrapAdmin(app: INestApplication, config: IdentityConfig): Promise<void> {
   const logger = new Logger('bootstrap');
   const principals = app.get<PrincipalRepository>(PRINCIPAL_REPOSITORY);
   const hasher = app.get<PasswordHasher>(PASSWORD_HASHER);
 
-  // Os indices sao criados a partir do adapter concreto; se o wiring trocar por
-  // outro repositorio, esta etapa simplesmente nao se aplica.
+  // Indexes are created from the concrete adapter; if the wiring swaps in a
+  // different repository, this step simply does not apply.
   if (principals instanceof MongoPrincipalRepository) await principals.ensureIndexes();
   const pats = app.get<PatRepository>(PAT_REPOSITORY);
   if (pats instanceof MongoPatRepository) await pats.ensureIndexes();
@@ -43,10 +43,10 @@ export async function bootstrapAdmin(app: INestApplication, config: IdentityConf
     PrincipalEntity.createUser({
       id: randomUUID(),
       email: Email.of(email),
-      displayName: 'Administrador',
+      displayName: 'Administrator',
       passwordHash: await hasher.hash(password),
       globalRoles: [ROLES.PLATFORM_ADMIN],
     }),
   );
-  logger.warn(`administrador inicial criado para ${email}. Troque a senha no primeiro acesso.`);
+  logger.warn(`initial administrator created for ${email}. Change the password on first sign-in.`);
 }

@@ -24,7 +24,7 @@ export class SetProjectPolicy {
 
   async execute(command: SetPolicyCommand): Promise<ProjectPolicyView> {
     const project = await this.projects.findById(command.projectId);
-    if (project === null) throw new NotFoundError('Projeto', command.projectId);
+    if (project === null) throw new NotFoundError('Project', command.projectId);
 
     const now = this.clock.now();
 
@@ -43,7 +43,7 @@ export class SetProjectPolicy {
         source: SOURCE,
         projectId: project.id,
         time: now,
-        // O router escuta este evento para invalidar o cache local antes do TTL.
+        // The router listens for this event to invalidate its cache before the TTL.
         data: { project_id: project.id, version: project.policyVersion },
       }),
     ]);

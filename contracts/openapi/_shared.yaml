@@ -1,8 +1,8 @@
-# Componentes compartilhados por todos os contratos da plataforma.
-# Referenciados como: $ref: './_shared.yaml#/components/schemas/ProblemDetails'
+# Components shared by every platform contract.
+# Referenced as: $ref: './_shared.yaml#/components/schemas/ProblemDetails'
 openapi: 3.1.0
 info:
-  title: AIA - componentes compartilhados
+  title: AIA - shared components
   version: '1.0.0'
 paths: {}
 components:
@@ -12,14 +12,14 @@ components:
       in: header
       required: true
       description: |
-        Projeto e o tenant da plataforma. Obrigatorio em todo contrato, todo evento,
-        todo trace e toda chave de particao (doc 02, principio 2).
+        Project is the platform tenant. Required on every contract, every event,
+        every trace and every partition key (reference doc 02, principle 2).
       schema: { type: string, minLength: 1, maxLength: 64 }
     TraceParent:
       name: traceparent
       in: header
       required: false
-      description: Contexto de trace do W3C, para correlacao ponta a ponta.
+      description: W3C trace context, for end-to-end correlation.
       schema: { type: string }
     RequestId:
       name: X-Request-Id
@@ -31,14 +31,14 @@ components:
       in: header
       required: false
       description: |
-        Obrigatorio em POST nao-streaming que cria recurso ou consome orcamento.
-        O resultado fica cacheado por 24 h, com chave composta pelo project_id.
+        Required on any non-streaming POST that creates a resource or consumes
+        budget. The result is cached for 24 h, under a key composed with project_id.
       schema: { type: string, minLength: 8, maxLength: 128 }
     Cursor:
       name: cursor
       in: query
       required: false
-      description: Cursor opaco de paginacao. Nunca interprete o conteudo.
+      description: Opaque pagination cursor. Never interpret its contents.
       schema: { type: string }
     Limit:
       name: limit
@@ -49,7 +49,7 @@ components:
   schemas:
     ProblemDetails:
       type: object
-      description: RFC 9457. `code` e estavel e faz parte do contrato publico.
+      description: RFC 9457. `code` is stable and part of the public contract.
       required: [type, title, status, code]
       properties:
         type: { type: string, format: uri }
@@ -84,32 +84,32 @@ components:
             - circuit_open
             - internal_error
         trace_id: { type: string }
-        retry_after: { type: integer, description: Segundos ate valer a pena tentar de novo. }
+        retry_after: { type: integer, description: Seconds until a retry is worth attempting. }
       additionalProperties: true
 
     DataClassification:
       type: string
       description: |
-        Classificacao de dados do projeto. Condiciona para quais zonas o
-        roteamento de modelo pode enviar o conteudo (ADR-010).
-      enum: [publico, interno, confidencial, restrito]
+        The project data classification. It conditions which zones model routing
+        may send the content to (ADR-010).
+      enum: [public, internal, confidential, restricted]
 
     DataZone:
       type: string
       description: |
-        Onde o provedor processa o dado. `local` e o Ollama na propria maquina.
+        Where the provider processes the data. `local` is Ollama on this machine.
       enum: [local, br, us, eu, global]
 
     Money:
       type: object
-      description: Valor monetario em micros para evitar ponto flutuante.
+      description: A monetary amount in micros, to avoid floating point.
       required: [currency, micros]
       properties:
         currency: { type: string, minLength: 3, maxLength: 3, examples: [BRL, USD] }
         micros:
           type: integer
           format: int64
-          description: 1 unidade da moeda = 1.000.000 micros.
+          description: 1 unit of the currency = 1,000,000 micros.
 
     Page:
       type: object
@@ -118,31 +118,31 @@ components:
         items: { type: array, items: {} }
         next_cursor:
           type: [string, 'null']
-          description: Ausente ou nulo quando nao ha mais paginas.
+          description: Absent or null when there are no more pages.
 
   responses:
     BadRequest:
-      description: Requisicao invalida
+      description: Invalid request
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetails' }
     Unauthorized:
-      description: Nao autenticado
+      description: Not authenticated
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetails' }
     Forbidden:
-      description: Acesso negado
+      description: Access denied
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetails' }
     NotFound:
-      description: Recurso nao encontrado
+      description: Resource not found
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetails' }
     TooManyRequests:
-      description: Orcamento, cota ou concorrencia excedidos
+      description: Budget, quota or concurrency exceeded
       headers:
         Retry-After:
           schema: { type: integer }
@@ -150,7 +150,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetails' }
     ServiceUnavailable:
-      description: Dependencia indisponivel ou circuito aberto
+      description: Dependency unavailable or circuit open
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetails' }
@@ -160,4 +160,4 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT emitido pelo aia-identity ou por um OIDC externo configurado.
+      description: A JWT issued by aia-identity or by a configured external OIDC.

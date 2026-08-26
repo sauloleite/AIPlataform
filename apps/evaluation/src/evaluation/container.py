@@ -1,4 +1,4 @@
-"""Composicao de dependencias. Nunca dentro de um caso de uso."""
+"""Dependency composition. Never inside a use case."""
 
 from __future__ import annotations
 
@@ -6,15 +6,15 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from aia_auth import JwtVerifier
-from evaluation.application.use_cases.exemplo import ExecutarExemplo
+from evaluation.application.use_cases.example import RunExample
 from evaluation.config import Settings, get_settings
-from evaluation.infrastructure.in_memory import InMemoryExemploRepository
+from evaluation.infrastructure.in_memory import InMemoryExampleRepository
 
 
 @dataclass(slots=True)
 class Container:
     settings: Settings
-    exemplo: ExecutarExemplo
+    example: RunExample
     verifier: JwtVerifier
 
 
@@ -23,7 +23,7 @@ def get_container() -> Container:
     settings = get_settings()
     return Container(
         settings=settings,
-        exemplo=ExecutarExemplo(repository=InMemoryExemploRepository()),
+        example=RunExample(repository=InMemoryExampleRepository()),
         verifier=JwtVerifier(
             issuer=settings.identity_issuer,
             jwks_uri=settings.jwks_url,

@@ -1,4 +1,4 @@
-"""Analisa conteudo sem alterar."""
+"""Analyses content without changing it."""
 
 from __future__ import annotations
 

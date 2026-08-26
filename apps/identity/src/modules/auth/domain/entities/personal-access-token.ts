@@ -7,7 +7,7 @@ export interface PatProps {
   name: string;
   principalId: string;
   projectId: string;
-  /** Somente o hash e persistido. O valor em claro existe uma unica vez. */
+  /** Only the hash is persisted. The plaintext exists exactly once. */
   tokenHash: string;
   scopes: TokenScopes;
   createdAt: Date;
@@ -20,10 +20,10 @@ export const PAT_PREFIX = 'aia_pat_';
 const MAX_LIFETIME_DAYS = 365;
 
 /**
- * Token opaco, para clientes que nao falam OAuth (doc 02, principio 5).
+ * Opaque token, for clients that do not speak OAuth (doc 02, principle 5).
  *
- * Diferente do JWT, exige introspeccao — por isso tem cache de 60 s e prazo
- * de validade limitado.
+ * Unlike a JWT it requires introspection — hence the 60 s cache and the capped
+ * lifetime.
  */
 export class PersonalAccessToken {
   private constructor(private props: PatProps) {}
@@ -51,7 +51,7 @@ export class PersonalAccessToken {
       );
     }
     if (input.scopes.isEmpty) {
-      throw new ValidationError('Um PAT sem escopo nao serve para nada');
+      throw new ValidationError('A PAT with no scope is useless');
     }
 
     const now = input.now ?? new Date();
@@ -95,7 +95,7 @@ export class PersonalAccessToken {
     return this.props.expiresAt.getTime() <= now.getTime();
   }
 
-  /** Lanca o erro tipado correspondente se o token nao puder ser usado. */
+  /** Throws the matching typed error if the token cannot be used. */
   ensureUsable(now: Date = new Date()): void {
     if (this.isRevoked) throw new PatRevokedError();
     if (this.isExpired(now)) throw new PatExpiredError();

@@ -11,15 +11,15 @@ import type {
 import { ensureOk, readSseLines, sseData } from './http.js';
 
 /**
- * Dois protocolos convivem no Gemini:
+ * Two protocols coexist in Gemini:
  *
- * - `interactions` (POST /v1beta/interactions) e a interface atual, GA desde
- *   junho de 2026, e substituiu `generateContent` como padrao.
- * - `generateContent` (POST /v1beta/models/{model}:generateContent) segue
- *   suportado e continua util para quem fixou uma versao antiga da API.
+ * - `interactions` (POST /v1beta/interactions) is the current interface, GA
+ *   since June 2026, and replaced `generateContent` as the default.
+ * - `generateContent` (POST /v1beta/models/{model}:generateContent) remains
+ *   supported and still matters for anyone pinned to an older API version.
  *
- * O modo e configuravel porque a API do Gemini mudou de forma duas vezes desde
- * 2024, e trocar de protocolo nao pode exigir alterar codigo em producao.
+ * The mode is configurable because the Gemini API changed shape twice since
+ * 2024, and switching protocol must not require changing production code.
  */
 export type GeminiProtocol = 'interactions' | 'generate-content';
 
@@ -65,7 +65,7 @@ interface EmbedContentResponse {
   embeddings?: { values?: number[] }[];
 }
 
-/** Separa a instrucao de sistema do resto: no Gemini ela e um campo proprio. */
+/** Splits the system instruction out: in Gemini it is a field of its own. */
 function splitSystem(messages: ChatMessageInput[]): {
   system: string | undefined;
   turns: ChatMessageInput[];
@@ -86,7 +86,7 @@ function normalizeFinishReason(raw: string | undefined): ChatResult['finishReaso
   return 'stop';
 }
 
-/** O `usage` aparece com dois nomes diferentes conforme o evento. Aceita os dois. */
+/** `usage` appears under two different names depending on the event. Accept both. */
 function readUsage(usage: InteractionsUsage | undefined): {
   promptTokens: number;
   completionTokens: number;
@@ -123,7 +123,7 @@ export class GeminiProvider implements ModelProvider {
   private headers(accept?: string): Record<string, string> {
     return {
       'Content-Type': 'application/json',
-      // Chave em header, nunca em query string: URL vaza em log de proxy.
+      // Key in a header, never in the query string: URLs leak into proxy logs.
       'x-goog-api-key': this.options.apiKey,
       ...(accept !== undefined && { Accept: accept }),
     };
@@ -141,7 +141,7 @@ export class GeminiProvider implements ModelProvider {
     const { system, turns } = splitSystem(request.messages);
     return JSON.stringify({
       model: deployment.model,
-      // Turno unico vira string simples, como no exemplo da documentacao.
+      // A single turn becomes a plain string, as in the documentation example.
       input:
         turns.length === 1 && turns[0]?.role === 'user'
           ? (turns[0].content ?? '')
@@ -157,7 +157,7 @@ export class GeminiProvider implements ModelProvider {
         ...(request.stop !== undefined && { stop_sequences: request.stop }),
       },
       stream,
-      // O router e o dono do historico e da auditoria; o provedor nao guarda estado.
+      // The router owns history and audit; the provider keeps no state.
       store: false,
     });
   }
@@ -257,7 +257,7 @@ export class GeminiProvider implements ModelProvider {
 
       const payload = JSON.parse(data) as InteractionsResponse & { type?: string };
 
-      // `step.delta` carrega o texto incremental; `interaction.completed`, o consumo.
+      // `step.delta` carries the incremental text; `interaction.completed` the usage.
       const delta = payload.delta?.text ?? '';
       const chunk: ChatChunk = { delta };
 
@@ -307,7 +307,7 @@ export class GeminiProvider implements ModelProvider {
     }
   }
 
-  /** Embeddings continuam no endpoint classico; a Interactions API e para geracao. */
+  /** Embeddings stay on the classic endpoint; the Interactions API is for generation. */
   async embed(
     input: string[],
     deployment: Deployment,

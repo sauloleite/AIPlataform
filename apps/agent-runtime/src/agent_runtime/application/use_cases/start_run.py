@@ -1,7 +1,8 @@
-"""Inicia uma execucao de agente.
+"""Starts an agent run.
 
-Versao minima: cria a execucao, grava o checkpoint inicial e chama o modelo pelo
-inference-router. O grafo LangGraph com passos, tools e retomada entra na Fase 3.
+Minimal version: creates the run, writes the initial checkpoint and calls the
+model through the inference-router. The LangGraph graph with steps, tools and
+resumption arrives in phase 3.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ class StartRun:
     runs: RunRepository
     checkpointer: Checkpointer
     model: ModelClient
-    default_alias: str = "chat-rapido"
+    default_alias: str = "chat-fast"
 
     async def execute(self, command: StartRunCommand) -> RunView:
         run = Run(
@@ -36,8 +37,8 @@ class StartRun:
             project_id=command.project_id,
             messages=[{"role": "user", "content": command.input}],
         )
-        # Checkpoint ANTES da chamada: se o processo morrer no meio, a execucao
-        # existe e pode ser retomada, em vez de sumir sem rastro.
+        # Checkpoint BEFORE the call: if the process dies mid-flight, the run
+        # exists and can be resumed instead of vanishing without a trace.
         await self.checkpointer.save(state)
 
         try:

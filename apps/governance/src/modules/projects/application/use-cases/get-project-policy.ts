@@ -12,11 +12,11 @@ import type { ProjectPolicyView } from '../dto.js';
 import { toPolicyView } from '../mappers.js';
 
 /**
- * Politica efetiva do projeto.
+ * The project's effective policy.
  *
- * Este e o endpoint mais chamado do servico: o inference-router o consulta a cada
- * requisicao, atraves de um cache local com TTL curto. Por isso ele nao faz
- * escrita e nao depende de nada alem dos dois repositorios.
+ * This is the service's busiest endpoint: the inference router consults it on
+ * every request, through a local cache with a short TTL. That is why it performs
+ * no writes and depends on nothing beyond the two repositories.
  */
 @Injectable()
 export class GetProjectPolicy {
@@ -28,11 +28,11 @@ export class GetProjectPolicy {
 
   async execute(projectId: string): Promise<ProjectPolicyView> {
     const project = await this.projects.findById(projectId);
-    if (project === null) throw new NotFoundError('Projeto', projectId);
+    if (project === null) throw new NotFoundError('Project', projectId);
 
     const budget = await this.budgets.findByProject(projectId);
-    // Orcamento de periodo vencido nao deve aparecer como gasto: o router
-    // tomaria a decisao errada ate a virada ser persistida.
+    // An expired period's budget must not read as spend: the router would make
+    // the wrong decision until the roll-over is persisted.
     if (budget?.isExpired(this.clock.now()) === true) {
       budget.rollOver(this.clock.now());
     }

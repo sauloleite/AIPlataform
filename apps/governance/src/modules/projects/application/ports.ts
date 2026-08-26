@@ -9,7 +9,7 @@ export interface ProjectRepository {
     items: Project[];
     nextCursor: string | null;
   }>;
-  /** Salva o projeto e os eventos na MESMA transacao (padrao outbox). */
+  /** Saves the project and its events in the SAME transaction (outbox pattern). */
   save(project: Project, events?: CloudEvent[]): Promise<void>;
 }
 export const PROJECT_REPOSITORY = Symbol('ProjectRepository');

@@ -8,7 +8,7 @@ import type { BudgetRepository } from '../../application/ports.js';
 interface BudgetDocument {
   _id: string;
   currency: string;
-  /** Armazenado como string para nao perder precisao de int64 em JSON/BSON. */
+  /** Stored as a string so int64 precision survives JSON/BSON. */
   limitMicros: string;
   spentMicros: string;
   reservedMicros: string;

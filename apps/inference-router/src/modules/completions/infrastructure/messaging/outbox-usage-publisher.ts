@@ -9,11 +9,11 @@ import type { UsagePublisher } from '../../application/ports.js';
 const SOURCE = '/aia/inference-router';
 
 /**
- * Publica `UsageRecorded` pela outbox.
+ * Publishes `UsageRecorded` through the outbox.
  *
- * Escreve no MongoDB junto da auditoria; um relay separado leva para o
- * barramento. Publicar direto no Redis dentro do caminho da requisicao criaria
- * duas fontes de verdade quando a publicacao falha (doc 02, principio 3).
+ * It writes to MongoDB alongside the audit record; a separate relay carries it
+ * to the bus. Publishing straight to Redis inside the request path would create
+ * two sources of truth whenever publishing failed (doc 02, principle 3).
  */
 @Injectable()
 export class OutboxUsagePublisher implements UsagePublisher {
@@ -36,7 +36,7 @@ export class OutboxUsagePublisher implements UsagePublisher {
         source: SOURCE,
         projectId: usage.projectId,
         time: usage.occurredAt,
-        // O request_id deduplica: o consumidor pode reprocessar sem contar duas vezes.
+        // request_id deduplicates: a consumer can reprocess without double counting.
         idempotencyKey: usage.requestId,
         ...(traceparent !== undefined && { traceparent }),
         data: usageRecordedPayload(usage),

@@ -1,5 +1,5 @@
 import { ERROR_CODES, type ErrorCode, problemTypeFor } from './catalog.js';
-import { DomainError, InternalError, isDomainError } from './domain-error.js';
+import { type DomainError, InternalError, isDomainError } from './domain-error.js';
 
 /**
  * Problem Details for HTTP APIs (RFC 9457).

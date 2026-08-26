@@ -1,7 +1,7 @@
 [project]
 name = "guardrails"
 version = "0.1.0"
-description = "Guardrails da plataforma: redacao de PII e deteccao de injecao de prompt"
+description = "Platform guardrails: PII redaction and prompt injection detection"
 requires-python = ">=3.12"
 dependencies = [
     "aia-auth",

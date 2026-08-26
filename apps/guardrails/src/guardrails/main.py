@@ -1,4 +1,4 @@
-"""Aplicacao FastAPI do aia-guardrails."""
+"""FastAPI application for aia-guardrails."""
 
 from __future__ import annotations
 
@@ -25,10 +25,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logging.basicConfig(level=settings.log_level.upper())
     start_telemetry("aia-guardrails")
 
-    # Carrega o detector no boot: falhar aqui e barato, falhar na primeira
-    # requisicao de producao nao e.
+    # Loads the detector at boot: failing here is cheap, failing on the first
+    # production request is not.
     container = get_container()
-    logger.info("guardrails pronto com detector %s", container.detector_name)
+    logger.info("guardrails ready with the %s detector", container.detector_name)
     yield
 
 
@@ -36,7 +36,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="AIA Guardrails",
         version="1.0.0",
-        description="Redacao de PII e deteccao de injecao de prompt",
+        description="PII redaction and prompt injection detection",
         lifespan=lifespan,
     )
 
@@ -50,8 +50,8 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, error: Exception) -> JSONResponse:
-        # Stack no log, correlacionado pelo trace_id; nunca na resposta.
-        logger.exception("requisicao falhou em %s", request.url.path)
+        # Stack in the log, correlated by trace_id; never in the response.
+        logger.exception("request failed at %s", request.url.path)
         problem = problem_from_unknown(
             error, instance=request.url.path, trace_id=current_trace_id()
         )

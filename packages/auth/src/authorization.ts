@@ -2,15 +2,15 @@ import { ForbiddenError } from '@aia/errors';
 import { ROLES, type Principal, type Role, isPlatformAdmin, rolesInProject } from './principal.js';
 import { Specification, allow, deny, spec } from './specification.js';
 
-/** O que esta sendo autorizado: um principal agindo sobre um projeto. */
+/** What is being authorised: a principal acting on a project. */
 export interface AccessRequest {
   principal: Principal;
   projectId: string;
-  /** Classificacao de dados do projeto, para as regras ABAC. */
+  /** The project's data classification, for the ABAC rules. */
   dataClassification?: string;
-  /** Zona de dados do recurso alvo (ex.: onde o modelo roda). */
+  /** Data zone of the target resource, e.g. where the model runs. */
   targetDataZone?: string;
-  /** Nivel de risco da tool sendo invocada. */
+  /** Risk level of the tool being invoked. */
   toolRiskLevel?: 'low' | 'medium' | 'high';
 }
 
@@ -19,7 +19,7 @@ class HasRoleInProject extends Specification<AccessRequest> {
 
   constructor(private readonly roles: readonly Role[]) {
     super();
-    this.name = `tem um dos papeis [${roles.join(', ')}]`;
+    this.name = `has one of the roles [${roles.join(', ')}]`;
   }
 
   evaluate(request: AccessRequest): ReturnType<Specification<AccessRequest>['evaluate']> {
@@ -27,8 +27,8 @@ class HasRoleInProject extends Specification<AccessRequest> {
     const granted = rolesInProject(request.principal, request.projectId);
     const match = this.roles.find((role) => granted.includes(role));
     return match === undefined
-      ? deny(`principal nao tem ${this.roles.join(' nem ')} no projeto`)
-      : allow(`papel ${match}`);
+      ? deny(`principal has none of ${this.roles.join(', ')} on the project`)
+      : allow(`role ${match}`);
   }
 }
 
@@ -36,57 +36,58 @@ export const hasRole = (...roles: Role[]): Specification<AccessRequest> =>
   new HasRoleInProject(roles);
 
 export const isMemberOfProject = spec<AccessRequest>(
-  'e membro do projeto',
+  'is a member of the project',
   (request) =>
     isPlatformAdmin(request.principal) ||
     request.principal.memberships.some((m) => m.projectId === request.projectId),
-  'principal nao pertence ao projeto',
+  'principal does not belong to the project',
 );
 
 export const hasScope = (scope: string): Specification<AccessRequest> =>
   spec(
-    `tem o escopo ${scope}`,
+    `has the ${scope} scope`,
     (request) => request.principal.scopes.includes(scope) || request.principal.scopes.includes('*'),
-    `token nao carrega o escopo ${scope}`,
+    `token does not carry the ${scope} scope`,
   );
 
 /**
- * ABAC do ADR-010: dado classificado so pode ir para uma zona compativel.
+ * The ABAC rule behind ADR-010: classified data may only reach a compatible
+ * zone.
  *
- * A ordem importa: `restrito` so aceita `local`, `confidencial` aceita `local`,
- * e assim por diante. Um dado publico pode ir para qualquer lugar.
+ * The order matters: `restricted` accepts only `local`, `confidential` also
+ * accepts in-country, and so on. Public data may go anywhere.
  */
 const ZONES_BY_CLASSIFICATION: Record<string, readonly string[]> = {
-  publico: ['local', 'br', 'us', 'eu', 'global'],
-  interno: ['local', 'br', 'us', 'eu', 'global'],
-  confidencial: ['local', 'br'],
-  restrito: ['local'],
+  public: ['local', 'br', 'us', 'eu', 'global'],
+  internal: ['local', 'br', 'us', 'eu', 'global'],
+  confidential: ['local', 'br'],
+  restricted: ['local'],
 };
 
 export const dataZoneIsCompatible = spec<AccessRequest>(
-  'zona de dados compativel com a classificacao',
+  'data zone compatible with the classification',
   (request) => {
     if (request.dataClassification === undefined || request.targetDataZone === undefined) {
       return true;
     }
     const allowed = ZONES_BY_CLASSIFICATION[request.dataClassification];
-    // Classificacao desconhecida e negada: falhar fechado (doc 02, secao 10).
+    // An unknown classification is denied: fail closed (reference doc 02 §10).
     return allowed?.includes(request.targetDataZone) === true;
   },
-  'a zona de dados do destino nao e compativel com a classificacao do projeto',
+  "the target's data zone is not compatible with the project classification",
 );
 
-/** OWASP LLM06: tool de risco alto exige papel de dono ou admin. */
+/** OWASP LLM06: a high-risk tool requires an owner or admin role. */
 export const canInvokeToolRisk = new (class extends Specification<AccessRequest> {
-  readonly name = 'pode invocar tool no nivel de risco';
+  readonly name = 'may invoke a tool at this risk level';
 
   evaluate(request: AccessRequest): ReturnType<Specification<AccessRequest>['evaluate']> {
-    if (request.toolRiskLevel !== 'high') return allow('risco nao exige papel elevado');
+    if (request.toolRiskLevel !== 'high') return allow('risk level needs no elevated role');
     return hasRole(ROLES.PROJECT_OWNER).evaluate(request);
   }
 })();
 
-/** Politicas prontas para os casos mais comuns. */
+/** Ready-made policies for the common cases. */
 export const POLICY = {
   READ_PROJECT: isMemberOfProject,
   USE_INFERENCE: isMemberOfProject.and(dataZoneIsCompatible),
@@ -96,10 +97,10 @@ export const POLICY = {
 } as const;
 
 /**
- * Aplica uma especificacao e lanca se negar.
+ * Applies a specification and throws if it denies.
  *
- * A decisao (nome da regra e motivo) e devolvida para que quem chama registre
- * no trace: doc 02, secao 6, exige decisao de autorizacao rastreavel.
+ * The decision (rule name and reason) is returned so the caller can record it in
+ * the trace: reference doc 02 §6 requires an auditable authorisation decision.
  */
 export function authorize(
   specification: Specification<AccessRequest>,

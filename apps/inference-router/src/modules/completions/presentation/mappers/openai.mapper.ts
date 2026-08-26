@@ -1,11 +1,11 @@
 import type { ChatCompletionResult, EmbeddingsResult } from '../../application/dto.js';
 
 /**
- * Traduz o resultado do caso de uso para a forma da API da OpenAI.
+ * Translates the use case result into the shape of the OpenAI API.
  *
- * O bloco `aia` e a nossa extensao: diz qual deployment atendeu e em qual zona
- * de dados, o que serve de evidencia de residencia e de diagnostico. Um cliente
- * OpenAI padrao simplesmente ignora esse campo.
+ * The `aia` block is our extension: it states which deployment served the call
+ * and in which data zone, which doubles as residency evidence and as
+ * diagnostics. A stock OpenAI client simply ignores the field.
  */
 export function toChatCompletionResponse(result: ChatCompletionResult): Record<string, unknown> {
   return {

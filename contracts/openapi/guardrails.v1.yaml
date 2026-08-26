@@ -3,10 +3,10 @@ info:
   title: AIA Guardrails
   version: '1.0.0'
   description: |
-    Substitui um servico gerenciado de content safety por pecas open source:
-    Presidio para deteccao e redacao de PII (com reconhecedores de CPF, CNPJ,
-    cartao, agencia e conta), heuristicas de injecao de prompt (OWASP LLM01) e,
-    opcionalmente, um classificador local via Ollama.
+    Replaces a managed content safety service with open source parts: Presidio
+    for PII detection and redaction (with recognisers for CPF, CNPJ, card, bank
+    branch and account), prompt injection heuristics (OWASP LLM01) and,
+    optionally, a local classifier through Ollama.
   license: { name: MIT }
 
 servers:
@@ -19,7 +19,7 @@ paths:
   /v1/guardrails/analyze:
     post:
       operationId: analyzeContent
-      summary: Analisa conteudo sem alterar
+      summary: Analyses content without changing it
       parameters:
         - $ref: './_shared.yaml#/components/parameters/ProjectId'
       requestBody:
@@ -29,7 +29,7 @@ paths:
             schema: { $ref: '#/components/schemas/AnalyzeRequest' }
       responses:
         '200':
-          description: Resultado da analise
+          description: The analysis result
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AnalyzeResponse' }
@@ -38,10 +38,10 @@ paths:
   /v1/guardrails/redact:
     post:
       operationId: redactContent
-      summary: Analisa e devolve o conteudo com PII substituida
+      summary: Analyses and returns the content with its PII replaced
       description: |
-        Chamado antes de qualquer persistencia de conteudo (doc 02, secao 10.2):
-        o texto bruto nao sai do fluxo da request.
+        Called before any content is persisted (reference doc 02 §10.2): the raw
+        text never leaves the request flow.
       parameters:
         - $ref: './_shared.yaml#/components/parameters/ProjectId'
       requestBody:
@@ -51,7 +51,7 @@ paths:
             schema: { $ref: '#/components/schemas/RedactRequest' }
       responses:
         '200':
-          description: Conteudo redigido
+          description: The redacted content
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RedactResponse' }
@@ -64,7 +64,7 @@ paths:
       summary: Liveness probe
       responses:
         '200':
-          description: Processo vivo
+          description: The process is alive
           content:
             application/json:
               schema: { type: object, properties: { status: { type: string } } }
@@ -76,7 +76,7 @@ paths:
       summary: Readiness probe
       responses:
         '200':
-          description: Pronto
+          description: Ready
           content:
             application/json:
               schema: { type: object, properties: { status: { type: string } } }
@@ -97,7 +97,7 @@ components:
         language: { type: string, default: pt, enum: [pt, en] }
         entities:
           type: array
-          description: Restringe a busca a estas entidades. Vazio = todas as conhecidas.
+          description: Restricts the search to these entities. Empty = every known one.
           items: { $ref: '#/components/schemas/EntityType' }
         check_injection: { type: boolean, default: true }
       additionalProperties: false
@@ -136,7 +136,7 @@ components:
         score: { type: number, minimum: 0, maximum: 1 }
         excerpt:
           type: string
-          description: Trecho curto que disparou a regra, ja truncado.
+          description: The short excerpt that fired the rule, already truncated.
 
     AnalyzeResponse:
       type: object
@@ -162,8 +162,8 @@ components:
               enum: [replace, mask, hash]
               default: replace
               description: |
-                `replace` troca por `<BR_CPF>`; `mask` mantem os ultimos digitos;
-                `hash` permite correlacionar ocorrencias sem revelar o valor.
+                `replace` swaps in `<BR_CPF>`; `mask` keeps the last digits;
+                `hash` allows correlating occurrences without revealing the value.
 
     RedactResponse:
       type: object

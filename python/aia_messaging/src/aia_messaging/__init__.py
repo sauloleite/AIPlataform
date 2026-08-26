@@ -1,8 +1,8 @@
-"""Envelope CloudEvents e publisher em Redis Streams.
+"""CloudEvents envelope and Redis Streams publisher.
 
-Espelha o `@aia/messaging`: o mesmo envelope, os mesmos nomes de evento e o
-mesmo transporte, para que um produtor Python e um consumidor TypeScript se
-entendam sem tradutor no meio.
+Mirrors `@aia/messaging`: the same envelope, the same event names and the same
+transport, so a Python producer and a TypeScript consumer understand each other
+with no translator in between.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ class CloudEvent:
 
 def new_event(
     *,
-    type: str,  # noqa: A002 - nome do campo CloudEvents
+    type: str,  # noqa: A002 - the CloudEvents field name
     source: str,
     project_id: str,
     data: dict[str, Any],
@@ -74,9 +74,9 @@ def new_event(
     occurred_at: datetime | None = None,
 ) -> CloudEvent:
     if not TYPE_PATTERN.match(type):
-        raise ValidationError("type do evento deve seguir aia.<dominio>.<fato>.v<N>", type=type)
+        raise ValidationError("event type must follow aia.<domain>.<fact>.v<N>", type=type)
     if not project_id:
-        raise ValidationError("projectId e obrigatorio: projeto e o tenant da plataforma")
+        raise ValidationError("projectId is required: project is the platform tenant")
 
     return CloudEvent(
         type=type,
@@ -100,7 +100,7 @@ class RedisLike(Protocol):
 
 @dataclass(slots=True)
 class RedisStreamPublisher:
-    """Um stream por tipo de evento, com limite aproximado de tamanho."""
+    """One stream per event type, with an approximate length cap."""
 
     redis: RedisLike
     key_prefix: str = "aia:events"
@@ -117,7 +117,7 @@ class RedisStreamPublisher:
 
 @dataclass(slots=True)
 class InMemoryEventPublisher:
-    """Fake para testes. Cumpre o contrato e deixa inspecionar o publicado."""
+    """Test fake. Honours the contract and lets you inspect what was published."""
 
     published: list[CloudEvent]
 

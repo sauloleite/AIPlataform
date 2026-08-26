@@ -1,4 +1,4 @@
-"""Composicao de dependencias. Nunca dentro de um caso de uso."""
+"""Dependency composition. Never inside a use case."""
 
 from __future__ import annotations
 

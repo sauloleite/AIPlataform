@@ -1,7 +1,7 @@
 [project]
 name = "aia-messaging"
 version = "0.1.0"
-description = "CloudEvents, outbox e publisher em Redis Streams"
+description = "CloudEvents, outbox and Redis Streams publisher"
 requires-python = ">=3.12"
 dependencies = ["aia-errors", "redis>=5.2.1", "pymongo>=4.10.1"]
 

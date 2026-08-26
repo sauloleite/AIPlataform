@@ -1,7 +1,7 @@
-"""Timeout, retry, circuit breaker e bulkhead para os servicos Python.
+"""Timeout, retry, circuit breaker and bulkhead for the Python services.
 
-Espelha o `@aia/resilience`: as mesmas politicas nomeadas do doc 02, secao 8,
-para que router e agent-runtime se comportem igual diante da mesma falha.
+Mirrors `@aia/resilience`: the same named policies from reference doc 02 §8, so
+that router and agent-runtime behave alike in the face of the same failure.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ DEFAULT_RETRYABLE_STATUSES: Final[frozenset[int]] = frozenset({408, 429, 500, 50
 class CircuitOpenError(DomainError):
     def __init__(self, key: str, reopens_in_ms: float) -> None:
         super().__init__(
-            f"Circuito aberto para {key}",
+            f"Circuit open for {key}",
             code=ErrorCode.CIRCUIT_OPEN,
             status=503,
             details={"target": key, "reopens_in_ms": int(reopens_in_ms)},
@@ -34,7 +34,7 @@ class CircuitOpenError(DomainError):
 class UpstreamTimeoutError(DomainError):
     def __init__(self, target: str, timeout_ms: int) -> None:
         super().__init__(
-            f"Tempo esgotado ao chamar {target}",
+            f"Timed out calling {target}",
             code=ErrorCode.UPSTREAM_TIMEOUT,
             status=504,
             details={"target": target, "timeout_ms": timeout_ms},
@@ -44,7 +44,7 @@ class UpstreamTimeoutError(DomainError):
 
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
-    """`max_attempts` conta tentativas ADICIONAIS: 2 significa ate 3 chamadas."""
+    """`max_attempts` counts ADDITIONAL attempts: 2 means up to 3 calls."""
 
     max_attempts: int = 2
     base_delay_ms: int = 500
@@ -68,7 +68,7 @@ class ResiliencePolicy:
 
 
 class Policies:
-    """Politicas da tabela do doc 02, secao 8."""
+    """Policies from the table in reference doc 02 §8."""
 
     INFERENCE: Final = ResiliencePolicy(
         "inference", timeout_ms=60_000, retry=RetryPolicy(), circuit_breaker=CircuitBreakerPolicy()
@@ -79,7 +79,7 @@ class Policies:
         retry=RetryPolicy(max_attempts=1, base_delay_ms=100, max_delay_ms=500),
         circuit_breaker=CircuitBreakerPolicy(),
     )
-    # Tool nao retenta: a acao pode nao ser idempotente (doc 02, secao 8).
+    # A tool does not retry: the action may not be idempotent (doc 02 §8).
     TOOL: Final = ResiliencePolicy(
         "tool",
         timeout_ms=20_000,
@@ -109,19 +109,19 @@ def retry_after_ms_of(error: BaseException) -> float | None:
 def is_retryable(error: BaseException, policy: RetryPolicy) -> bool:
     _ = policy
     status = status_of(error)
-    # Sem status: falha de rede. Vale tentar de novo.
+    # No status: a network failure. Worth another attempt.
     return status is None or status in DEFAULT_RETRYABLE_STATUSES
 
 
 def next_delay_ms(attempt: int, policy: RetryPolicy, error: BaseException) -> float:
-    """Backoff exponencial com full jitter, respeitando `Retry-After`."""
+    """Exponential backoff with full jitter, honouring `Retry-After`."""
     if policy.honor_retry_after:
         retry_after = retry_after_ms_of(error)
         if retry_after is not None and retry_after > 0:
             return min(retry_after, policy.max_delay_ms)
-    # Deslocamento em vez de `2**attempt`: dobrar por bit mantem o tipo inteiro.
+    # A shift rather than `2**attempt`: doubling bitwise keeps the integer type.
     ceiling = min(policy.base_delay_ms << attempt, policy.max_delay_ms)
-    return random.random() * ceiling  # noqa: S311 - jitter, nao criptografia
+    return random.random() * ceiling  # noqa: S311 - jitter, not cryptography
 
 
 @dataclass(slots=True)
@@ -134,10 +134,10 @@ class _Circuit:
 
 @dataclass(slots=True)
 class CircuitBreaker:
-    """Por chave e por processo.
+    """Per key and per process.
 
-    Estado compartilhado entre replicas exigiria uma ida a rede no caminho
-    critico, o que custa mais do que economiza.
+    State shared across replicas would need a network round trip on the critical
+    path, which costs more than it saves.
     """
 
     policy: CircuitBreakerPolicy
@@ -182,7 +182,7 @@ class CircuitBreaker:
         if not should_open:
             return
 
-        # A dependencia sabe melhor que nos quando estara pronta.
+        # The dependency knows better than we do when it will be ready.
         retry_after = retry_after_ms_of(error) if error is not None else None
         entry.opens_until = (time.monotonic() * 1000) + (retry_after or self.policy.open_ms)
         entry.state = "open"
@@ -190,7 +190,7 @@ class CircuitBreaker:
 
 @dataclass(slots=True)
 class ResilienceExecutor:
-    """Camadas, de fora para dentro: retry -> circuit breaker -> timeout."""
+    """Layers, outermost first: retry -> circuit breaker -> timeout."""
 
     policy: ResiliencePolicy
     _breaker: CircuitBreaker | None = field(default=None, init=False)

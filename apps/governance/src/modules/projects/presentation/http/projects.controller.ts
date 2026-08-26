@@ -33,15 +33,15 @@ import {
 } from './dto.schema.js';
 
 /**
- * Valida o corpo e converte falha de schema em erro de dominio.
+ * Validates the body and turns a schema failure into a domain error.
  *
- * A validacao de borda descreve o CONTRATO HTTP; as regras de negocio ficam no
- * dominio, e nao aqui.
+ * Edge validation describes the HTTP CONTRACT; business rules live in the
+ * domain, not here.
  */
 function parseOrThrow<S extends z.ZodTypeAny>(schema: S, input: unknown): z.infer<S> {
   const result = schema.safeParse(input);
   if (!result.success) {
-    throw new ValidationError('Corpo invalido', {
+    throw new ValidationError('Invalid body', {
       issues: result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
     });
   }
@@ -49,8 +49,9 @@ function parseOrThrow<S extends z.ZodTypeAny>(schema: S, input: unknown): z.infe
 }
 
 /**
- * As rotas de projeto usam `@NoProject()` porque o projeto vem do caminho da URL,
- * nao do header: e o unico servico que opera SOBRE o tenant em vez de DENTRO dele.
+ * The project routes use `@NoProject()` because the project comes from the URL
+ * path, not the header: this is the one service that operates ON the tenant
+ * rather than INSIDE it.
  */
 @NoProject()
 @Controller('v1/projects')
@@ -72,7 +73,7 @@ export class ProjectsController {
   ): Promise<Record<string, unknown>> {
     const principal = principalOf(request);
     if (!isPlatformAdmin(principal)) {
-      throw new ForbiddenError('Somente platform_admin cria projeto', {
+      throw new ForbiddenError('Only platform_admin may create a project', {
         rule: 'platform_admin',
       });
     }
@@ -101,7 +102,7 @@ export class ProjectsController {
     const { limit, cursor } = parseOrThrow(listQuerySchema, query);
     const page = await this.projects.list({ limit, ...(cursor !== undefined && { cursor }) });
 
-    // Filtro de tenant na saida: um viewer nunca ve projeto de que nao participa.
+    // Tenant filter on the way out: a viewer never sees a project they are not in.
     const visible = isPlatformAdmin(principal)
       ? page.items
       : page.items.filter((project) =>
@@ -120,7 +121,7 @@ export class ProjectsController {
     @Param('projectId') projectId: string,
   ): Promise<Record<string, unknown>> {
     const project = await this.projects.findById(projectId);
-    if (project === null) throw new NotFoundError('Projeto', projectId);
+    if (project === null) throw new NotFoundError('Project', projectId);
     authorize(POLICY.READ_PROJECT, { principal: principalOf(request), projectId });
     return serializeProject(toProjectView(project));
   }
@@ -153,7 +154,7 @@ export class ProjectsController {
   ): Promise<Record<string, unknown>> {
     authorize(POLICY.READ_PROJECT, { principal: principalOf(request), projectId });
     const budget = await this.budgets.findByProject(projectId);
-    if (budget === null) throw new NotFoundError('Orcamento', projectId);
+    if (budget === null) throw new NotFoundError('Budget', projectId);
     return serializeBudget(toBudgetView(budget));
   }
 
@@ -163,7 +164,7 @@ export class ProjectsController {
     @Param('projectId') projectId: string,
   ): Promise<Record<string, unknown>> {
     const principal = principalOf(request);
-    // O inference-router chama com token de servico; um usuario precisa ser membro.
+    // The inference router calls with a service token; a user must be a member.
     if (principal.type !== 'service') {
       authorize(POLICY.READ_PROJECT, { principal, projectId });
     }
@@ -200,7 +201,7 @@ export class ProjectsController {
     @Param('projectId') projectId: string,
     @Body() body: unknown,
   ): Promise<Record<string, unknown>> {
-    // Politica define quem pode gastar e onde o dado pode ir: so o dono altera.
+    // Policy decides who may spend and where data may go: only the owner edits it.
     authorize(hasRole(ROLES.PROJECT_OWNER), { principal: principalOf(request), projectId });
     const input = parseOrThrow(setPolicySchema, body);
 

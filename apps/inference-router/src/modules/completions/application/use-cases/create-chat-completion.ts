@@ -42,17 +42,17 @@ import type {
 } from '../dto.js';
 
 /**
- * Fluxo 7.1 do documento 02: chat com reserva e commit de orcamento.
+ * Flow 7.1 from reference doc 02: chat with budget reserve and commit.
  *
- * Ordem das etapas, e o porque de cada uma:
- *   1. politica do projeto        -> define zonas, limites e orcamento
- *   2. guardrails no prompt       -> redige PII ANTES de sair da plataforma
- *   3. selecao de deployment      -> ADR-010, dado sensivel nao sai da zona
- *   4. cache semantico            -> resposta repetida nao custa nem token
- *   5. reserva de orcamento       -> impede N chamadas gastarem o mesmo saldo
- *   6. chamada ao provedor        -> com failover entre deployments compativeis
- *   7. commit ou compensacao      -> saga: o que foi reservado sempre se resolve
- *   8. auditoria e evento         -> evidencia e insumo do analitico
+ * The stage order, and why each one is there:
+ *   1. project policy        -> defines zones, limits and budget
+ *   2. guardrails on prompt  -> redacts PII BEFORE it leaves the platform
+ *   3. deployment selection  -> ADR-010, sensitive data stays in its zone
+ *   4. semantic cache        -> a repeated answer costs neither call nor token
+ *   5. budget reservation    -> stops N calls from spending the same balance
+ *   6. provider call         -> with failover across compatible deployments
+ *   7. commit or compensate  -> saga: whatever was reserved always resolves
+ *   8. audit and event       -> evidence, and the input to analytics
  */
 @Injectable()
 export class CreateChatCompletion {
@@ -125,7 +125,7 @@ export class CreateChatCompletion {
         routing,
       };
     } catch (error) {
-      // Compensacao da saga: o que foi reservado nao pode ficar preso.
+      // Saga compensation: whatever was reserved must not stay locked.
       await this.ledger.release(reservation);
       await this.recordFailure(command, plan, error, startedAt);
       throw error;
@@ -133,11 +133,11 @@ export class CreateChatCompletion {
   }
 
   /**
-   * Versao em streaming.
+   * The streaming variant.
    *
-   * Depois do primeiro token nao ha retentativa possivel: o cliente ja viu parte
-   * da resposta. Se o stream cair, o consumo parcial e comitado e marcado como
-   * `partial`, e a reconciliacao ajusta depois.
+   * After the first token no retry is possible: the client has already seen part
+   * of the answer. If the stream drops, the partial usage is committed and marked
+   * `partial`, and reconciliation corrects it later.
    */
   async *stream(command: CreateChatCompletionCommand): AsyncGenerator<StreamEvent> {
     const plan = await this.prepare(command);
@@ -176,8 +176,8 @@ export class CreateChatCompletion {
         }
       }
 
-      // Provedor que nao informa consumo: estima pelo que foi realmente emitido,
-      // para que o orcamento nunca seja debitado a menos.
+      // A provider that reports no usage: estimate from what was actually
+      // emitted, so the budget is never undercharged.
       if (usage.completionTokens === 0 && emitted !== '') {
         usage = { ...usage, completionTokens: this.estimator.countText(emitted) };
       }
@@ -213,7 +213,7 @@ export class CreateChatCompletion {
       yield { kind: 'finished', result };
     } catch (error) {
       if (emitted !== '' && deployment !== undefined) {
-        // Ja houve entrega parcial: comita o consumido e marca como parcial.
+        // Partial delivery already happened: commit what was consumed and flag it.
         const partialUsage = {
           promptTokens: usage.promptTokens,
           completionTokens: this.estimator.countText(emitted),
@@ -233,7 +233,7 @@ export class CreateChatCompletion {
         });
 
         const interrupted = new StreamInterruptedError(
-          error instanceof Error ? error.message : 'desconhecido',
+          error instanceof Error ? error.message : 'unknown',
           partialUsage.completionTokens,
         );
         yield { kind: 'error', code: interrupted.code, message: interrupted.message };
@@ -255,7 +255,7 @@ export class CreateChatCompletion {
 
     const deployments = ModelSelectionPolicy.compatible(alias, policyResult.policy, 'chat');
     const first = deployments[0];
-    // `compatible` lanca quando a lista fica vazia; este check e para o tipo.
+    // `compatible` throws when the list is empty; this check is for the type.
     if (first === undefined) throw new AliasNotFoundError(command.alias);
 
     const maxOutputTokens = ModelSelectionPolicy.effectiveMaxOutputTokens(
@@ -290,11 +290,11 @@ export class CreateChatCompletion {
   }
 
   /**
-   * Redige PII no prompt ANTES de qualquer chamada externa ou persistencia.
+   * Redacts PII in the prompt BEFORE any external call or persistence.
    *
-   * Se o servico de guardrails estiver fora, o conteudo segue sem redacao mas a
-   * auditoria nao grava o texto: bloquear toda a inferencia por causa do
-   * guardrail seria trocar um risco por uma indisponibilidade.
+   * If the guardrails service is down, the content proceeds unredacted but audit
+   * does not store the text: blocking all inference because of the guardrail
+   * would trade a risk for an outage.
    */
   private async applyGuardrails(
     command: CreateChatCompletionCommand,
@@ -309,7 +309,7 @@ export class CreateChatCompletion {
       }
 
       const verdict = await this.guardrail.inspect(message.content, command.projectId);
-      // O pipeline decide se bloqueia; o texto que segue e o ja redigido.
+      // The pipeline decides whether to block; the text that proceeds is redacted.
       const context = await this.guardrailPipeline.run(verdict.text, command.projectId, verdict);
       inspected.push({ ...message, content: context.text });
     }
@@ -323,8 +323,8 @@ export class CreateChatCompletion {
     const first = plan.deployments[0];
     if (first === undefined) throw new AliasNotFoundError(command.alias);
 
-    // A estimativa usa o prompt contado localmente mais o teto de saida: o pior
-    // caso possivel daquela chamada (doc 02, fluxo 7.1).
+    // The estimate uses the locally counted prompt plus the output ceiling: the
+    // worst case that call could cost (reference doc 02, flow 7.1).
     const estimated = first.costOf(plan.estimatedPromptTokens, plan.maxOutputTokens);
 
     if (!this.ledger.isAvailable()) {
@@ -350,7 +350,7 @@ export class CreateChatCompletion {
     const deployment = plan.deployments[0];
     if (cached === null || deployment === undefined) throw new AliasNotFoundError(command.alias);
 
-    // Cache hit nao consome orcamento: nao houve chamada ao provedor.
+    // A cache hit consumes no budget: there was no provider call.
     const routing = this.routingOf({
       deployment,
       cost: Cost.zero(plan.policyResult.currency),
@@ -399,7 +399,7 @@ export class CreateChatCompletion {
     };
   }
 
-  /** Auditoria e evento. Sempre acontecem, com sucesso ou com falha. */
+  /** Audit and event. Both always happen, on success and on failure. */
   private async settle(input: {
     command: CreateChatCompletionCommand;
     plan: Plan;
@@ -455,8 +455,8 @@ export class CreateChatCompletion {
         currency: routing.cost.currency,
         durationMs,
         ...(extra.errorCode !== undefined && { errorCode: extra.errorCode }),
-        // Conteudo so e gravado com opt-in do projeto, e ja vem redigido do
-        // pipeline de guardrails (doc 02, secao 10.2).
+        // Content is stored only with the project's opt-in, and it arrives
+        // already redacted from the guardrail pipeline (doc 02 §10.2).
         ...(plan.policyResult.contentCapture && {
           redactedPrompt: plan.promptForCache,
           ...(extra.completion !== undefined && { redactedCompletion: extra.completion }),

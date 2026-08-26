@@ -5,7 +5,7 @@ import { InvalidCredentialsError } from '../errors/index.js';
 export interface ServiceClientProps {
   clientId: string;
   displayName: string;
-  /** Somente o hash. O segredo em claro so existe na configuracao do servico. */
+  /** Hash only. The plaintext secret lives solely in the service's configuration. */
   secretHash: string;
   scopes: TokenScopes;
   enabled: boolean;
@@ -13,14 +13,14 @@ export interface ServiceClientProps {
 }
 
 /**
- * Identidade de um SERVICO da plataforma.
+ * Identity of a platform SERVICE.
  *
- * Sem uma nuvem que forneca identidade gerenciada, o proprio identity emite a
- * credencial de servico (doc 02, secao 6). Um token de servico e diferente de um
- * token de usuario: nao pertence a projeto nenhum, e por isso o governance o
- * aceita para ler a politica de qualquer projeto — sem isso, o router precisaria
- * repassar o token do usuario final, e uma chamada de sistema (reconciliacao,
- * worker) ficaria sem como se autenticar.
+ * With no cloud providing managed identity, the identity service issues the
+ * service credential itself (reference doc 02 §6). A service token differs from
+ * a user token: it belongs to no project, which is why governance accepts it to
+ * read any project's policy. Without it the router would have to forward the end
+ * user's token, and a system-initiated call (reconciliation, a worker) would
+ * have no way to authenticate at all.
  */
 export class ServiceClient {
   private constructor(private props: ServiceClientProps) {}
@@ -37,7 +37,7 @@ export class ServiceClient {
     now?: Date;
   }): ServiceClient {
     if (!/^[a-z][a-z0-9-]{2,63}$/.test(input.clientId)) {
-      throw new ValidationError('client_id deve ser minusculo, com 3 a 64 caracteres', {
+      throw new ValidationError('client_id must be lowercase, 3 to 64 characters', {
         client_id: input.clientId,
       });
     }

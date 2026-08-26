@@ -1,7 +1,7 @@
 [project]
 name = "aia-resilience"
 version = "0.1.0"
-description = "Timeout, retry, circuit breaker e bulkhead"
+description = "Timeout, retry, circuit breaker and bulkhead"
 requires-python = ">=3.12"
 dependencies = ["aia-errors"]
 

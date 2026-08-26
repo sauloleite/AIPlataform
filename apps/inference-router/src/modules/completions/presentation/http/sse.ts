@@ -1,10 +1,10 @@
 import type { Response } from 'express';
 
 /**
- * Escritor de Server-Sent Events (doc 03, secao 6).
+ * Server-Sent Events writer (reference doc 03 §6).
  *
- * Eventos nomeados, `id` incremental para reconexao e heartbeat a cada 15 s
- * para que proxies nao derrubem uma conexao ociosa durante a geracao.
+ * Named events, an incrementing `id` for reconnection, and a heartbeat every
+ * 15 s so proxies do not drop an idle connection while generation is under way.
  */
 export class SseWriter {
   private eventId = 0;
@@ -19,14 +19,14 @@ export class SseWriter {
     response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     response.setHeader('Cache-Control', 'no-cache, no-transform');
     response.setHeader('Connection', 'keep-alive');
-    // Desliga o buffering de proxies reversos: sem isso o stream chega em bloco.
+    // Disables reverse-proxy buffering: without it the stream arrives in one lump.
     response.setHeader('X-Accel-Buffering', 'no');
     response.flushHeaders();
 
     this.heartbeat = setInterval(() => {
       if (!this.closed) this.response.write(': ping\n\n');
     }, heartbeatMs);
-    // Heartbeat nao deve segurar o processo no shutdown.
+    // The heartbeat must not keep the process alive during shutdown.
     this.heartbeat.unref();
 
     response.on('close', () => {

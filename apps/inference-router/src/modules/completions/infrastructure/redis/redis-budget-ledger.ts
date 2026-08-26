@@ -7,16 +7,17 @@ import { Cost } from '../../domain/value-objects/index.js';
 import type { BudgetLedger, ReserveInput } from '../../application/ports.js';
 
 /**
- * Contabilidade de orcamento em Redis, com atomicidade garantida por Lua.
+ * Budget accounting in Redis, with atomicity guaranteed by Lua.
  *
- * Por que Lua e nao GET + SET: entre ler o saldo e grava-lo, outra replica pode
- * ler o MESMO saldo. Com N chamadas simultaneas, todas passariam pelo limite.
- * O script roda inteiro dentro do Redis, sem intercalacao possivel.
+ * Why Lua and not GET + SET: between reading the balance and writing it, another
+ * replica can read the SAME balance. With N concurrent calls, every one of them
+ * would slip past the limit. The script runs entirely inside Redis, with no
+ * interleaving possible.
  *
- * O estado sao dois contadores por projeto e periodo:
- *   spent    - ja confirmado
- *   reserved - preso por chamadas em voo
- * A autorizacao olha a SOMA dos dois; o commit move de `reserved` para `spent`.
+ * The state is two counters per project and period:
+ *   spent    - already confirmed
+ *   reserved - held by calls in flight
+ * Authorisation looks at the SUM of both; the commit moves `reserved` to `spent`.
  */
 @Injectable()
 export class RedisBudgetLedger implements BudgetLedger {
@@ -24,8 +25,8 @@ export class RedisBudgetLedger implements BudgetLedger {
   private healthy = true;
 
   /**
-   * Reserva: falha se `spent + reserved + estimado` passar do limite.
-   * Devolve `{ok, reservedTotal}` para que o chamador saiba o estado resultante.
+   * Reserve: fails if `spent + reserved + estimate` exceeds the limit.
+   * Returns `{ok, reservedTotal}` so the caller knows the resulting state.
    */
   private static readonly RESERVE = `
     local spentKey, reservedKey = KEYS[1], KEYS[2]
@@ -42,15 +43,15 @@ export class RedisBudgetLedger implements BudgetLedger {
     end
 
     redis.call('INCRBY', reservedKey, estimated)
-    -- O TTL acompanha o fim do periodo: a virada zera os contadores sozinha.
+    -- The TTL tracks the period end: the roll-over clears the counters itself.
     redis.call('EXPIRE', reservedKey, ttl)
     redis.call('EXPIRE', spentKey, ttl)
     return { 1, spent + reserved + estimated }
   `;
 
   /**
-   * Commit: solta a reserva e soma o custo real ao gasto.
-   * `max(0, ...)` protege contra uma reserva ja expirada por TTL.
+   * Commit: releases the reservation and adds the real cost to spend.
+   * The `max(0, ...)` guards against a reservation already expired by TTL.
    */
   private static readonly COMMIT = `
     local spentKey, reservedKey = KEYS[1], KEYS[2]
@@ -68,7 +69,7 @@ export class RedisBudgetLedger implements BudgetLedger {
     return { spent, newReserved }
   `;
 
-  /** Release: devolve a estimativa sem tocar no gasto. Compensacao da saga. */
+  /** Release: returns the estimate without touching spend. The saga compensation. */
   private static readonly RELEASE = `
     local reservedKey = KEYS[1]
     local estimated = tonumber(ARGV[1])
@@ -83,20 +84,20 @@ export class RedisBudgetLedger implements BudgetLedger {
   `;
 
   /**
-   * TTL usado em commit e release. O valor exato importa pouco: a chave ja
-   * carrega o periodo, entao expirar cedo demais so custa uma releitura.
+   * TTL used on commit and release. The exact value matters little: the key
+   * already carries the period, so expiring early only costs a re-read.
    */
   private readonly ttlSeconds = 40 * 24 * 60 * 60;
 
   constructor(private readonly redis: Redis) {
     redis.on('error', (error: Error) => {
       if (this.healthy) {
-        this.logger.warn(`Redis indisponivel: ${error.message}. Entrando em budget_unverified.`);
+        this.logger.warn(`Redis unreachable: ${error.message}. Entering budget_unverified.`);
       }
       this.healthy = false;
     });
     redis.on('ready', () => {
-      if (!this.healthy) this.logger.log('Redis de volta. Orcamento verificado novamente.');
+      if (!this.healthy) this.logger.log('Redis is back. Budget is verified again.');
       this.healthy = true;
     });
   }
@@ -106,12 +107,12 @@ export class RedisBudgetLedger implements BudgetLedger {
   }
 
   /**
-   * Chaves dos contadores.
+   * The counter keys.
    *
-   * A chave do periodo vem de fora e e ESTAVEL (`2026-03`): derivar da hora atual
-   * faria a reserva e o commit da mesma chamada caírem em chaves diferentes, e o
-   * orcamento nunca acumularia. A virada de periodo troca a chave sozinha, sem
-   * migracao nem job de limpeza.
+   * The period key comes from outside and is STABLE (`2026-03`): deriving it from
+   * the current time would land the reserve and the commit of the same call on
+   * different keys, and the budget would never accumulate. A period roll-over
+   * changes the key by itself, with no migration and no cleanup job.
    */
   private keysFor(projectId: string, periodKey: string): [string, string] {
     const prefix = `aia:budget:${projectId}:${periodKey}`;
@@ -151,8 +152,8 @@ export class RedisBudgetLedger implements BudgetLedger {
       return;
     }
 
-    // A propria reserva diz onde e quanto: nada depende de estado deste processo,
-    // entao um restart entre reserva e commit nao perde a contabilidade.
+    // The reservation itself says where and how much: nothing depends on this
+    // process's state, so a restart between reserve and commit loses no accounting.
     const keys = this.keysFor(reservation.projectId, reservation.periodKey);
 
     await this.redis.eval(
@@ -184,7 +185,7 @@ export class RedisBudgetLedger implements BudgetLedger {
     reservation.release();
   }
 
-  /** Estado atual, para a reconciliacao diaria e para o painel de FinOps. */
+  /** Current state, for the daily reconciliation and the FinOps dashboard. */
   async snapshot(
     projectId: string,
     periodKey: string,

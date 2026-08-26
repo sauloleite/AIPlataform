@@ -3,17 +3,17 @@ import type { CloudEvent } from './cloud-events.js';
 import type { EventHandler, EventPublisher, EventSubscriber } from './ports.js';
 
 /**
- * Barramento de eventos sobre Redis Streams (ADR-008 na versao OSS).
+ * Event bus on Redis Streams (ADR-008 in the open source variant).
  *
- * Redis Streams da o que a plataforma precisa de um broker: entrega ao menos uma
- * vez, grupos de consumidores, ack explicito e mensagens pendentes visiveis para
- * dead-letter. Evita subir um broker separado quando o Redis ja e obrigatorio
- * para o orcamento atomico.
+ * Redis Streams provides what this platform needs from a broker: at-least-once
+ * delivery, consumer groups, explicit acknowledgement, and visible pending
+ * messages for dead-lettering. It avoids running a separate broker when Redis is
+ * already mandatory for the atomic budget counters.
  */
 export interface RedisStreamOptions {
-  /** Prefixo dos streams. Um stream por tipo de evento. */
+  /** Stream key prefix. One stream per event type. */
   keyPrefix?: string;
-  /** Limite aproximado de entradas por stream, para nao crescer sem fim. */
+  /** Approximate entry cap per stream, so it does not grow without bound. */
   maxLength?: number;
 }
 
@@ -64,13 +64,13 @@ export class RedisStreamPublisher implements EventPublisher {
 }
 
 export interface RedisStreamSubscriberOptions extends RedisStreamOptions {
-  /** Grupo de consumidores. Todas as replicas de um servico usam o mesmo. */
+  /** Consumer group. Every replica of a service shares the same one. */
   group: string;
-  /** Identifica esta replica dentro do grupo. */
+  /** Identifies this replica within the group. */
   consumer: string;
   blockMs?: number;
   batchSize?: number;
-  /** Entregas antes de mandar para o dead-letter. */
+  /** Deliveries before the message goes to the dead-letter path. */
   maxDeliveries?: number;
   onError?: (error: unknown, event: CloudEvent) => void;
   onDeadLetter?: (event: CloudEvent, deliveries: number) => void;
@@ -100,7 +100,7 @@ export class RedisStreamSubscriber implements EventSubscriber {
     try {
       await this.redis.xgroup('CREATE', key, this.options.group, '$', 'MKSTREAM');
     } catch (error) {
-      // BUSYGROUP: o grupo ja existe, que e o caso normal apos o primeiro boot.
+      // BUSYGROUP: the group already exists, the normal case after first boot.
       if (!(error instanceof Error) || !error.message.includes('BUSYGROUP')) throw error;
     }
   }
@@ -108,8 +108,8 @@ export class RedisStreamSubscriber implements EventSubscriber {
   async start(): Promise<void> {
     this.running = true;
     for (;;) {
-      // `running` e desligado por `stop()`, de fora deste fluxo. A analise de
-      // tipos nao enxerga isso e acharia a condicao sempre verdadeira.
+      // `running` is cleared by `stop()`, from outside this flow. Type-level
+      // analysis cannot see that and would call the condition always true.
       if (!this.isRunning()) return;
       await this.readOnce();
     }
@@ -124,7 +124,7 @@ export class RedisStreamSubscriber implements EventSubscriber {
     return Promise.resolve();
   }
 
-  /** Um ciclo de leitura. Exposto para teste sem laco infinito. */
+  /** One read cycle. Exposed so tests can drive it without an infinite loop. */
   async readOnce(): Promise<number> {
     const types = [...this.handlers.keys()];
     if (types.length === 0) return 0;
@@ -172,7 +172,7 @@ export class RedisStreamSubscriber implements EventSubscriber {
         this.options.onError?.(error, event);
         const deliveries = await this.deliveryCount(stream, id);
         if (deliveries < (this.options.maxDeliveries ?? 5)) {
-          // Sem ack: a mensagem fica pendente e volta na proxima leitura.
+          // No ack: the message stays pending and returns on the next read.
           return 0;
         }
         this.options.onDeadLetter?.(event, deliveries);

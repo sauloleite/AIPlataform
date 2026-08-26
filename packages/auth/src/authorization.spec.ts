@@ -32,28 +32,28 @@ const request = (overrides: Partial<AccessRequest> = {}): AccessRequest => ({
 });
 
 describe('isMemberOfProject', () => {
-  it('permite membro do projeto', () => {
+  it('allows a project member', () => {
     expect(isMemberOfProject.isSatisfiedBy(request())).toBe(true);
   });
 
-  it('nega quem nao pertence ao projeto', () => {
-    expect(isMemberOfProject.isSatisfiedBy(request({ projectId: 'proj-outro' }))).toBe(false);
+  it('denies someone who does not belong to the project', () => {
+    expect(isMemberOfProject.isSatisfiedBy(request({ projectId: 'proj-other' }))).toBe(false);
   });
 
-  it('platform_admin passa em qualquer projeto', () => {
+  it('platform_admin passes on any project', () => {
     const admin = principal({ globalRoles: [ROLES.PLATFORM_ADMIN], memberships: [] });
     expect(
-      isMemberOfProject.isSatisfiedBy(request({ principal: admin, projectId: 'qualquer' })),
+      isMemberOfProject.isSatisfiedBy(request({ principal: admin, projectId: 'anything' })),
     ).toBe(true);
   });
 });
 
 describe('hasRole', () => {
-  it('aceita qualquer um dos papeis listados', () => {
+  it('accepts any of the listed roles', () => {
     expect(hasRole(ROLES.PROJECT_OWNER, ROLES.PROJECT_VIEWER).isSatisfiedBy(request())).toBe(true);
   });
 
-  it('nega quando o principal nao tem nenhum deles', () => {
+  it('denies when the principal holds none of them', () => {
     const decision = hasRole(ROLES.PROJECT_OWNER).evaluate(request());
     expect(decision.allowed).toBe(false);
     expect(decision.reason).toContain('project_owner');
@@ -61,81 +61,81 @@ describe('hasRole', () => {
 });
 
 describe('dataZoneIsCompatible (ADR-010)', () => {
-  it('projeto restrito so roteia para zona local', () => {
+  it('a restricted project only routes to the local zone', () => {
     expect(
       dataZoneIsCompatible.isSatisfiedBy(
-        request({ dataClassification: 'restrito', targetDataZone: 'local' }),
+        request({ dataClassification: 'restricted', targetDataZone: 'local' }),
       ),
     ).toBe(true);
     expect(
       dataZoneIsCompatible.isSatisfiedBy(
-        request({ dataClassification: 'restrito', targetDataZone: 'us' }),
+        request({ dataClassification: 'restricted', targetDataZone: 'us' }),
       ),
     ).toBe(false);
   });
 
-  it('projeto confidencial nao sai do pais', () => {
+  it('a confidential project does not leave the country', () => {
     expect(
       dataZoneIsCompatible.isSatisfiedBy(
-        request({ dataClassification: 'confidencial', targetDataZone: 'br' }),
+        request({ dataClassification: 'confidential', targetDataZone: 'br' }),
       ),
     ).toBe(true);
     expect(
       dataZoneIsCompatible.isSatisfiedBy(
-        request({ dataClassification: 'confidencial', targetDataZone: 'global' }),
+        request({ dataClassification: 'confidential', targetDataZone: 'global' }),
       ),
     ).toBe(false);
   });
 
-  it('projeto interno pode usar provedor externo', () => {
+  it('an internal project may use an external provider', () => {
     expect(
       dataZoneIsCompatible.isSatisfiedBy(
-        request({ dataClassification: 'interno', targetDataZone: 'us' }),
+        request({ dataClassification: 'internal', targetDataZone: 'us' }),
       ),
     ).toBe(true);
   });
 
-  it('classificacao desconhecida falha fechado', () => {
+  it('an unknown classification fails closed', () => {
     expect(
       dataZoneIsCompatible.isSatisfiedBy(
-        request({ dataClassification: 'inventada', targetDataZone: 'local' }),
+        request({ dataClassification: 'made-up', targetDataZone: 'local' }),
       ),
     ).toBe(false);
   });
 });
 
-describe('composicao de especificacoes', () => {
-  it('and exige as duas e devolve o motivo de quem negou', () => {
+describe('specification composition', () => {
+  it('and requires both and returns the reason of whichever denied', () => {
     const combined = isMemberOfProject.and(dataZoneIsCompatible);
     const decision = combined.evaluate(
-      request({ dataClassification: 'restrito', targetDataZone: 'us' }),
+      request({ dataClassification: 'restricted', targetDataZone: 'us' }),
     );
     expect(decision.allowed).toBe(false);
-    expect(decision.reason).toContain('zona de dados');
+    expect(decision.reason).toContain('data zone');
   });
 
-  it('or aceita qualquer uma', () => {
+  it('or accepts either', () => {
     const combined = hasRole(ROLES.PROJECT_OWNER).or(hasScope('inference:read'));
     expect(combined.isSatisfiedBy(request())).toBe(true);
   });
 
-  it('not inverte', () => {
+  it('not inverts', () => {
     expect(hasRole(ROLES.PROJECT_OWNER).not().isSatisfiedBy(request())).toBe(true);
   });
 
-  it('o nome composto descreve a regra inteira, para o trace', () => {
+  it('the composed name describes the whole rule, for the trace', () => {
     expect(isMemberOfProject.and(dataZoneIsCompatible).name).toBe(
-      '(e membro do projeto and zona de dados compativel com a classificacao)',
+      '(is a member of the project and data zone compatible with the classification)',
     );
   });
 });
 
 describe('canInvokeToolRisk (OWASP LLM06)', () => {
-  it('tool de risco baixo nao exige papel elevado', () => {
+  it('a low-risk tool needs no elevated role', () => {
     expect(canInvokeToolRisk.isSatisfiedBy(request({ toolRiskLevel: 'low' }))).toBe(true);
   });
 
-  it('tool de risco alto exige dono do projeto', () => {
+  it('a high-risk tool requires the project owner', () => {
     expect(canInvokeToolRisk.isSatisfiedBy(request({ toolRiskLevel: 'high' }))).toBe(false);
 
     const owner = principal({
@@ -148,17 +148,17 @@ describe('canInvokeToolRisk (OWASP LLM06)', () => {
 });
 
 describe('authorize', () => {
-  it('devolve a regra e o motivo para registrar no trace', () => {
+  it('returns the rule and reason so they can be recorded in the trace', () => {
     expect(authorize(POLICY.READ_PROJECT, request())).toEqual({
-      rule: 'e membro do projeto',
-      reason: 'e membro do projeto',
+      rule: 'is a member of the project',
+      reason: 'is a member of the project',
     });
   });
 
-  it('lanca ForbiddenError carregando a regra que negou', () => {
+  it('throws ForbiddenError carrying the rule that denied', () => {
     try {
       authorize(POLICY.MANAGE_BUDGET, request());
-      expect.unreachable('deveria ter lancado');
+      expect.unreachable('should have thrown');
     } catch (error) {
       expect(error).toBeInstanceOf(ForbiddenError);
       expect((error as ForbiddenError).details['rule']).toContain('project_owner');

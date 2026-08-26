@@ -3,17 +3,17 @@ import { encode } from 'gpt-tokenizer';
 import type { ChatMessageInput, TokenEstimator } from '../../application/ports.js';
 
 /**
- * Contagem local de tokens, para reservar orcamento ANTES de chamar o modelo.
+ * Local token counting, to reserve budget BEFORE calling the model.
  *
- * Usa o tokenizador do GPT como aproximacao para todos os provedores. Nao e
- * exato para Gemini nem para Llama, e nao precisa ser: a estimativa serve para
- * reservar, e o commit usa o consumo real informado pelo provedor. Uma margem de
- * 15% cobre a diferenca entre tokenizadores sem subestimar o gasto.
+ * It uses the GPT tokeniser as an approximation for every provider. That is not
+ * exact for Gemini or Llama, and it does not need to be: the estimate exists to
+ * reserve, and the commit uses the real usage the provider reports. A 15% margin
+ * covers the difference between tokenisers without underestimating spend.
  */
 @Injectable()
 export class GptTokenEstimator implements TokenEstimator {
   private static readonly SAFETY_MARGIN = 1.15;
-  /** Sobrecarga por mensagem no formato de chat (role, separadores). */
+  /** Per-message overhead in the chat format (role, separators). */
   private static readonly PER_MESSAGE_OVERHEAD = 4;
 
   countText(text: string): number {
@@ -21,7 +21,7 @@ export class GptTokenEstimator implements TokenEstimator {
     try {
       return Math.ceil(encode(text).length * GptTokenEstimator.SAFETY_MARGIN);
     } catch {
-      // Caractere fora do vocabulario nao pode quebrar a reserva de orcamento.
+      // A character outside the vocabulary must not break the budget reservation.
       return Math.ceil((text.length / 4) * GptTokenEstimator.SAFETY_MARGIN);
     }
   }

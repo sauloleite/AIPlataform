@@ -32,7 +32,7 @@ export class PatsController {
   ): Promise<Record<string, unknown>> {
     const parsed = createPatSchema.safeParse(body);
     if (!parsed.success) {
-      throw new ValidationError('Corpo invalido', {
+      throw new ValidationError('Invalid body', {
         issues: parsed.error.issues.map((issue) => issue.path.join('.')),
       });
     }
@@ -40,7 +40,7 @@ export class PatsController {
     const principal = principalOf(request);
     const isMember = principal.memberships.some((m) => m.projectId === parsed.data.project_id);
     if (!isMember) {
-      throw new ForbiddenError('Nao e possivel criar PAT para projeto do qual nao se participa', {
+      throw new ForbiddenError('Cannot create a PAT for a project you do not belong to', {
         project_id: parsed.data.project_id,
       });
     }
@@ -60,7 +60,7 @@ export class PatsController {
       scopes: result.scopes,
       created_at: result.createdAt.toISOString(),
       expires_at: result.expiresAt.toISOString(),
-      // Unica vez que o valor aparece. Depois so existe o hash.
+      // The only time the value appears. After this, only the hash exists.
       token: result.token,
     };
   }
@@ -71,7 +71,7 @@ export class PatsController {
     @Query() query: unknown,
   ): Promise<{ items: Record<string, unknown>[]; next_cursor: string | null }> {
     const parsed = listQuerySchema.safeParse(query);
-    if (!parsed.success) throw new ValidationError('Parametros de paginacao invalidos');
+    if (!parsed.success) throw new ValidationError('Invalid pagination parameters');
 
     const principal = principalOf(request);
     const page = await this.pats.listByPrincipal(
@@ -102,8 +102,8 @@ export class PatsController {
   @HttpCode(204)
   async revoke(@Req() request: AuthenticatedRequest, @Param('patId') patId: string): Promise<void> {
     const pat = await this.pats.findById(patId);
-    // Mesma resposta para "nao existe" e "e de outro": nao confirma a existencia
-    // de um PAT alheio para quem esta sondando.
+    // The same answer for "does not exist" and "belongs to someone else": it
+    // never confirms another principal's PAT to whoever is probing.
     if (pat?.principalId !== principalOf(request).id) {
       throw new NotFoundError('PAT', patId);
     }

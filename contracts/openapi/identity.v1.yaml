@@ -3,10 +3,10 @@ info:
   title: AIA Identity
   version: '1.0.0'
   description: |
-    Emissor de identidade da plataforma. Sem dependencia de nenhum IdP de cloud:
-    emite JWT RS256 proprio e publica as chaves publicas em JWKS, para que todo
-    servico valide o token LOCALMENTE (ADR-004) e o identity fique fora do
-    caminho critico. Um OIDC externo (Keycloak, Google, Auth0) pode ser plugado.
+    The platform identity issuer. No dependency on any cloud IdP: it mints its
+    own RS256 JWTs and publishes the public keys as JWKS, so every service
+    validates the token LOCALLY (ADR-004) and identity stays off the critical
+    path. An external OIDC (Keycloak, Google, Auth0) can be plugged in.
   license: { name: MIT }
 
 servers:
@@ -21,7 +21,7 @@ paths:
     post:
       operationId: issueToken
       tags: [auth]
-      summary: Emite um token de acesso
+      summary: Issues an access token
       security: []
       requestBody:
         required: true
@@ -34,7 +34,7 @@ paths:
               discriminator: { propertyName: grant_type }
       responses:
         '200':
-          description: Token emitido
+          description: Token issued
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TokenResponse' }
@@ -45,11 +45,11 @@ paths:
     get:
       operationId: getJwks
       tags: [auth]
-      summary: Chaves publicas para validacao local de JWT
+      summary: Public keys for local JWT validation
       security: []
       responses:
         '200':
-          description: Conjunto de chaves
+          description: The key set
           content:
             application/json:
               schema:
@@ -66,11 +66,11 @@ paths:
     get:
       operationId: getOidcDiscovery
       tags: [auth]
-      summary: Documento de descoberta OIDC
+      summary: OIDC discovery document
       security: []
       responses:
         '200':
-          description: Metadados do emissor
+          description: Issuer metadata
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
@@ -79,13 +79,13 @@ paths:
     post:
       operationId: introspectToken
       tags: [auth]
-      summary: Introspecciona um token opaco (PAT)
+      summary: Introspects an opaque token (PAT)
       description: |
-        So para PAT. JWT nao passa por aqui: e validado localmente pelo JWKS.
-        O resultado fica em cache por 60 s (ADR-004).
+        PATs only. A JWT does not come through here: it is validated locally
+        against the JWKS. The result is cached for 60 s (ADR-004).
       responses:
         '200':
-          description: Resultado da introspeccao
+          description: The introspection result
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Introspection' }
@@ -104,10 +104,10 @@ paths:
     get:
       operationId: getCurrentPrincipal
       tags: [auth]
-      summary: Devolve o principal do token atual
+      summary: Returns the principal of the current token
       responses:
         '200':
-          description: Principal
+          description: The principal
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Principal' }
@@ -117,9 +117,9 @@ paths:
     post:
       operationId: createPat
       tags: [tokens]
-      summary: Cria um Personal Access Token
+      summary: Creates a Personal Access Token
       description: |
-        O valor so e devolvido nesta resposta; a plataforma guarda apenas o hash.
+        The value is returned in this response only; the platform stores just the hash.
       parameters:
         - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
       requestBody:
@@ -136,7 +136,7 @@ paths:
                 expires_in_days: { type: integer, minimum: 1, maximum: 365, default: 90 }
       responses:
         '201':
-          description: PAT criado
+          description: PAT created
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PatCreated' }
@@ -145,13 +145,13 @@ paths:
     get:
       operationId: listPats
       tags: [tokens]
-      summary: Lista os PATs do principal (sem o valor)
+      summary: Lists the principal PATs (without the value)
       parameters:
         - $ref: './_shared.yaml#/components/parameters/Cursor'
         - $ref: './_shared.yaml#/components/parameters/Limit'
       responses:
         '200':
-          description: Pagina de PATs
+          description: A page of PATs
           content:
             application/json:
               schema:
@@ -165,14 +165,14 @@ paths:
     delete:
       operationId: revokePat
       tags: [tokens]
-      summary: Revoga um PAT
+      summary: Revokes a PAT
       parameters:
         - name: patId
           in: path
           required: true
           schema: { type: string }
       responses:
-        '204': { description: Revogado }
+        '204': { description: Revoked }
         '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
 
   /health/live:
@@ -182,7 +182,7 @@ paths:
       summary: Liveness probe
       responses:
         '200':
-          description: Processo vivo
+          description: The process is alive
           content:
             application/json:
               schema: { type: object, properties: { status: { type: string } } }
@@ -194,7 +194,7 @@ paths:
       summary: Readiness probe
       responses:
         '200':
-          description: Pronto
+          description: Ready
           content:
             application/json:
               schema: { type: object, properties: { status: { type: string } } }
@@ -286,4 +286,4 @@ components:
           properties:
             token:
               type: string
-              description: Valor em claro. Nao e possivel recupera-lo depois.
+              description: The cleartext value. It cannot be recovered later.

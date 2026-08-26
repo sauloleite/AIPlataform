@@ -21,7 +21,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const hashOf = (token: string): string =>
   createHash('sha256').update(`fake-pepper:${token}`).digest('hex');
 
-describe('ciclo de vida do PAT', () => {
+describe('personal access token lifecycle', () => {
   let pats: FakePatRepository;
   let principals: FakePrincipalRepository;
   let cache: FakeIntrospectionCache;
@@ -42,7 +42,7 @@ describe('ciclo de vida do PAT', () => {
     await principals.save(
       PrincipalEntity.createUser({
         id: 'user-ana',
-        email: Email.of('ana@banco.com'),
+        email: Email.of('ana@bank.example'),
         displayName: 'Ana',
         passwordHash: 'hashed:x',
       }),
@@ -59,17 +59,17 @@ describe('ciclo de vida do PAT', () => {
       ...overrides,
     });
 
-  it('devolve o valor em claro apenas na criacao e persiste so o hash', async () => {
+  it('returns the plaintext only on creation and persists only the hash', async () => {
     const created = await issue();
 
     expect(created.token.startsWith(PAT_PREFIX)).toBe(true);
     const stored = pats.saved[0];
     expect(stored?.tokenHash).toBe(hashOf(created.token));
-    // O que e persistido nao permite reconstruir o token.
+    // What is persisted does not allow reconstructing the token.
     expect(JSON.stringify(stored?.toSnapshot())).not.toContain(created.token);
   });
 
-  it('introspeccao devolve principal, escopo e projeto do token valido', async () => {
+  it('introspection returns principal, scope and project for a valid token', async () => {
     const created = await issue();
     const result = await introspect.execute({ token: created.token });
 
@@ -82,7 +82,7 @@ describe('ciclo de vida do PAT', () => {
     });
   });
 
-  it('a segunda introspeccao vem do cache, sem novo acesso ao repositorio', async () => {
+  it('the second introspection comes from cache, with no further repository access', async () => {
     const created = await issue();
     await introspect.execute({ token: created.token });
     await introspect.execute({ token: created.token });
@@ -90,24 +90,24 @@ describe('ciclo de vida do PAT', () => {
     expect(cache.hits).toBe(1);
   });
 
-  it('token que nao tem o prefixo de PAT nao vira consulta ao banco', async () => {
+  it('a token without the PAT prefix never becomes a database query', async () => {
     expect(await introspect.execute({ token: 'eyJhbGciOi.jwt.aqui' })).toEqual({ active: false });
   });
 
-  it('token desconhecido e inativo', async () => {
+  it('an unknown token is inactive', async () => {
     expect(await introspect.execute({ token: `${PAT_PREFIX}inexistente` })).toEqual({
       active: false,
     });
   });
 
-  it('token expirado fica inativo assim que o prazo passa', async () => {
+  it('an expired token becomes inactive as soon as its deadline passes', async () => {
     const created = await issue({ expiresInDays: 1 });
     clock.advance(DAY + 1000);
 
     expect(await introspect.execute({ token: created.token })).toEqual({ active: false });
   });
 
-  it('revogacao vale imediatamente, sem esperar o TTL do cache', async () => {
+  it('revocation takes effect immediately, without waiting for the cache TTL', async () => {
     const created = await issue();
     await introspect.execute({ token: created.token });
 
@@ -119,16 +119,16 @@ describe('ciclo de vida do PAT', () => {
     expect(await introspect.execute({ token: created.token })).toEqual({ active: false });
   });
 
-  it('recusa validade fora da faixa permitida', async () => {
+  it('rejects a lifetime outside the allowed range', async () => {
     await expect(issue({ expiresInDays: 0 })).rejects.toBeInstanceOf(ValidationError);
     await expect(issue({ expiresInDays: 400 })).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it('recusa PAT sem escopo', async () => {
+  it('rejects a PAT with no scope', async () => {
     await expect(issue({ scopes: [] })).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it('recusa PAT para principal inexistente', async () => {
-    await expect(issue({ principalId: 'nao-existe' })).rejects.toBeInstanceOf(NotFoundError);
+  it('rejects a PAT for a nonexistent principal', async () => {
+    await expect(issue({ principalId: 'does-not-exist' })).rejects.toBeInstanceOf(NotFoundError);
   });
 });

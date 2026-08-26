@@ -43,10 +43,10 @@ beforeAll(async () => {
 });
 
 describe('JwtVerifier', () => {
-  it('monta o Principal a partir das claims', async () => {
+  it('builds the Principal from the claims', async () => {
     const token = await sign({
       sub: 'user-42',
-      email: 'ana@banco.com',
+      email: 'ana@bank.example',
       name: 'Ana',
       principal_type: 'user',
       roles: [ROLES.AUDITOR],
@@ -59,7 +59,7 @@ describe('JwtVerifier', () => {
     expect(principal).toMatchObject({
       id: 'user-42',
       type: 'user',
-      email: 'ana@banco.com',
+      email: 'ana@bank.example',
       globalRoles: [ROLES.AUDITOR],
       memberships: [{ projectId: 'proj-1', roles: [ROLES.PROJECT_OWNER] }],
       scopes: ['inference:write', 'inference:read'],
@@ -67,23 +67,23 @@ describe('JwtVerifier', () => {
     });
   });
 
-  it('descarta papel que nao existe no catalogo, em vez de aceitar', async () => {
-    const token = await sign({ sub: 'user-1', roles: ['superusuario', ROLES.PROJECT_VIEWER] });
+  it('discards a role missing from the catalogue instead of accepting it', async () => {
+    const token = await sign({ sub: 'user-1', roles: ['superuser', ROLES.PROJECT_VIEWER] });
     const principal = await verifier().verify(token);
     expect(principal.globalRoles).toEqual([ROLES.PROJECT_VIEWER]);
   });
 
-  it('recusa token expirado com erro tipado', async () => {
-    // Alem da tolerancia de relogio de 5 s configurada por padrao.
+  it('rejects an expired token with a typed error', async () => {
+    // Beyond the 5 s clock skew tolerance configured by default.
     const token = await sign({ sub: 'user-1' }, '-1h');
     await expect(verifier().verify(token)).rejects.toBeInstanceOf(TokenExpiredError);
   });
 
-  it('recusa token de outro emissor', async () => {
+  it('rejects a token from another issuer', async () => {
     const token = await new SignJWT({ sub: 'user-1' })
       .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
       .setIssuedAt()
-      .setIssuer('http://atacante')
+      .setIssuer('http://attacker')
       .setAudience(AUDIENCE)
       .setExpirationTime('1h')
       .sign(privateKey);
@@ -91,22 +91,22 @@ describe('JwtVerifier', () => {
     await expect(verifier().verify(token)).rejects.toBeInstanceOf(InvalidTokenError);
   });
 
-  it('recusa token para outra audiencia', async () => {
+  it('rejects a token issued for a different audience', async () => {
     const token = await new SignJWT({ sub: 'user-1' })
       .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
       .setIssuedAt()
       .setIssuer(ISSUER)
-      .setAudience('outro-sistema')
+      .setAudience('other-system')
       .setExpirationTime('1h')
       .sign(privateKey);
 
     await expect(verifier().verify(token)).rejects.toBeInstanceOf(InvalidTokenError);
   });
 
-  it('recusa token assinado por chave desconhecida', async () => {
+  it('rejects a token signed by an unknown key', async () => {
     const other = await generateKeyPair('RS256', { extractable: true });
     const token = await new SignJWT({ sub: 'user-1' })
-      .setProtectedHeader({ alg: 'RS256', kid: 'chave-do-atacante' })
+      .setProtectedHeader({ alg: 'RS256', kid: 'attacker-key' })
       .setIssuedAt()
       .setIssuer(ISSUER)
       .setAudience(AUDIENCE)
@@ -116,7 +116,7 @@ describe('JwtVerifier', () => {
     await expect(verifier().verify(token)).rejects.toBeInstanceOf(InvalidTokenError);
   });
 
-  it('recusa membership sem project_id em vez de criar tenant vazio', async () => {
+  it('rejects a membership without project_id instead of creating an empty tenant', async () => {
     const token = await sign({
       sub: 'user-1',
       memberships: [{ roles: [ROLES.PROJECT_OWNER] }, { project_id: 'proj-2', roles: [] }],
@@ -127,12 +127,12 @@ describe('JwtVerifier', () => {
 });
 
 describe('bearerToken', () => {
-  it('extrai o token do header', () => {
+  it('extracts the token from the header', () => {
     expect(bearerToken('Bearer abc.def.ghi')).toBe('abc.def.ghi');
   });
 
   it.each([undefined, '', 'abc.def.ghi', 'Basic dXNlcjpwYXNz', 'Bearer '])(
-    'recusa o header %p',
+    'rejects the header %p',
     (header) => {
       expect(() => bearerToken(header)).toThrow(UnauthenticatedError);
     },

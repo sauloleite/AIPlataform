@@ -1,8 +1,8 @@
-"""Politicas puras do runtime.
+"""Pure runtime policies.
 
-`ApprovalPolicy` implementa o controle de LLM06 (agencia excessiva) do documento
-02: tool de risco alto nao executa sem aprovacao humana, e quem aprova precisa
-ter papel para isso.
+`ApprovalPolicy` implements the LLM06 (excessive agency) control from reference
+doc 02: a high-risk tool does not run without human approval, and whoever
+approves needs a role that allows it.
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ class RiskLevel(StrEnum):
 
 
 class ApprovalPolicy:
-    """Regra pura: nao le banco, nao chama servico, nao olha o relogio."""
+    """Pure rule: reads no database, calls no service, looks at no clock."""
 
-    #: Papeis que podem aprovar uma tool de risco alto.
+    #: Roles that may approve a high-risk tool.
     APPROVER_ROLES = frozenset({"project_owner", "platform_admin"})
 
     @staticmethod
@@ -36,10 +36,10 @@ class ApprovalPolicy:
 
     @staticmethod
     def is_self_approval(principal_id: str, run_principal_id: str) -> bool:
-        """Quem disparou a execucao nao deveria aprovar a propria tool de risco.
+        """Whoever started the run should not approve their own risky tool.
 
-        Segregacao de funcoes: a mesma pessoa pedir e autorizar esvazia o
-        controle. Quem chama decide se aplica, porque em time pequeno isso
-        pode travar a operacao.
+        Segregation of duties: the same person asking and authorising hollows
+        out the control. The caller decides whether to enforce it, because on a
+        small team it can stall the operation.
         """
         return principal_id == run_principal_id

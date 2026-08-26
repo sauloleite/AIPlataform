@@ -1,4 +1,4 @@
-"""Routers FastAPI do agent-runtime."""
+"""FastAPI routers for the agent-runtime."""
 
 from __future__ import annotations
 
@@ -67,8 +67,8 @@ async def start_run(agent_id: str, body: StartRunBody, auth: Authenticated) -> R
 async def get_run(run_id: str, auth: Authenticated) -> RunResponse:
     _, project_id = auth
     run = await get_container().runs.find(run_id)
-    # Execucao de outro projeto responde 404, e nao 403: confirmar a existencia
-    # entregaria informacao sobre o tenant vizinho.
+    # A run from another project answers 404, not 403: confirming it exists
+    # would hand over information about the neighbouring tenant.
     if run is None or run.project_id != project_id:
         raise RunNotFoundError(run_id)
 
@@ -84,7 +84,6 @@ async def get_run(run_id: str, auth: Authenticated) -> RunResponse:
 @runs_router.post("/{run_id}/approve", status_code=200)
 async def approve(run_id: str, tool_call_id: str, auth: Authenticated) -> dict[str, object]:
     principal, project_id = auth
-    _ = project_id
     return await get_container().approve_tool_call.execute(
         ApproveToolCallCommand(
             run_id=run_id,

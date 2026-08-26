@@ -13,10 +13,10 @@ export interface ModelAliasView {
 }
 
 /**
- * Catalogo visivel ao projeto.
+ * The catalogue visible to a project.
  *
- * Alias sem nenhum deployment compativel com a classificacao simplesmente nao
- * aparece: melhor nao oferecer do que oferecer e recusar na hora do uso.
+ * An alias with no deployment compatible with the classification simply does not
+ * appear: better not to offer it than to offer it and refuse at call time.
  */
 @Injectable()
 export class ListModels {

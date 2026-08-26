@@ -17,10 +17,10 @@ export const JWT_VERIFIER = Symbol('JwtVerifier');
 const IS_PUBLIC = 'aia:isPublic';
 const SKIP_PROJECT = 'aia:skipProject';
 
-/** Rota sem autenticacao (health, JWKS, emissao de token). */
+/** Route with no authentication (health, JWKS, token issuance). */
 export const Public = (): MethodDecorator & ClassDecorator => SetMetadata(IS_PUBLIC, true);
 
-/** Rota autenticada que nao opera sobre um projeto (ex.: `/v1/me`). */
+/** Authenticated route that does not operate on a project, e.g. `/v1/me`. */
 export const NoProject = (): MethodDecorator & ClassDecorator => SetMetadata(SKIP_PROJECT, true);
 
 export interface AuthenticatedRequest extends Request {
@@ -29,11 +29,11 @@ export interface AuthenticatedRequest extends Request {
 }
 
 /**
- * Valida o JWT localmente e exige o tenant.
+ * Validates the JWT locally and requires the tenant.
  *
- * Nenhuma chamada de rede: as chaves publicas vem do JWKS em cache (ADR-004).
- * A ausencia de `X-Project-Id` e recusada aqui, e nao la na frente, porque
- * projeto e obrigatorio em todo contrato (doc 02, principio 2).
+ * No network call: public keys come from the cached JWKS (ADR-004). A missing
+ * `X-Project-Id` is rejected here rather than further in, because project is
+ * required on every contract (reference doc 02, principle 2).
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -77,10 +77,10 @@ export class AuthGuard implements CanActivate {
   }
 }
 
-/** Recupera o principal ja validado. Lanca se o guard nao rodou. */
+/** Returns the already validated principal. Throws if the guard did not run. */
 export function principalOf(request: AuthenticatedRequest): Principal {
   if (request.principal === undefined) {
-    throw new UnauthenticatedError('Rota sem AuthGuard: principal ausente');
+    throw new UnauthenticatedError('Route without AuthGuard: principal is missing');
   }
   return request.principal;
 }

@@ -13,7 +13,7 @@ export interface ProjectProps {
   name: string;
   description?: string;
   classification: DataClassification;
-  /** LGPD: base legal e finalidade sao obrigatorias no cadastro (doc 02, 10.2). */
+  /** LGPD: legal basis and purpose are mandatory at registration (doc 02 §10.2). */
   legalBasis: string;
   purpose: string;
   costCenter?: string;
@@ -30,10 +30,10 @@ export interface ProjectProps {
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
 
 /**
- * O projeto E o tenant (doc 02, principio 2).
+ * The project IS the tenant (reference doc 02, principle 2).
  *
- * Orcamento, politicas de modelo, classificacao de dados e auditoria sao todos
- * funcao do projeto. Nenhum dado da plataforma existe fora de um.
+ * Budget, model policy, data classification and audit are all functions of the
+ * project. No platform data exists outside one.
  */
 export class Project {
   private constructor(private props: ProjectProps) {}
@@ -56,13 +56,13 @@ export class Project {
   }): Project {
     if (!SLUG_PATTERN.test(input.slug)) {
       throw new ValidationError(
-        'Slug deve ter de 3 a 64 caracteres, minusculos, comecando e terminando em alfanumerico',
+        'Slug must be 3 to 64 lowercase characters, starting and ending alphanumeric',
         { slug: input.slug },
       );
     }
     if (input.legalBasis.trim() === '' || input.purpose.trim() === '') {
       throw new ValidationError(
-        'Base legal e finalidade sao obrigatorias: sem elas o tratamento nao pode ser justificado (LGPD)',
+        'Legal basis and purpose are required: without them the processing cannot be justified (LGPD)',
       );
     }
 
@@ -77,7 +77,7 @@ export class Project {
       purpose: input.purpose,
       ...(input.costCenter !== undefined && { costCenter: input.costCenter }),
       ...(input.ownerPrincipalId !== undefined && { ownerPrincipalId: input.ownerPrincipalId }),
-      // Comeca com o maximo que a classificacao permite; a politica so restringe.
+      // Starts at the maximum the classification allows; policy only narrows it.
       allowedZones: input.classification.allowedZones(),
       modelRules: [],
       maxConcurrentRequests: 20,
@@ -124,12 +124,12 @@ export class Project {
     return this.props.policyVersion;
   }
 
-  /** Restringe as zonas. Pedir uma zona proibida pela classificacao nao a habilita. */
+  /** Narrows the zones. Asking for a zone the classification forbids does not enable it. */
   restrictZones(requested: DataZone[], now: Date = new Date()): void {
     const effective = this.props.classification.restrictTo(requested);
     if (effective.length === 0) {
       throw new ValidationError(
-        'A restricao pedida deixaria o projeto sem nenhuma zona utilizavel',
+        'The requested restriction would leave the project with no usable zone',
         { requested, classification: this.props.classification.level },
       );
     }
@@ -143,21 +143,21 @@ export class Project {
   }
 
   setMaxConcurrentRequests(value: number, now: Date = new Date()): void {
-    if (value < 1) throw new ValidationError('Concorrencia maxima deve ser pelo menos 1');
+    if (value < 1) throw new ValidationError('Maximum concurrency must be at least 1');
     this.props.maxConcurrentRequests = value;
     this.touchPolicy(now);
   }
 
   /**
-   * Habilita a gravacao de prompt e resposta na auditoria.
+   * Enables recording prompt and response in the audit trail.
    *
-   * Projeto `restrito` nao pode: reter conteudo dessa classificacao exigiria
-   * controles que a plataforma nao oferece hoje (doc 02, secao 10.2).
+   * A `restricted` project may not: retaining content at that classification
+   * would demand controls this platform does not offer today (doc 02 §10.2).
    */
   setContentCapture(enabled: boolean, now: Date = new Date()): void {
     if (enabled && this.props.classification.requiresLocalOnly) {
       throw new ValidationError(
-        'Projeto com classificacao restrita nao pode gravar conteudo de conversa',
+        'A project classified as restricted cannot record conversation content',
         { classification: this.props.classification.level },
       );
     }
@@ -167,7 +167,7 @@ export class Project {
 
   isAliasAllowed(alias: string): boolean {
     const rule = this.props.modelRules.find((candidate) => candidate.alias === alias);
-    // Sem regra explicita, o alias e permitido: a lista existe para excecoes.
+    // With no explicit rule the alias is allowed: the list exists for exceptions.
     return rule?.allowed ?? true;
   }
 

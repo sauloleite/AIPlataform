@@ -1,4 +1,4 @@
-"""Aprovacao humana de uma tool de risco alto (OWASP LLM06)."""
+"""Human approval of a high-risk tool (OWASP LLM06)."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ class ApproveToolCall:
             raise RunNotWaitingApprovalError(command.run_id)
 
         call = state.pending_call
-        assert call is not None  # garantido por is_waiting_approval
+        assert call is not None  # guaranteed by is_waiting_approval
 
         if not ApprovalPolicy.can_approve(command.principal_roles, call):
             raise ApprovalForbiddenError(command.principal_id, call.risk_level)

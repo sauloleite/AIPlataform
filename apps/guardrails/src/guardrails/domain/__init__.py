@@ -1,7 +1,7 @@
-"""Dominio dos guardrails.
+"""The guardrails domain.
 
-Regras puras: nada de FastAPI, nada de Presidio, nada de I/O. E o que permite
-testar deteccao de CPF e de injecao de prompt sem subir nada.
+Pure rules: no FastAPI, no Presidio, no I/O. That is what makes it possible to
+test CPF detection and prompt injection without starting anything.
 """
 
 from guardrails.domain.br_documents import is_valid_cnpj, is_valid_cpf

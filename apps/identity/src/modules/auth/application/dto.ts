@@ -1,16 +1,16 @@
 import type { Role } from '@aia/auth';
 
 /**
- * Comandos e resultados dos casos de uso.
+ * Use case commands and results.
  *
- * Sao objetos simples: nada de decorators de HTTP nem de `Request` do Express
- * (doc 03, secao 3.2). A apresentacao traduz o corpo da requisicao para ca.
+ * Plain objects: no HTTP decorators and no Express `Request` (doc 03 §3.2). The
+ * presentation layer translates the request body into these.
  */
 
 export interface AuthenticateWithPasswordCommand {
   email: string;
   password: string;
-  /** Escopos pedidos. O token nunca recebe mais do que o principal pode ter. */
+  /** Requested scopes. The token never receives more than the principal may hold. */
   requestedScopes?: string[];
 }
 
@@ -36,7 +36,7 @@ export interface CreatedPatResult {
   scopes: string[];
   createdAt: Date;
   expiresAt: Date;
-  /** Valor em claro. Devolvido apenas nesta resposta. */
+  /** Plaintext value. Returned in this response only. */
   token: string;
 }
 

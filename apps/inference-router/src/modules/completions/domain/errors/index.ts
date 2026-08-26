@@ -7,7 +7,7 @@ export class BudgetExhaustedError extends DomainError {
   override readonly retryable = true;
 
   constructor(projectId: string, retryAfterSeconds: number) {
-    super('Orcamento do projeto esgotado no periodo', {
+    super('Project budget exhausted for the period', {
       project_id: projectId,
       retry_after: retryAfterSeconds,
     });
@@ -15,9 +15,9 @@ export class BudgetExhaustedError extends DomainError {
 }
 
 /**
- * ADR-010: nao ha deployment cuja zona de dados seja compativel com a
- * classificacao do projeto. Falhar aqui e o comportamento correto — enviar o
- * dado assim mesmo seria a violacao.
+ * ADR-010: no deployment has a data zone compatible with the project's
+ * classification. Failing here is the correct behaviour — sending the data
+ * anyway would be the violation.
  */
 export class NoCompatibleDeploymentError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.NO_COMPATIBLE_DEPLOYMENT;
@@ -30,7 +30,7 @@ export class NoCompatibleDeploymentError extends DomainError {
     availableZones: readonly DataZone[];
   }) {
     super(
-      `Nenhum deployment de "${input.alias}" atende a classificacao "${input.classification}"`,
+      `No deployment of "${input.alias}" satisfies the "${input.classification}" classification`,
       {
         alias: input.alias,
         data_classification: input.classification,
@@ -46,7 +46,7 @@ export class AliasNotFoundError extends DomainError {
   readonly status = 404;
 
   constructor(alias: string) {
-    super(`Alias de modelo "${alias}" nao existe no catalogo`, { alias });
+    super(`Model alias "${alias}" is not in the catalogue`, { alias });
   }
 }
 
@@ -55,7 +55,7 @@ export class AliasNotAllowedError extends DomainError {
   readonly status = 403;
 
   constructor(alias: string, projectId: string) {
-    super(`A politica do projeto proibe o alias "${alias}"`, { alias, project_id: projectId });
+    super(`The project policy forbids the alias "${alias}"`, { alias, project_id: projectId });
   }
 }
 
@@ -64,18 +64,18 @@ export class CapabilityNotSupportedError extends DomainError {
   readonly status = 400;
 
   constructor(alias: string, capability: string) {
-    super(`O alias "${alias}" nao suporta ${capability}`, { alias, capability });
+    super(`The alias "${alias}" does not support ${capability}`, { alias, capability });
   }
 }
 
-/** Todos os deployments compativeis foram tentados e falharam. */
+/** Every compatible deployment was tried and failed. */
 export class AllDeploymentsFailedError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.ALL_DEPLOYMENTS_FAILED;
   readonly status = 503;
   override readonly retryable = true;
 
   constructor(alias: string, attempts: number, lastError: string) {
-    super(`Todos os ${attempts.toString()} deployments de "${alias}" falharam`, {
+    super(`All ${attempts.toString()} deployments of "${alias}" failed`, {
       alias,
       attempts,
       last_error: lastError,
@@ -85,17 +85,18 @@ export class AllDeploymentsFailedError extends DomainError {
 }
 
 /**
- * O stream caiu depois do primeiro token.
+ * The stream dropped after the first token.
  *
- * Nao ha retentativa possivel: o cliente ja recebeu parte da resposta, e repetir
- * geraria conteudo duplicado. O consumo parcial e comitado e marcado.
+ * No retry is possible: the client already received part of the answer, and
+ * repeating would produce duplicate content. The partial usage is committed and
+ * flagged.
  */
 export class StreamInterruptedError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.STREAM_INTERRUPTED;
   readonly status = 500;
 
   constructor(reason: string, tokensEmitted: number) {
-    super('O stream foi interrompido depois do primeiro token', {
+    super('The stream was interrupted after the first token', {
       reason,
       tokens_emitted: tokensEmitted,
     });
@@ -116,6 +117,6 @@ export class PromptInjectionSuspectedError extends DomainError {
   readonly status = 400;
 
   constructor(signals: string[], score: number) {
-    super('Conteudo com indicios de injecao de prompt', { signals, score });
+    super('Content shows signs of prompt injection', { signals, score });
   }
 }

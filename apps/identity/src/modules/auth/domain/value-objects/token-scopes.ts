@@ -1,6 +1,6 @@
 import { ValidationError } from '@aia/errors';
 
-/** Escopos conhecidos. Um escopo fora desta lista e recusado na emissao. */
+/** Known scopes. Anything outside this list is rejected at issuance. */
 export const KNOWN_SCOPES = [
   'inference:read',
   'inference:write',
@@ -19,7 +19,7 @@ export class TokenScopes {
   static of(raw: readonly string[]): TokenScopes {
     const unknown = raw.filter((scope) => !KNOWN_SCOPES.includes(scope as KnownScope));
     if (unknown.length > 0) {
-      throw new ValidationError('Escopo desconhecido', { scopes: unknown });
+      throw new ValidationError('Unknown scope', { scopes: unknown });
     }
     return new TokenScopes([...new Set(raw)].sort());
   }
@@ -28,7 +28,7 @@ export class TokenScopes {
     return new TokenScopes([...KNOWN_SCOPES]);
   }
 
-  /** Um token nunca pode ter mais escopo do que quem o pediu. */
+  /** A token can never hold more scope than whoever requested it. */
   intersect(other: TokenScopes): TokenScopes {
     return new TokenScopes(this.scopes.filter((scope) => other.scopes.includes(scope)));
   }

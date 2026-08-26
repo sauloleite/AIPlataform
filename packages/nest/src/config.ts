@@ -1,14 +1,14 @@
 import type { z } from 'zod';
 
 /**
- * Valida a configuracao na inicializacao (doc 03, secao 3.2).
+ * Validates configuration at start-up (reference doc 03 §3.2).
  *
- * A aplicacao NAO sobe com configuracao invalida: falhar no boot e barato,
- * falhar na primeira requisicao de producao nao e.
+ * The application does NOT start with invalid configuration: failing at boot is
+ * cheap, failing on the first production request is not.
  *
- * O generico e sobre o SCHEMA, e nao sobre o tipo de saida, porque schemas com
- * `default()` e `transform()` tem entrada e saida diferentes — amarrar os dois
- * recusaria justamente os schemas de configuracao reais.
+ * The generic is over the SCHEMA rather than the output type, because schemas
+ * using `default()` and `transform()` have different input and output types —
+ * tying them together would reject exactly the real configuration schemas.
  */
 export function validateConfig<S extends z.ZodTypeAny>(
   schema: S,
@@ -21,5 +21,5 @@ export function validateConfig<S extends z.ZodTypeAny>(
     .map((issue) => `  ${issue.path.join('.')}: ${issue.message}`)
     .join('\n');
 
-  throw new Error(`Configuracao invalida. Corrija o ambiente:\n${problems}`);
+  throw new Error(`Invalid configuration. Fix the environment:\n${problems}`);
 }

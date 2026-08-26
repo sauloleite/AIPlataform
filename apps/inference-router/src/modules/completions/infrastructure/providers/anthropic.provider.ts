@@ -38,11 +38,11 @@ function normalizeStopReason(raw: string | undefined): ChatResult['finishReason'
 }
 
 /**
- * Adapter Anthropic (Messages API).
+ * Anthropic adapter (Messages API).
  *
- * Duas diferencas que o adapter esconde do resto da plataforma: a instrucao de
- * sistema e um campo `system` separado, e `max_tokens` e OBRIGATORIO. Nenhum
- * caso de uso precisa saber disso.
+ * Two differences this adapter hides from the rest of the platform: the system
+ * instruction is a separate `system` field, and `max_tokens` is REQUIRED. No use
+ * case needs to know either.
  */
 @Injectable()
 export class AnthropicProvider implements ModelProvider {
@@ -71,7 +71,8 @@ export class AnthropicProvider implements ModelProvider {
 
     return JSON.stringify({
       model: deployment.model,
-      // Obrigatorio na Messages API; o valor ja vem limitado pelo alias e pela politica.
+      // Required by the Messages API; the value already arrives capped by the
+      // alias and the project policy.
       max_tokens: request.maxOutputTokens,
       messages: request.messages
         .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -125,8 +126,8 @@ export class AnthropicProvider implements ModelProvider {
     });
     await ensureOk(response, this.provider);
 
-    // O consumo chega em dois eventos: `message_start` traz a entrada e
-    // `message_delta` traz a saida acumulada. Guardamos a entrada para o final.
+    // Usage arrives across two events: `message_start` carries the input and
+    // `message_delta` the accumulated output. We keep the input for the end.
     let promptTokens = 0;
 
     for await (const line of readSseLines(response)) {
@@ -159,10 +160,10 @@ export class AnthropicProvider implements ModelProvider {
   }
 
   /**
-   * A Anthropic nao oferece endpoint de embeddings.
+   * Anthropic offers no embeddings endpoint.
    *
-   * Um alias de embeddings simplesmente nao inclui deployments deste provedor;
-   * o executor pula qualquer um que chegue aqui por engano de configuracao.
+   * An embeddings alias simply does not include deployments from this provider;
+   * the executor skips any that arrive here through a configuration mistake.
    */
   async embed(
     _input: string[],
@@ -172,6 +173,6 @@ export class AnthropicProvider implements ModelProvider {
     void _input;
     void _deployment;
     void _signal;
-    throw new Error('A Anthropic nao expoe endpoint de embeddings; use outro alias');
+    throw new Error('Anthropic exposes no embeddings endpoint; use a different alias');
   }
 }

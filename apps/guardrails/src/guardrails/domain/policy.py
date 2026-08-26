@@ -1,4 +1,4 @@
-"""Decisao e estrategia de redacao. Regra pura."""
+"""Decision and redaction strategy. Pure rule."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Final
 from guardrails.domain.entities import Decision, Finding, InjectionSignal
 
 BLOCK_THRESHOLD: Final = 0.8
-#: Sinais fracos distintos que, somados, bastam para bloquear.
+#: Distinct weak signals that, taken together, are enough to block.
 MIN_SIGNALS_TO_BLOCK: Final = 2
 
 
@@ -26,24 +26,24 @@ def decide(
     *,
     block_threshold: float = BLOCK_THRESHOLD,
 ) -> Decision:
-    """Bloqueia so por injecao forte; PII e caso de redigir, nao de recusar.
+    """Blocks only on strong injection; PII is a case for redacting, not refusing.
 
-    Recusar a requisicao por conter um CPF puniria o usuario por um dado que a
-    plataforma sabe tratar. Injecao forte e diferente: nao ha versao segura do
-    conteudo para seguir adiante.
+    Refusing a request because it contains a national ID would punish the user
+    for data the platform knows how to handle. Strong injection is different:
+    there is no safe version of the content to carry forward.
 
-    Dois criterios levam a bloqueio, e o segundo existe por uma razao pratica:
+    Two criteria lead to a block, and the second exists for a practical reason:
 
-    1. Um sinal FORTE sozinho (score acima do limiar). "Ignore as instrucoes
-       anteriores" nao tem leitura inocente.
-    2. DOIS OU MAIS sinais distintos, ainda que fracos. Isolado, "envie para
-       https://..." pode ser um webhook interno legitimo, e um turno `system:`
-       no texto pode ser alguem colando um log. Os dois juntos, na mesma
-       mensagem, deixam de ser coincidencia.
+    1. A STRONG signal on its own (score above the threshold). "Ignore the
+       previous instructions" has no innocent reading.
+    2. TWO OR MORE distinct signals, even weak ones. In isolation, "send it to
+       https://..." may be a legitimate internal webhook, and a `system:` turn
+       in the text may be someone pasting a log. The two together, in the same
+       message, stop being a coincidence.
 
-    O criterio de combinacao e o que permite manter os sinais fracos com score
-    baixo — bloquear cada um deles isoladamente geraria falso positivo, e um
-    guardrail que atrapalha acaba desligado.
+    The combination criterion is what lets the weak signals keep a low score --
+    blocking on each one alone would produce false positives, and a guardrail
+    that gets in the way ends up switched off.
     """
     if signals:
         strongest = max(signal.score for signal in signals)
@@ -59,14 +59,14 @@ def decide(
 def apply_redaction(
     text: str, findings: Sequence[Finding], strategy: RedactionStrategy
 ) -> tuple[str, int]:
-    """Substitui as ocorrencias e devolve o texto novo e quantas foram trocadas.
+    """Replaces the occurrences and returns the new text plus how many changed.
 
-    Aplica de tras para frente: substituir do inicio invalidaria os offsets das
-    ocorrencias seguintes.
+    Applies back to front: replacing from the start would invalidate the offsets
+    of every following occurrence.
     """
     ordered = sorted(findings, key=lambda finding: finding.start, reverse=True)
 
-    # Descarta sobreposicao: manter as duas corromperia o texto.
+    # Drops overlaps: keeping both would corrupt the text.
     kept: list[Finding] = []
     for finding in ordered:
         if any(finding.overlaps(existing) for existing in kept):
@@ -85,12 +85,12 @@ def apply_redaction(
 
 
 def _mask_keeping_last(original: str, *, visible: int) -> str:
-    """Mascara tudo menos os ultimos `visible` caracteres alfanumericos.
+    """Masks everything but the last `visible` alphanumeric characters.
 
-    Conta caracteres ALFANUMERICOS, e nao posicoes: mascarar por posicao em
-    `111.444.777-35` deixaria visivel um hifen no lugar de um digito. Os
-    separadores sao preservados, o que mantem o valor reconhecivel para o
-    titular sem revelar o dado.
+    It counts ALPHANUMERIC characters, not positions: masking by position in
+    `111.444.777-35` would leave a hyphen visible where a digit should be. The
+    separators are preserved, which keeps the value recognisable to its owner
+    without revealing the data.
     """
     kept = 0
     masked: list[str] = []
@@ -110,7 +110,7 @@ def _replacement(original: str, entity_type: str, strategy: RedactionStrategy) -
     if strategy is RedactionStrategy.MASK:
         return _mask_keeping_last(original, visible=4)
     if strategy is RedactionStrategy.HASH:
-        # Permite correlacionar ocorrencias do mesmo valor sem revela-lo.
+        # Lets occurrences of the same value be correlated without revealing it.
         digest = hashlib.sha256(original.encode("utf-8")).hexdigest()[:12]
         return f"<{entity_type}:{digest}>"
     return f"<{entity_type}>"

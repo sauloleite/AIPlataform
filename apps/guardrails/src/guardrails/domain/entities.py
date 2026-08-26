@@ -1,4 +1,4 @@
-"""Entidades e value objects do dominio de guardrails."""
+"""Entities and value objects of the guardrails domain."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from enum import StrEnum
 
 
 class Decision(StrEnum):
-    """O que fazer com o conteudo inspecionado."""
+    """What to do with the inspected content."""
 
     ALLOW = "allow"
     REDACT = "redact"
@@ -16,7 +16,7 @@ class Decision(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Finding:
-    """Uma ocorrencia de dado sensivel, localizada no texto."""
+    """One occurrence of sensitive data, located in the text."""
 
     entity_type: str
     start: int
@@ -25,10 +25,10 @@ class Finding:
 
     def __post_init__(self) -> None:
         if self.start < 0 or self.end < self.start:
-            msg = "intervalo invalido de finding"
+            msg = "invalid finding range"
             raise ValueError(msg)
         if not 0.0 <= self.score <= 1.0:
-            msg = "score deve ficar entre 0 e 1"
+            msg = "score must sit between 0 and 1"
             raise ValueError(msg)
 
     @property
@@ -41,7 +41,7 @@ class Finding:
 
 @dataclass(frozen=True, slots=True)
 class InjectionSignal:
-    """Uma regra de injecao que disparou, com o trecho que a disparou."""
+    """An injection rule that fired, with the excerpt that fired it."""
 
     rule: str
     score: float
@@ -63,10 +63,10 @@ class InspectionResult:
 
     @property
     def injection_score(self) -> float:
-        """O maior sinal manda.
+        """The strongest signal wins.
 
-        Somar sinais fracos produziria falso positivo em texto longo, que
-        naturalmente acumula coincidencias.
+        Summing weak signals would produce false positives on long text, which
+        naturally accumulates coincidences.
         """
         if not self.injection_signals:
             return 0.0

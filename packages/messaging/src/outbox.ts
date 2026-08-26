@@ -3,11 +3,12 @@ import type { CloudEvent } from './cloud-events.js';
 import type { EventPublisher } from './ports.js';
 
 /**
- * Padrao Outbox (doc 02, principio 3).
+ * Outbox pattern (reference doc 02, principle 3).
  *
- * O evento e gravado na MESMA transacao que altera o estado. Um relay separado
- * publica o que esta pendente. Sem isso, um crash entre "salvou" e "publicou"
- * deixa o sistema inconsistente, e uma transacao distribuida seria pior.
+ * The event is written in the SAME transaction that changes the state. A
+ * separate relay publishes whatever is pending. Without this, a crash between
+ * "saved" and "published" leaves the system inconsistent — and a distributed
+ * transaction would be worse.
  */
 export interface OutboxRecord {
   _id: string;
@@ -17,7 +18,7 @@ export interface OutboxRecord {
   createdAt: Date;
   publishedAt?: Date;
   lastError?: string;
-  /** Reserva otimista do relay, para que duas replicas nao publiquem o mesmo evento. */
+  /** Optimistic lease held by the relay, so two replicas never publish the same event. */
   leasedUntil?: Date;
 }
 
@@ -30,17 +31,17 @@ export class MongoOutbox {
     this.collection = db.collection<OutboxRecord>(collectionName);
   }
 
-  /** Cria os indices. Chame na inicializacao do servico. */
+  /** Creates the indexes. Call this during service start-up. */
   async ensureIndexes(): Promise<void> {
     await this.collection.createIndex({ status: 1, leasedUntil: 1, createdAt: 1 });
-    // Evento publicado nao precisa ficar para sempre; o analitico ja recebeu.
+    // A published event need not live forever; analytics already received it.
     await this.collection.createIndex(
       { publishedAt: 1 },
       { expireAfterSeconds: 7 * 24 * 60 * 60, partialFilterExpression: { status: 'published' } },
     );
   }
 
-  /** Grava o evento junto da mudanca de estado. Passe a sessao da transacao. */
+  /** Writes the event alongside the state change. Pass the transaction session. */
   async append(events: CloudEvent[], session?: ClientSession): Promise<void> {
     if (events.length === 0) return;
     const records: OutboxRecord[] = events.map((event) => ({
@@ -56,7 +57,7 @@ export class MongoOutbox {
     });
   }
 
-  /** Reserva ate `limit` eventos pendentes por `leaseMs`. */
+  /** Leases up to `limit` pending events for `leaseMs`. */
   async lease(limit: number, leaseMs: number): Promise<OutboxRecord[]> {
     const now = new Date();
     const leasedUntil = new Date(now.getTime() + leaseMs);
@@ -90,8 +91,8 @@ export class MongoOutbox {
     await this.collection.updateOne(
       { _id: id },
       {
-        // Depois de maxAttempts o evento vira `failed` e para de ser tentado:
-        // fica visivel para investigacao em vez de girar para sempre.
+        // After maxAttempts the event becomes `failed` and stops being retried:
+        // it stays visible for investigation instead of spinning forever.
         $set: { status: attempts >= maxAttempts ? 'failed' : 'pending', lastError: error },
         $unset: { leasedUntil: '' },
       },
@@ -111,7 +112,7 @@ export interface OutboxRelayOptions {
   onError?: (error: unknown, record: OutboxRecord) => void;
 }
 
-/** Le a outbox e publica. Roda como sidecar ou como tarefa do proprio servico. */
+/** Reads the outbox and publishes. Runs as a sidecar or inside the service. */
 export class OutboxRelay {
   private timer?: NodeJS.Timeout;
   private running = false;

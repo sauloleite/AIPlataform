@@ -12,7 +12,7 @@ export class TokenExpiredError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.TOKEN_EXPIRED;
   readonly status = 401;
   constructor() {
-    super('Token expirado');
+    super('Token expired');
   }
 }
 
@@ -20,11 +20,11 @@ export class InvalidTokenError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.INVALID_TOKEN;
   readonly status = 401;
   constructor(reason: string) {
-    super('Token invalido', { reason });
+    super('Invalid token', { reason });
   }
 }
 
-/** Claims que a plataforma espera no token, alem das registradas do JWT. */
+/** Claims the platform expects on the token, beyond the registered JWT ones. */
 interface AiaClaims extends JWTPayload {
   principal_type?: string;
   email?: string;
@@ -36,14 +36,14 @@ interface AiaClaims extends JWTPayload {
 }
 
 export interface JwtVerifierOptions {
-  /** Emissor esperado. Token de outro emissor e recusado. */
+  /** Expected issuer. A token from any other issuer is rejected. */
   issuer: string;
-  /** URL do JWKS. As chaves publicas ficam em cache e sao recarregadas sozinhas. */
+  /** JWKS URL. Public keys are cached and refreshed automatically. */
   jwksUri: string;
   audience?: string;
-  /** Tolerancia de relogio entre servicos, em segundos. */
+  /** Clock skew tolerance between services, in seconds. */
   clockToleranceSeconds?: number;
-  /** Injetavel nos testes; em producao o padrao busca o JWKS remoto. */
+  /** Injectable in tests; in production the default fetches the remote JWKS. */
   getKey?: JWTVerifyGetKey;
 }
 
@@ -52,8 +52,8 @@ const VALID_ROLES: readonly string[] = Object.values(ROLES);
 
 function parseRoles(value: unknown): Role[] {
   if (!Array.isArray(value)) return [];
-  // Um papel desconhecido e descartado, nao aceito: evita escalada por claim forjada
-  // num emissor externo mal configurado.
+  // An unknown role is discarded rather than accepted: this prevents privilege
+  // escalation through a forged claim from a misconfigured external issuer.
   return value.filter(
     (role): role is Role => typeof role === 'string' && VALID_ROLES.includes(role),
   );
@@ -78,10 +78,10 @@ function parseScopes(claims: AiaClaims): string[] {
 }
 
 /**
- * Validacao local de JWT (ADR-004).
+ * Local JWT validation (ADR-004).
  *
- * Nenhuma chamada de rede no caminho critico: as chaves publicas vem do JWKS e
- * ficam em cache. O servico de identidade sai do caminho da maioria das requests.
+ * No network call on the critical path: public keys come from the JWKS and stay
+ * cached. The identity service leaves the path of most requests.
  */
 export class JwtVerifier {
   private readonly getKey: JWTVerifyGetKey;
@@ -107,14 +107,14 @@ export class JwtVerifier {
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code === 'ERR_JWT_EXPIRED') throw new TokenExpiredError();
-      throw new InvalidTokenError(code ?? 'assinatura ou claims invalidas');
+      throw new InvalidTokenError(code ?? 'invalid signature or claims');
     }
 
     if (payload.sub === undefined || payload.sub === '') {
-      throw new InvalidTokenError('claim sub ausente');
+      throw new InvalidTokenError('missing sub claim');
     }
     if (payload.exp === undefined) {
-      throw new InvalidTokenError('claim exp ausente: token sem validade e recusado');
+      throw new InvalidTokenError('missing exp claim: a token without expiry is rejected');
     }
 
     const principalType = VALID_PRINCIPAL_TYPES.includes(payload.principal_type as PrincipalType)
@@ -135,14 +135,14 @@ export class JwtVerifier {
   }
 }
 
-/** Extrai o token do header Authorization. */
+/** Extracts the token from the Authorization header. */
 export function bearerToken(authorizationHeader: string | undefined): string {
   if (authorizationHeader === undefined || authorizationHeader === '') {
-    throw new UnauthenticatedError('Header Authorization ausente');
+    throw new UnauthenticatedError('Missing Authorization header');
   }
   const [scheme, token] = authorizationHeader.split(' ');
   if (scheme?.toLowerCase() !== 'bearer' || token === undefined || token === '') {
-    throw new UnauthenticatedError('Esperado o esquema Bearer no header Authorization');
+    throw new UnauthenticatedError('Expected the Bearer scheme in the Authorization header');
   }
   return token;
 }

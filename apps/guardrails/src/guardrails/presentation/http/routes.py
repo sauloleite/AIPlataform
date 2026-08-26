@@ -1,4 +1,4 @@
-"""Routers FastAPI. So adaptam entrada e saida."""
+"""FastAPI routers. They only adapt input and output."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _authenticate(
     authorization: Annotated[str | None, Header()] = None,
     x_project_id: Annotated[str | None, Header()] = None,
 ) -> tuple[Principal, str]:
-    """`Depends` so existe na apresentacao (doc 03, secao 3.3)."""
+    """`Depends` exists only in presentation (reference doc 03 §3.3)."""
     container: Container = get_container()
     verifier: JwtVerifier = container.verifier
 
@@ -39,7 +39,7 @@ def _authenticate(
     if not x_project_id:
         raise ProjectRequiredError()
 
-    # Servico chamando servico (o router) nao precisa ser membro do projeto.
+    # Service-to-service (the router) does not need project membership.
     if principal.type != "service":
         require_membership(principal, x_project_id)
 
@@ -137,5 +137,5 @@ def live() -> dict[str, str]:
 @health_router.get("/ready")
 def ready() -> dict[str, str]:
     container = get_container()
-    # O detector e carregado no boot; se ele existe, o servico atende.
+    # The detector is loaded at boot; if it exists, the service can serve.
     return {"status": "ok", "detector": container.detector_name}

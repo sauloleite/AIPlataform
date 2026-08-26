@@ -20,8 +20,8 @@ export interface PrincipalProps {
 }
 
 /**
- * Quem a plataforma reconhece. Entidade: muda por metodos com nome de negocio,
- * nunca por atribuicao direta de campo.
+ * Who the platform recognises. An entity: it changes through methods named after
+ * the business, never through direct field assignment.
  */
 export class PrincipalEntity {
   private constructor(private props: PrincipalProps) {}
@@ -83,7 +83,7 @@ export class PrincipalEntity {
     return this.props.enabled;
   }
 
-  /** Lanca se o principal nao puder mais autenticar. */
+  /** Throws if the principal can no longer authenticate. */
   ensureCanAuthenticate(): void {
     if (!this.props.enabled) throw new PrincipalDisabledError(this.props.id);
   }

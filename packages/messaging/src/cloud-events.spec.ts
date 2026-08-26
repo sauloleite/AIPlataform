@@ -3,7 +3,7 @@ import { ValidationError } from '@aia/errors';
 import { EVENT_TYPES, newEvent } from './cloud-events.js';
 
 describe('newEvent', () => {
-  it('monta o envelope CloudEvents com o projeto no subject', () => {
+  it('builds the CloudEvents envelope with the project in subject', () => {
     const event = newEvent({
       type: EVENT_TYPES.USAGE_RECORDED,
       source: '/aia/inference-router',
@@ -27,7 +27,7 @@ describe('newEvent', () => {
     });
   });
 
-  it('exige o projeto: sem tenant o evento nao pode ser roteado nem filtrado', () => {
+  it('requires the project: without a tenant the event cannot be routed or filtered', () => {
     expect(() =>
       newEvent({ type: EVENT_TYPES.USAGE_RECORDED, source: '/x', projectId: '', data: {} }),
     ).toThrow(ValidationError);
@@ -38,19 +38,19 @@ describe('newEvent', () => {
     'aia.inference.usage.recorded',
     'aia.Inference.Usage.v1',
     'aia.inference.v',
-  ])('recusa o type mal formado %p', (type) => {
+  ])('rejects the malformed type %p', (type) => {
     expect(() => newEvent({ type, source: '/x', projectId: 'proj-1', data: {} })).toThrow(
       ValidationError,
     );
   });
 
-  it('todos os tipos do catalogo passam na propria validacao', () => {
+  it('every catalogued type passes its own validation', () => {
     for (const type of Object.values(EVENT_TYPES)) {
       expect(() => newEvent({ type, source: '/x', projectId: 'proj-1', data: {} })).not.toThrow();
     }
   });
 
-  it('gera id e time quando nao informados', () => {
+  it('generates id and time when they are not supplied', () => {
     const event = newEvent({
       type: EVENT_TYPES.PROJECT_CREATED,
       source: '/x',

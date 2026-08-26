@@ -10,7 +10,7 @@ export interface CheckResult {
 
 export interface DependencyCheck {
   name: string;
-  /** `critical: false` degrada o servico em vez de derrubar a readiness. */
+  /** `critical: false` degrades the service instead of failing readiness. */
   critical: boolean;
   check(): Promise<CheckResult>;
 }
@@ -18,11 +18,11 @@ export interface DependencyCheck {
 export const HEALTH_CHECKS = Symbol('HealthChecks');
 
 /**
- * Liveness e readiness separados de proposito.
+ * Liveness and readiness are separate on purpose.
  *
- * Liveness responde enquanto o processo esta vivo: se falhasse por dependencia
- * fora, o orquestrador reiniciaria o pod sem motivo. Readiness reflete a
- * capacidade de atender e tira a replica do balanceador.
+ * Liveness answers while the process is alive: if it failed because a dependency
+ * was down, the orchestrator would restart the pod for no reason. Readiness
+ * reflects the ability to serve and pulls the replica out of the balancer.
  */
 @Controller('health')
 export class HealthController {
@@ -40,8 +40,8 @@ export class HealthController {
     status: 'ok' | 'degraded';
     dependencies: Record<string, CheckResult>;
   }> {
-    // A anotacao de retorno amarra os dois ramos ao MESMO tipo. Sem ela, o
-    // ramo do catch infere `status: string` e a uniao alarga o resultado.
+    // The return annotation ties both branches to the SAME type. Without it the
+    // catch branch infers `status: string` and the union widens the result.
     interface Outcome {
       dependency: DependencyCheck;
       result: CheckResult;
@@ -52,13 +52,13 @@ export class HealthController {
         try {
           return { dependency, result: await dependency.check() };
         } catch (error) {
-          // Uma verificacao que LANCA e um "down", nao um erro do endpoint: a
-          // readiness precisa responder ao orquestrador de qualquer forma.
+          // A check that THROWS is a "down", not an endpoint error: readiness
+          // must answer the orchestrator either way.
           return {
             dependency,
             result: {
               status: 'down',
-              detail: error instanceof Error ? error.message : 'falha na verificacao',
+              detail: error instanceof Error ? error.message : 'check failed',
             },
           };
         }

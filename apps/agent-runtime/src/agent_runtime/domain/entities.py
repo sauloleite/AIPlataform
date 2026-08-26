@@ -1,4 +1,4 @@
-"""Entidades do runtime. Dataclasses puras, sem framework."""
+"""Runtime entities. Plain dataclasses, no framework."""
 
 from __future__ import annotations
 
@@ -27,10 +27,10 @@ class ToolCall:
 
 @dataclass(slots=True)
 class RunState:
-    """Estado de uma execucao, pronto para ser persistido como checkpoint.
+    """The state of a run, ready to be persisted as a checkpoint.
 
-    Existe separado do `Run` porque e ele que o checkpointer serializa: a
-    execucao duravel da Fase 3 precisa retomar exatamente daqui.
+    It is separate from `Run` because this is what the checkpointer serialises:
+    the durable execution of phase 3 has to resume from exactly here.
     """
 
     run_id: str

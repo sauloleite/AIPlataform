@@ -1,8 +1,8 @@
-"""Validacao de documentos brasileiros.
+"""Validation of Brazilian identifiers.
 
-Regra pura, e nao regex: `111.111.111-11` casa com qualquer padrao de CPF mas
-nao e um CPF. Validar o digito verificador derruba a maior fonte de falso
-positivo na redacao de PII, que e numero de protocolo com 11 digitos.
+Pure rule, not a regex: `111.111.111-11` matches any CPF pattern but is not a
+CPF. Validating the check digit removes the largest source of false positives in
+PII redaction, which is an 11-digit ticket number.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ def is_valid_cpf(value: str) -> bool:
     cpf = _digits(value)
     if len(cpf) != 11:
         return False
-    # Todos os digitos iguais passam no calculo, mas nao sao CPF valido.
+    # All-identical digits pass the calculation but are not a valid CPF.
     if cpf == cpf[0] * 11:
         return False
 
@@ -53,7 +53,7 @@ def is_valid_cnpj(value: str) -> bool:
 
 
 def luhn_is_valid(value: str) -> bool:
-    """Algoritmo de Luhn, usado por numero de cartao."""
+    """The Luhn algorithm, used by card numbers."""
     digits = _digits(value)
     if len(digits) < 13 or len(digits) > 19:
         return False

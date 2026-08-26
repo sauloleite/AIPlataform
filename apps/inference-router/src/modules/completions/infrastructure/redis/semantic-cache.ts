@@ -9,14 +9,16 @@ export interface RedisCacheOptions {
 }
 
 /**
- * Cache de completions por chave EXATA do prompt.
+ * Completion cache keyed on the EXACT prompt.
  *
- * Nao e semantico ainda: um cache por similaridade de embedding exige gerar um
- * embedding a cada requisicao, o que so compensa quando ha volume medido. Esta
- * versao ja captura o caso frequente (prompt repetido) sem custo extra, e o port
- * `SemanticCache` deixa a troca para a versao vetorial sem tocar no caso de uso.
+ * Not semantic yet: a similarity cache would require generating an embedding on
+ * every request, which only pays off once there is measured volume. This version
+ * already captures the common case — a repeated prompt — at no extra cost, and
+ * the `SemanticCache` port keeps the swap to a vector version out of the use
+ * case.
  *
- * A chave inclui o `project_id`: sem isso, um projeto leria a resposta de outro.
+ * The key includes `project_id`: without it, one project would read another's
+ * answers.
  */
 @Injectable()
 export class RedisSemanticCache implements SemanticCache {
@@ -45,7 +47,8 @@ export class RedisSemanticCache implements SemanticCache {
       const raw = await this.redis.get(this.key(projectId, aliasId, prompt));
       return raw === null ? null : (JSON.parse(raw) as CachedCompletion);
     } catch {
-      // Cache indisponivel nunca derruba a inferencia: e otimizacao, nao requisito.
+      // An unavailable cache never breaks inference: it is an optimisation, not a
+      // requirement.
       return null;
     }
   }
@@ -66,7 +69,7 @@ export class RedisSemanticCache implements SemanticCache {
         this.options.ttlSeconds,
       );
     } catch {
-      // idem
+      // Same reasoning as above.
     }
   }
 }

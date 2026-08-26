@@ -6,7 +6,7 @@ import type { UsageRecorded } from '../domain/events/usage-recorded.js';
 import type { Cost, ProviderName } from '../domain/value-objects/index.js';
 
 /* ------------------------------------------------------------------ */
-/* Provedor de modelo                                                  */
+/* Model provider                                                      */
 /* ------------------------------------------------------------------ */
 
 export interface ChatMessageInput {
@@ -36,10 +36,10 @@ export interface ChatResult {
 }
 
 export interface ChatChunk {
-  /** Texto incremental. Vazio em chunks que so carregam metadados. */
+  /** Incremental text. Empty on chunks that only carry metadata. */
   delta: string;
   finishReason?: 'stop' | 'length' | 'content_filter' | 'tool_calls' | null;
-  /** Presente no ultimo chunk, quando o provedor informa o consumo. */
+  /** Present on the last chunk, when the provider reports usage. */
   usage?: TokenUsage;
 }
 
@@ -49,18 +49,19 @@ export interface EmbeddingsResult {
 }
 
 /**
- * Um provedor de modelo, atras da API canonica.
+ * A model provider, behind the canonical API.
  *
- * Padrao Adapter: o caso de uso nao sabe se atras ha OpenAI, Gemini, Anthropic ou
- * um modelo local. Trocar de provedor e trocar o deployment de um alias.
+ * Adapter pattern: the use case does not know whether OpenAI, Gemini, Anthropic
+ * or a local model sits behind it. Switching provider means switching an alias's
+ * deployment.
  *
- * Toda implementacao precisa se comportar do mesmo jeito nas bordas (LSP):
- * erro de rate limit vira um erro com `status: 429` e `retryAfterMs`, e o stream
- * termina com um chunk que carrega o `usage`, mesmo que precise estima-lo.
+ * Every implementation must behave identically at the edges (LSP): a rate limit
+ * becomes an error carrying `status: 429` and `retryAfterMs`, and the stream ends
+ * with a chunk carrying `usage`, even if that has to be estimated.
  */
 export interface ModelProvider {
   readonly provider: ProviderName;
-  /** `false` quando falta chave de API: o alias simplesmente ignora este provedor. */
+  /** `false` when the API key is missing: the alias simply skips this provider. */
   readonly configured: boolean;
 
   chat(request: ChatRequestInput, deployment: Deployment, signal: AbortSignal): Promise<ChatResult>;
@@ -76,42 +77,43 @@ export interface ModelProvider {
 export const MODEL_PROVIDERS = Symbol('ModelProviders');
 
 /* ------------------------------------------------------------------ */
-/* Orcamento                                                           */
+/* Budget                                                              */
 /* ------------------------------------------------------------------ */
 
 export interface ReserveInput {
   projectId: string;
   estimated: Cost;
   /**
-   * Identificador ESTAVEL do periodo orcamentario (`2026-03` ou `2026-03-15`).
+   * STABLE identifier of the budget period (`2026-03` or `2026-03-15`).
    *
-   * Precisa ser estavel porque compoe a chave dos contadores: derivar da hora
-   * atual faria reserva e commit caírem em chaves diferentes.
+   * It has to be stable because it forms part of the counter keys: deriving it
+   * from the current time would land the reserve and the commit on different
+   * keys.
    */
   periodKey: string;
-  /** Segundos ate a virada do periodo. Usado so como TTL do contador. */
+  /** Seconds until the period rolls over. Used only as the counter TTL. */
   periodEndsInSeconds: number;
   limitMicros: bigint;
   blockAtLimit: boolean;
 }
 
 /**
- * Contabilidade de orcamento com reserva e commit atomicos.
+ * Budget accounting with atomic reserve and commit.
  *
- * `reserve` e `commit` precisam ser atomicos entre replicas: sem isso, N chamadas
- * simultaneas leem o mesmo saldo e todas passam (doc 02, fluxo 7.1).
+ * `reserve` and `commit` must be atomic across replicas: without that, N
+ * concurrent calls read the same balance and all of them pass (doc 02, flow 7.1).
  */
 export interface BudgetLedger {
   reserve(input: ReserveInput): Promise<BudgetReservation>;
   commit(reservation: BudgetReservation, actual: Cost): Promise<void>;
   release(reservation: BudgetReservation): Promise<void>;
-  /** `false` faz o caso de uso entrar em modo `budget_unverified`. */
+  /** `false` puts the use case into `budget_unverified` mode. */
   isAvailable(): boolean;
 }
 export const BUDGET_LEDGER = Symbol('BudgetLedger');
 
 /* ------------------------------------------------------------------ */
-/* Politica, catalogo, auditoria e eventos                             */
+/* Policy, catalogue, audit and events                                 */
 /* ------------------------------------------------------------------ */
 
 export interface PolicyResult {
@@ -123,7 +125,7 @@ export interface PolicyResult {
   periodEndsInSeconds: number;
   maxConcurrentRequests: number;
   contentCapture: boolean;
-  /** Politica servida do cache porque a origem estava indisponivel. */
+  /** Policy served from cache because the origin was unreachable. */
   stale: boolean;
 }
 
@@ -153,7 +155,7 @@ export interface AuditRecord {
   currency: string;
   durationMs: number;
   errorCode?: string;
-  /** So preenchido com opt-in do projeto e DEPOIS da redacao de PII. */
+  /** Only populated with the project's opt-in and AFTER PII redaction. */
   redactedPrompt?: string;
   redactedCompletion?: string;
   occurredAt: Date;
@@ -170,7 +172,7 @@ export interface UsagePublisher {
 export const USAGE_PUBLISHER = Symbol('UsagePublisher');
 
 /* ------------------------------------------------------------------ */
-/* Guardrails e cache                                                  */
+/* Guardrails and cache                                                */
 /* ------------------------------------------------------------------ */
 
 export interface GuardrailFinding {
@@ -191,7 +193,7 @@ export interface GuardrailVerdict {
 }
 
 export interface Guardrail {
-  /** Analisa e devolve o texto ja redigido, quando a estrategia for redacao. */
+  /** Inspects and returns the already redacted text, when the strategy is redaction. */
   inspect(text: string, projectId: string, signal?: AbortSignal): Promise<GuardrailVerdict>;
   readonly available: boolean;
 }
@@ -215,7 +217,7 @@ export interface SemanticCache {
 }
 export const SEMANTIC_CACHE = Symbol('SemanticCache');
 
-/** Estimativa local de tokens, para reservar orcamento antes de chamar o modelo. */
+/** Local token estimate, to reserve budget before calling the model. */
 export interface TokenEstimator {
   countMessages(messages: ChatMessageInput[]): number;
   countText(text: string): number;

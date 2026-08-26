@@ -17,13 +17,13 @@ export interface HttpGuardrailOptions {
 }
 
 /**
- * Cliente do aia-guardrails.
+ * Client for aia-guardrails.
  *
- * Politica de falha: se o servico nao responde, o conteudo SEGUE sem redacao e o
- * fato e registrado. E uma escolha consciente — bloquear toda a inferencia por
- * causa do guardrail transformaria uma degradacao em indisponibilidade. O que a
- * plataforma garante nesse estado e nao PERSISTIR conteudo nao redigido: o caso
- * de uso so grava texto quando o veredito existe.
+ * Failure policy: if the service does not answer, the content PROCEEDS without
+ * redaction and the fact is logged. This is a deliberate choice — blocking all
+ * inference because of the guardrail would turn a degradation into an outage.
+ * What the platform still guarantees in that state is not PERSISTING unredacted
+ * content: the use case only stores text when a verdict exists.
  */
 @Injectable()
 export class HttpGuardrail implements Guardrail {
@@ -54,7 +54,7 @@ export class HttpGuardrail implements Guardrail {
         { key: 'guardrails', ...(signal !== undefined && { signal }) },
       );
 
-      if (!response.ok) throw new Error(`guardrails respondeu ${response.status.toString()}`);
+      if (!response.ok) throw new Error(`guardrails responded ${response.status.toString()}`);
 
       const payload = (await response.json()) as RedactResponse;
       return {
@@ -73,7 +73,7 @@ export class HttpGuardrail implements Guardrail {
       };
     } catch (error) {
       this.logger.warn(
-        `guardrails indisponivel (${error instanceof Error ? error.message : 'desconhecido'}); conteudo segue sem redacao`,
+        `guardrails unreachable (${error instanceof Error ? error.message : 'unknown'}); content proceeds unredacted`,
       );
       return {
         text,
@@ -88,7 +88,7 @@ export class HttpGuardrail implements Guardrail {
   }
 }
 
-/** Guardrail desligado. Usado quando o servico nao esta implantado. */
+/** Guardrail turned off. Used when the service is not deployed. */
 export class DisabledGuardrail implements Guardrail {
   readonly available = false;
 

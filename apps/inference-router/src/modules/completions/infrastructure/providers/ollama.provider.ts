@@ -27,13 +27,13 @@ interface OllamaEmbedResponse {
 }
 
 /**
- * Adapter Ollama: modelos abertos rodando na propria maquina.
+ * Ollama adapter: open models running on the machine itself.
  *
- * E o que torna a plataforma utilizavel sem nenhuma chave de API paga, e o que
- * atende projetos com classificacao `restrito`: a zona de dados e `local`, o
- * conteudo nao sai do host (ADR-010).
+ * This is what makes the platform usable with no paid API key, and what serves
+ * projects classified `restricted`: the data zone is `local`, so content never
+ * leaves the host (ADR-010).
  *
- * O protocolo e NDJSON, nao SSE: cada linha e um JSON completo.
+ * The protocol is NDJSON, not SSE: each line is one complete JSON object.
  */
 @Injectable()
 export class OllamaProvider implements ModelProvider {
@@ -135,7 +135,7 @@ export class OllamaProvider implements ModelProvider {
   }
 }
 
-/** NDJSON: um objeto JSON completo por linha. */
+/** NDJSON: one complete JSON object per line. */
 async function* readNdjson(response: Response): AsyncGenerator<string> {
   const body = response.body;
   if (body === null) return;

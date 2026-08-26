@@ -1,7 +1,7 @@
-"""Dominio do servico.
+"""The service domain.
 
-Regras puras: nada de FastAPI, nada de banco, nada de I/O. E o que permite testar
-a regra de negocio sem subir nada.
+Pure rules: no FastAPI, no database, no I/O. That is what makes it possible to
+test the business rule without starting anything.
 """
 
 __all__: list[str] = []

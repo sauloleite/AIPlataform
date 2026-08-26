@@ -5,9 +5,9 @@ export class InvalidCredentialsError extends DomainError {
   readonly status = 401;
 
   constructor() {
-    // Mensagem deliberadamente generica: distinguir "usuario nao existe" de
-    // "senha errada" entrega ao atacante um enumerador de contas.
-    super('Credenciais invalidas');
+    // Deliberately generic message: distinguishing "no such user" from "wrong
+    // password" hands an attacker an account enumerator.
+    super('Invalid credentials');
   }
 }
 
@@ -16,7 +16,7 @@ export class PrincipalDisabledError extends DomainError {
   readonly status = 403;
 
   constructor(principalId: string) {
-    super('Principal desativado', { principal_id: principalId });
+    super('Principal disabled', { principal_id: principalId });
   }
 }
 
@@ -25,7 +25,7 @@ export class PatExpiredError extends DomainError {
   readonly status = 401;
 
   constructor() {
-    super('Personal Access Token expirado');
+    super('Personal access token expired');
   }
 }
 
@@ -34,7 +34,7 @@ export class PatRevokedError extends DomainError {
   readonly status = 401;
 
   constructor() {
-    super('Personal Access Token revogado');
+    super('Personal access token revoked');
   }
 }
 
@@ -43,6 +43,6 @@ export class NoSigningKeyError extends DomainError {
   readonly status = 503;
 
   constructor() {
-    super('Nenhuma chave de assinatura ativa');
+    super('No active signing key');
   }
 }

@@ -1,4 +1,4 @@
-"""Dominio do runtime de agentes."""
+"""The agent runtime domain."""
 
 from agent_runtime.domain.entities import Run, RunState, RunStatus, ToolCall
 from agent_runtime.domain.errors import (

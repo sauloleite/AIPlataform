@@ -18,12 +18,12 @@ export interface AuthenticateClientCommand {
 }
 
 /**
- * Grant `client_credentials`: um servico se autentica como ele mesmo.
+ * The `client_credentials` grant: a service authenticates as itself.
  *
- * O token resultante tem `principal_type: service` e NENHUMA membership: ele nao
- * age em nome de um usuario nem pertence a um projeto. Quem consome decide o que
- * um servico pode fazer (o governance, por exemplo, deixa um servico ler a
- * politica de qualquer projeto, o que um usuario nao pode).
+ * The resulting token carries `principal_type: service` and NO memberships: it
+ * acts on nobody's behalf and belongs to no project. Each consumer decides what a
+ * service may do — governance, for instance, lets a service read any project's
+ * policy, which a user cannot.
  */
 @Injectable()
 export class AuthenticateClient {
@@ -38,8 +38,8 @@ export class AuthenticateClient {
     ttlSeconds: number,
   ): Promise<IssuedTokenResult> {
     const client = await this.clients.findByClientId(command.clientId);
-    // Segredo de servico tem alta entropia e e comparado por hash deterministico;
-    // a comparacao em tempo constante fica no proprio hasher.
+    // A service secret is high entropy and compared through a deterministic
+    // hash; the constant-time comparison lives in the hasher itself.
     if (client === null || !this.clients.matches(client, command.clientSecret)) {
       throw new InvalidCredentialsError();
     }

@@ -1,4 +1,4 @@
-"""Comandos e resultados. Sem detalhe de HTTP."""
+"""Commands and results. No HTTP detail."""
 
 from __future__ import annotations
 

@@ -1,18 +1,18 @@
 import { ValidationError } from '@aia/errors';
 
 /**
- * Value object imutavel. Existe para que o resto do sistema nao precise
- * revalidar uma string toda vez que a trata como email.
+ * Immutable value object. It exists so the rest of the system never revalidates
+ * a string each time it treats it as an email.
  */
 export class Email {
   private constructor(readonly value: string) {}
 
   static of(raw: string): Email {
     const normalized = raw.trim().toLowerCase();
-    // Deliberadamente simples: validacao de email por regex e sempre incompleta;
-    // o que confirma um endereco e o envio, nao o formato.
+    // Deliberately simple: regex email validation is always incomplete; what
+    // confirms an address is delivery, not its shape.
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
-      throw new ValidationError('Email invalido', { value: raw.slice(0, 64) });
+      throw new ValidationError('Invalid email', { value: raw.slice(0, 64) });
     }
     return new Email(normalized);
   }

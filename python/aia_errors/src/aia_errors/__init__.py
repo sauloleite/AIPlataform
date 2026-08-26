@@ -1,7 +1,7 @@
-"""Erros de dominio e Problem Details (RFC 9457).
+"""Domain errors and Problem Details (RFC 9457).
 
-Espelha o `@aia/errors` do lado TypeScript: os mesmos codigos estaveis, para que
-um cliente reaja igual independente de qual servico respondeu.
+Mirrors `@aia/errors` on the TypeScript side: the same stable codes, so a client
+reacts the same way regardless of which service answered.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ PROBLEM_CONTENT_TYPE: Final = "application/problem+json"
 
 
 class ErrorCode:
-    """Codigos estaveis. Fazem parte do contrato publico da API."""
+    """Stable codes. They are part of the public API contract."""
 
     BUDGET_EXHAUSTED: Final = "budget_exhausted"
     QUOTA_EXCEEDED: Final = "quota_exceeded"
@@ -22,13 +22,14 @@ class ErrorCode:
     NO_COMPATIBLE_DEPLOYMENT: Final = "no_compatible_deployment"
     ALIAS_NOT_FOUND: Final = "alias_not_found"
     PROVIDER_UNAVAILABLE: Final = "provider_unavailable"
+    ALL_DEPLOYMENTS_FAILED: Final = "all_deployments_failed"
     STREAM_INTERRUPTED: Final = "stream_interrupted"
     GUARDRAIL_BLOCKED: Final = "guardrail_blocked"
     PROMPT_INJECTION_SUSPECTED: Final = "prompt_injection_suspected"
     UNAUTHENTICATED: Final = "unauthenticated"
     FORBIDDEN: Final = "forbidden"
-    TOKEN_EXPIRED: Final = "token_expired"  # noqa: S105 - codigo de erro, nao segredo
-    INVALID_TOKEN: Final = "invalid_token"  # noqa: S105 - codigo de erro, nao segredo
+    TOKEN_EXPIRED: Final = "token_expired"  # noqa: S105 - error code, not a secret
+    INVALID_TOKEN: Final = "invalid_token"  # noqa: S105 - error code, not a secret
     PROJECT_REQUIRED: Final = "project_required"
     PROJECT_NOT_FOUND: Final = "project_not_found"
     VALIDATION_FAILED: Final = "validation_failed"
@@ -40,35 +41,48 @@ class ErrorCode:
     INTERNAL_ERROR: Final = "internal_error"
 
 
+# Every code in the catalogue has a title. An entry missing here would make a
+# Python service answer with a generic title where the Node one answers with the
+# real one, for the very same code -- and the mirror is the whole point.
 _TITLES: Final[dict[str, str]] = {
-    ErrorCode.BUDGET_EXHAUSTED: "Orcamento do projeto esgotado",
-    ErrorCode.GUARDRAIL_BLOCKED: "Conteudo bloqueado por guardrail",
-    ErrorCode.PROMPT_INJECTION_SUSPECTED: "Suspeita de injecao de prompt",
-    ErrorCode.UNAUTHENTICATED: "Nao autenticado",
-    ErrorCode.FORBIDDEN: "Acesso negado",
-    ErrorCode.TOKEN_EXPIRED: "Token expirado",
-    ErrorCode.INVALID_TOKEN: "Token invalido",
-    ErrorCode.PROJECT_REQUIRED: "Projeto obrigatorio",
-    ErrorCode.PROJECT_NOT_FOUND: "Projeto nao encontrado",
-    ErrorCode.VALIDATION_FAILED: "Requisicao invalida",
-    ErrorCode.NOT_FOUND: "Recurso nao encontrado",
-    ErrorCode.CONFLICT: "Conflito de estado",
-    ErrorCode.UPSTREAM_TIMEOUT: "Tempo esgotado em dependencia",
-    ErrorCode.CIRCUIT_OPEN: "Dependencia em circuito aberto",
-    ErrorCode.INTERNAL_ERROR: "Erro interno",
+    ErrorCode.BUDGET_EXHAUSTED: "Project budget exhausted",
+    ErrorCode.QUOTA_EXCEEDED: "Quota exceeded",
+    ErrorCode.CONCURRENCY_LIMIT: "Project concurrency limit reached",
+    ErrorCode.NO_COMPATIBLE_DEPLOYMENT: (
+        "No deployment compatible with the project data classification"
+    ),
+    ErrorCode.ALIAS_NOT_FOUND: "Unknown model alias",
+    ErrorCode.PROVIDER_UNAVAILABLE: "Model provider unavailable",
+    ErrorCode.ALL_DEPLOYMENTS_FAILED: "Every deployment for the alias failed",
+    ErrorCode.STREAM_INTERRUPTED: "Stream interrupted",
+    ErrorCode.GUARDRAIL_BLOCKED: "Content blocked by a guardrail",
+    ErrorCode.PROMPT_INJECTION_SUSPECTED: "Suspected prompt injection",
+    ErrorCode.UNAUTHENTICATED: "Not authenticated",
+    ErrorCode.FORBIDDEN: "Access denied",
+    ErrorCode.TOKEN_EXPIRED: "Token expired",
+    ErrorCode.INVALID_TOKEN: "Invalid token",
+    ErrorCode.PROJECT_REQUIRED: "Project required",
+    ErrorCode.PROJECT_NOT_FOUND: "Project not found",
+    ErrorCode.VALIDATION_FAILED: "Invalid request",
+    ErrorCode.IDEMPOTENCY_CONFLICT: "Idempotency conflict",
+    ErrorCode.NOT_FOUND: "Resource not found",
+    ErrorCode.CONFLICT: "State conflict",
+    ErrorCode.UPSTREAM_TIMEOUT: "Dependency timed out",
+    ErrorCode.CIRCUIT_OPEN: "Dependency circuit open",
+    ErrorCode.INTERNAL_ERROR: "Internal error",
 }
 
 
 def title_for(code: str) -> str:
-    return _TITLES.get(code, "Erro")
+    return _TITLES.get(code, "Error")
 
 
 @dataclass(slots=True)
 class DomainError(Exception):
-    """Raiz das excecoes de negocio.
+    """Root of every business exception.
 
-    A apresentacao traduz para Problem Details; nada aqui sabe o que e HTTP
-    alem do status sugerido.
+    Presentation translates it into Problem Details; nothing here knows about
+    HTTP beyond the suggested status.
     """
 
     message: str
@@ -78,10 +92,10 @@ class DomainError(Exception):
     retryable: bool = False
 
     def __post_init__(self) -> None:
-        # `Exception.__init__` explicito, e nao `super().__init__`.
-        # `@dataclass(slots=True)` RECRIA a classe, e a celula `__class__` que o
-        # `super()` de argumento zero usa continua apontando para a classe antiga.
-        # Em uma subclasse isso levanta "obj must be an instance or subtype of type".
+        # Explicit `Exception.__init__`, not `super().__init__`.
+        # `@dataclass(slots=True)` RECREATES the class, and the `__class__` cell
+        # that zero-argument `super()` closes over still points at the old one.
+        # In a subclass that raises "obj must be an instance or subtype of type".
         Exception.__init__(self, self.message)
 
     def to_problem(
@@ -110,7 +124,7 @@ class ValidationError(DomainError):
 class NotFoundError(DomainError):
     def __init__(self, resource: str, identifier: str) -> None:
         super().__init__(
-            f"{resource} nao encontrado",
+            f"{resource} not found",
             code=ErrorCode.NOT_FOUND,
             status=404,
             details={"resource": resource, "id": identifier},
@@ -118,7 +132,7 @@ class NotFoundError(DomainError):
 
 
 class UnauthenticatedError(DomainError):
-    def __init__(self, message: str = "Credencial ausente ou invalida") -> None:
+    def __init__(self, message: str = "Missing or invalid credential") -> None:
         super().__init__(message, code=ErrorCode.UNAUTHENTICATED, status=401)
 
 
@@ -130,7 +144,7 @@ class ForbiddenError(DomainError):
 class ProjectRequiredError(DomainError):
     def __init__(self) -> None:
         super().__init__(
-            "O header X-Project-Id e obrigatorio: projeto e o tenant da plataforma",
+            "The X-Project-Id header is required: project is the platform tenant",
             code=ErrorCode.PROJECT_REQUIRED,
             status=400,
         )
@@ -139,14 +153,14 @@ class ProjectRequiredError(DomainError):
 def problem_from_unknown(
     error: BaseException, *, instance: str | None = None, trace_id: str | None = None
 ) -> dict[str, Any]:
-    """Erro desconhecido vira 500 SEM detalhe.
+    """An unknown error becomes a 500 with NO detail.
 
-    A mensagem interna vai para o log, correlacionada pelo trace_id; expo-la na
-    resposta entregaria detalhe de infraestrutura a quem esta sondando.
+    The internal message goes to the log, correlated by trace_id; exposing it in
+    the response would hand infrastructure detail to whoever is probing.
     """
     if isinstance(error, DomainError):
         return error.to_problem(instance=instance, trace_id=trace_id)
-    return DomainError("Erro interno").to_problem(instance=instance, trace_id=trace_id)
+    return DomainError("Internal error").to_problem(instance=instance, trace_id=trace_id)
 
 
 __all__ = [

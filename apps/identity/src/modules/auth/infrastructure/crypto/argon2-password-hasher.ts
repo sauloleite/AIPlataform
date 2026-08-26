@@ -3,9 +3,10 @@ import argon2 from 'argon2';
 import type { PasswordHasher } from '../../application/ports.js';
 
 /**
- * Argon2id com os parametros recomendados pela OWASP.
+ * Argon2id with the parameters OWASP recommends.
  *
- * Lento de proposito: e o que torna forca bruta cara contra uma senha humana.
+ * Slow on purpose: that is what makes brute force expensive against a human
+ * password.
  */
 @Injectable()
 export class Argon2PasswordHasher implements PasswordHasher {
@@ -24,8 +25,8 @@ export class Argon2PasswordHasher implements PasswordHasher {
     try {
       return await argon2.verify(hash, plain);
     } catch {
-      // Hash malformado (inclusive o descartavel usado contra timing attack)
-      // significa "nao confere", nao "erro do servidor".
+      // A malformed hash — including the throwaway used against timing attacks —
+      // means "does not match", not "server error".
       return false;
     }
   }

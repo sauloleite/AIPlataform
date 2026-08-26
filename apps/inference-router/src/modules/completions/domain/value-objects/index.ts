@@ -6,16 +6,16 @@ export type ProviderName = (typeof PROVIDERS)[number];
 export const DATA_ZONES = ['local', 'br', 'us', 'eu', 'global'] as const;
 export type DataZone = (typeof DATA_ZONES)[number];
 
-export const CLASSIFICATIONS = ['publico', 'interno', 'confidencial', 'restrito'] as const;
+export const CLASSIFICATIONS = ['public', 'internal', 'confidential', 'restricted'] as const;
 export type DataClassification = (typeof CLASSIFICATIONS)[number];
 
-/** Contagem de tokens. Nunca negativa; somar e a unica operacao util. */
+/** A token count. Never negative; adding is the only useful operation. */
 export class TokenCount {
   private constructor(readonly value: number) {}
 
   static of(value: number): TokenCount {
     if (!Number.isInteger(value) || value < 0) {
-      throw new ValidationError('Contagem de tokens deve ser inteiro nao negativo', { value });
+      throw new ValidationError('A token count must be a non-negative integer', { value });
     }
     return new TokenCount(value);
   }
@@ -32,10 +32,10 @@ export class TokenCount {
 const MICROS_PER_UNIT = 1_000_000;
 
 /**
- * Custo em micros da moeda.
+ * Cost in micros of the currency.
  *
- * Inteiro por decisao: o custo de uma unica chamada e fracao de centavo, e somar
- * milhares delas em ponto flutuante deriva o suficiente para errar o orcamento.
+ * Integer by decision: a single call costs a fraction of a cent, and summing
+ * thousands of them in floating point drifts enough to get the budget wrong.
  */
 export class Cost {
   private constructor(
@@ -44,7 +44,7 @@ export class Cost {
   ) {}
 
   static of(micros: bigint, currency: string): Cost {
-    if (micros < 0n) throw new ValidationError('Custo nao pode ser negativo');
+    if (micros < 0n) throw new ValidationError('Cost cannot be negative');
     return new Cost(micros, currency);
   }
 
@@ -54,7 +54,7 @@ export class Cost {
 
   plus(other: Cost): Cost {
     if (this.currency !== other.currency) {
-      throw new ValidationError('Nao e possivel somar custos em moedas diferentes');
+      throw new ValidationError('Cannot add costs in different currencies');
     }
     return new Cost(this.micros + other.micros, this.currency);
   }

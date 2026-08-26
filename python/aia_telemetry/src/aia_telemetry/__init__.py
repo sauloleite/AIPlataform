@@ -1,7 +1,7 @@
-"""OpenTelemetry com as convencoes da plataforma (ADR-009).
+"""OpenTelemetry with the platform conventions (ADR-009).
 
-Os mesmos nomes de atributo do lado TypeScript: um trace que atravessa router e
-agent-runtime precisa ser legivel como um so.
+The same attribute names as the TypeScript side: a trace crossing router and
+agent-runtime has to read as a single one.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from opentelemetry.trace import Span, StatusCode
 
 
 class AiaAttr:
-    """Atributos de negocio. `project_id` esta em todo span."""
+    """Business attributes. `project_id` is on every span."""
 
     PROJECT_ID: Final = "aia.project_id"
     PRINCIPAL_ID: Final = "aia.principal_id"
@@ -33,7 +33,7 @@ class AiaAttr:
 
 
 class GenAiAttr:
-    """Semantic Conventions for Generative AI do OpenTelemetry."""
+    """OpenTelemetry Semantic Conventions for Generative AI."""
 
     SYSTEM: Final = "gen_ai.system"
     OPERATION_NAME: Final = "gen_ai.operation.name"
@@ -47,7 +47,7 @@ _started = False
 
 
 def start_telemetry(service_name: str, *, service_version: str = "0.1.0") -> None:
-    """Inicializa o SDK. Chamar duas vezes e inofensivo."""
+    """Initialises the SDK. Calling it twice is harmless."""
     global _started
     if _started:
         return
@@ -58,6 +58,10 @@ def start_telemetry(service_name: str, *, service_version: str = "0.1.0") -> Non
             {
                 "service.name": service_name,
                 "service.version": service_version,
+                # NODE_ENV in a Python service reads oddly, but compose and
+                # the chart set it for EVERY service: the environment label has
+                # to match across languages or a Grafana filter splits one
+                # deployment into two.
                 "deployment.environment.name": os.getenv("NODE_ENV", "development"),
             }
         )
@@ -77,7 +81,7 @@ def get_tracer(name: str) -> trace.Tracer:
 
 
 def current_trace_id() -> str | None:
-    """trace_id do span ativo, para correlacionar o Problem Details com o trace."""
+    """trace_id of the active span, to correlate Problem Details with the trace."""
     span = trace.get_current_span()
     context = span.get_span_context()
     if not context.is_valid:
@@ -86,7 +90,7 @@ def current_trace_id() -> str | None:
 
 
 def annotate_active_span(**attributes: Any) -> None:
-    """Carimba atributos de negocio no span ativo."""
+    """Stamps business attributes onto the active span."""
     span = trace.get_current_span()
     for key, value in attributes.items():
         if value is not None:

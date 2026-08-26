@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ForbiddenError, NotFoundError, ValidationError } from '@aia/errors';
 import { ProblemDetailsFilter } from './problem-details.filter.js';
 
-/** Resposta e requisicao falsas com a superficie que o filtro usa. */
+/** Fake response and request exposing the surface the filter uses. */
 function hostFor(url = '/v1/chat/completions'): {
   host: ArgumentsHost;
   status: ReturnType<typeof vi.fn>;
@@ -31,9 +31,9 @@ function bodyOf(send: ReturnType<typeof vi.fn>): Record<string, unknown> {
 }
 
 describe('ProblemDetailsFilter', () => {
-  it('traduz erro de dominio preservando status e codigo estavel', () => {
+  it('translates a domain error preserving status and stable code', () => {
     const { host, status, type, send } = hostFor();
-    new ProblemDetailsFilter().catch(new NotFoundError('Projeto', 'proj-1'), host);
+    new ProblemDetailsFilter().catch(new NotFoundError('Project', 'proj-1'), host);
 
     expect(status).toHaveBeenCalledWith(404);
     expect(type).toHaveBeenCalledWith('application/problem+json');
@@ -41,47 +41,47 @@ describe('ProblemDetailsFilter', () => {
       type: 'https://aia.dev/errors/not_found',
       status: 404,
       code: 'not_found',
-      resource: 'Projeto',
+      resource: 'Project',
       id: 'proj-1',
       instance: '/v1/chat/completions',
     });
   });
 
-  it('carrega os detalhes do erro como extensoes do Problem Details', () => {
+  it('carries the error details as Problem Details extensions', () => {
     const { host, send } = hostFor();
     new ProblemDetailsFilter().catch(
-      new ForbiddenError('sem permissao', { rule: 'project_owner', project_id: 'proj-1' }),
+      new ForbiddenError('not permitted', { rule: 'project_owner', project_id: 'proj-1' }),
       host,
     );
 
     expect(bodyOf(send)).toMatchObject({ code: 'forbidden', rule: 'project_owner' });
   });
 
-  it('define Retry-After quando o erro informa quando tentar de novo', () => {
+  it('sets Retry-After when the error says when to retry', () => {
     const { host, setHeader, send } = hostFor();
-    new ProblemDetailsFilter().catch(new ValidationError('espere', { retry_after: 42 }), host);
+    new ProblemDetailsFilter().catch(new ValidationError('wait', { retry_after: 42 }), host);
 
     expect(setHeader).toHaveBeenCalledWith('Retry-After', '42');
     expect(bodyOf(send)['retry_after']).toBe(42);
   });
 
-  it('NAO vaza a mensagem interna de um erro desconhecido', () => {
+  it('does NOT leak the internal message of an unknown error', () => {
     const { host, status, send } = hostFor();
     new ProblemDetailsFilter().catch(
-      new Error('conexao recusada em mongodb://interno:27017'),
+      new Error('connection refused at mongodb://internal:27017'),
       host,
     );
 
     expect(status).toHaveBeenCalledWith(500);
     const body = bodyOf(send);
-    expect(body['detail']).toBe('Erro interno');
+    expect(body['detail']).toBe('Internal error');
     expect(JSON.stringify(body)).not.toContain('mongodb://');
   });
 
-  it('mapeia excecao do framework sem perder o status', () => {
+  it('maps a framework exception without losing the status', () => {
     const { host, status, send } = hostFor();
     new ProblemDetailsFilter().catch(
-      new HttpException('corpo invalido', HttpStatus.BAD_REQUEST),
+      new HttpException('invalid body', HttpStatus.BAD_REQUEST),
       host,
     );
 
@@ -89,10 +89,10 @@ describe('ProblemDetailsFilter', () => {
     expect(bodyOf(send)['code']).toBe('validation_failed');
   });
 
-  it('trata valor lancado que nem e Error', () => {
+  it('handles a thrown value that is not even an Error', () => {
     const { host, status } = hostFor();
     expect(() => {
-      new ProblemDetailsFilter().catch('string solta', host);
+      new ProblemDetailsFilter().catch('a bare string', host);
     }).not.toThrow();
     expect(status).toHaveBeenCalledWith(500);
   });

@@ -1,4 +1,4 @@
-"""Routers FastAPI. So adaptam entrada e saida."""
+"""FastAPI routers. They only adapt input and output."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Header
 from aia_auth import Principal, bearer_token, require_membership
 from aia_errors import ProjectRequiredError
 from aia_telemetry import AiaAttr, annotate_active_span
-from evaluation.application.dto import ExemploCommand
+from evaluation.application.dto import ExampleCommand
 from evaluation.container import get_container
 
 router = APIRouter(prefix="/v1/evaluation", tags=["evaluation"])
@@ -20,7 +20,7 @@ def _authenticate(
     authorization: Annotated[str | None, Header()] = None,
     x_project_id: Annotated[str | None, Header()] = None,
 ) -> tuple[Principal, str]:
-    """`Depends` so existe na apresentacao (doc 03, secao 3.3)."""
+    """`Depends` exists only in presentation (reference doc 03 §3.3)."""
     principal = get_container().verifier.verify(bearer_token(authorization))
     if not x_project_id:
         raise ProjectRequiredError()
@@ -35,10 +35,10 @@ Authenticated = Annotated[tuple[Principal, str], Depends(_authenticate)]
 
 
 @router.get("")
-async def listar(auth: Authenticated) -> dict[str, str]:
+async def list_evaluations(auth: Authenticated) -> dict[str, str]:
     _, project_id = auth
-    exemplo = await get_container().exemplo.execute(ExemploCommand(project_id=project_id))
-    return {"id": exemplo.id, "project_id": exemplo.project_id}
+    example = await get_container().example.execute(ExampleCommand(project_id=project_id))
+    return {"id": example.id, "project_id": example.project_id}
 
 
 @health_router.get("/live")

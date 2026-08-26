@@ -1,3 +1,3 @@
-"""Servico evaluation da plataforma AIA."""
+"""The AIA platform evaluation service."""
 
 __all__: list[str] = []

@@ -10,11 +10,11 @@ import { PROBLEM_CONTENT_TYPE, fromUnknown, isDomainError, type ProblemDetails }
 import { currentTraceId } from '@aia/telemetry';
 
 /**
- * Traduz qualquer excecao para Problem Details (RFC 9457).
+ * Translates any exception into Problem Details (RFC 9457).
  *
- * O erro de dominio ja carrega status e codigo estavel; excecao de framework e
- * mapeada; qualquer outra coisa vira 500 sem detalhe, com o stack indo apenas
- * para o log estruturado, correlacionado pelo trace_id.
+ * A domain error already carries its status and stable code; a framework
+ * exception is mapped; anything else becomes a 500 with no detail, and the stack
+ * goes only to the structured log, correlated by trace_id.
  */
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {
@@ -31,7 +31,7 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     if (problem.status >= 500) {
       this.logger.error(
         {
-          message: 'requisicao falhou',
+          message: 'request failed',
           code: problem.code,
           path: request.url,
           trace_id: traceId,

@@ -6,11 +6,11 @@ import type { AliasRegistry } from '../../application/ports.js';
 import type { DataZone, ProviderName } from '../../domain/value-objects/index.js';
 
 /**
- * Forma declarativa de um alias, como aparece na configuracao.
+ * The declarative shape of an alias, as it appears in configuration.
  *
- * O catalogo vive em arquivo ate o `aia-registry` existir (Fase 2 do roadmap).
- * O port `AliasRegistry` ja isola essa escolha: trocar arquivo por servico nao
- * toca em nenhum caso de uso.
+ * The catalogue lives in a file until `aia-registry` exists (roadmap phase 2).
+ * The `AliasRegistry` port already isolates that choice: swapping the file for a
+ * service touches no use case.
  */
 export interface AliasDefinition {
   id: string;
@@ -22,7 +22,7 @@ export interface AliasDefinition {
     model: string;
     dataZone: DataZone;
     priority: number;
-    /** Custo por milhao de tokens, em micros da moeda. Zero para modelo local. */
+    /** Cost per million tokens, in micros. Zero for a local model. */
     inputCostPerMillion: number;
     outputCostPerMillion: number;
     currency: string;
@@ -79,15 +79,16 @@ export class InMemoryAliasRegistry implements AliasRegistry {
 }
 
 /**
- * Catalogo padrao.
+ * The default catalogue.
  *
- * Cada alias mistura provedores de zonas diferentes de proposito: e assim que um
- * projeto `interno` usa o modelo externo mais barato enquanto um projeto
- * `restrito`, com o MESMO alias, e atendido localmente pelo Ollama (ADR-010).
+ * Each alias deliberately mixes providers from different zones: that is how an
+ * `internal` project uses the cheapest external model while a `restricted`
+ * project, asking for the SAME alias, is served locally by Ollama (ADR-010).
  *
- * `chat-local` existe para quem quer garantir que nada saia da maquina mesmo sem
- * classificacao restrita. Como o Ollama sempre aparece como ultima opcao de todo
- * alias de chat, a plataforma continua respondendo sem nenhuma chave de API.
+ * `chat-local` exists for anyone who wants to guarantee nothing leaves the
+ * machine even without a restricted classification. Because Ollama always
+ * appears as the last option of every chat alias, the platform keeps answering
+ * with no API key at all.
  */
 export function defaultAliasCatalog(models: {
   ollamaChat: string;
@@ -100,8 +101,8 @@ export function defaultAliasCatalog(models: {
 }): AliasDefinition[] {
   return [
     {
-      id: 'chat-rapido',
-      description: 'Conversa de uso geral, otimizada para custo e latencia',
+      id: 'chat-fast',
+      description: 'General-purpose chat, tuned for cost and latency',
       capabilities: ['chat'],
       deployments: [
         {
@@ -140,8 +141,8 @@ export function defaultAliasCatalog(models: {
       ],
     },
     {
-      id: 'chat-avancado',
-      description: 'Raciocinio mais longo, para tarefas complexas',
+      id: 'chat-advanced',
+      description: 'Longer reasoning, for complex tasks',
       capabilities: ['chat', 'tools'],
       deployments: [
         {
@@ -156,7 +157,7 @@ export function defaultAliasCatalog(models: {
           maxOutputTokens: 16384,
         },
         {
-          id: 'ollama-local-avancado',
+          id: 'ollama-local-advanced',
           provider: 'ollama',
           model: models.ollamaChat,
           dataZone: 'local',
@@ -170,11 +171,11 @@ export function defaultAliasCatalog(models: {
     },
     {
       id: 'chat-local',
-      description: 'Somente modelo local. Nenhum dado sai da maquina.',
+      description: 'Local model only. No data leaves the machine.',
       capabilities: ['chat'],
       deployments: [
         {
-          id: 'ollama-exclusivo',
+          id: 'ollama-only',
           provider: 'ollama',
           model: models.ollamaChat,
           dataZone: 'local',
@@ -187,8 +188,8 @@ export function defaultAliasCatalog(models: {
       ],
     },
     {
-      id: 'embedding-padrao',
-      description: 'Embeddings para busca semantica',
+      id: 'embedding-default',
+      description: 'Embeddings for semantic search',
       capabilities: ['embeddings'],
       deployments: [
         {

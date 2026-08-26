@@ -8,7 +8,7 @@ import {
 import type { Capability } from '../entities/model-alias.js';
 import type { DataClassification, DataZone } from '../value-objects/index.js';
 
-/** O que a politica do projeto diz, na forma que o dominio entende. */
+/** What the project policy says, in the shape the domain understands. */
 export interface ProjectPolicySnapshot {
   projectId: string;
   classification: DataClassification;
@@ -18,21 +18,21 @@ export interface ProjectPolicySnapshot {
 }
 
 /**
- * ADR-010: o roteamento de modelo e condicionado a classificacao de dados.
+ * ADR-010: model routing is conditioned on data classification.
  *
- * Regra PURA: sem I/O, sem framework, sem relogio. E o coracao regulatorio da
- * plataforma — e onde se garante que um projeto `restrito` so e atendido por um
- * modelo local, e que a auditoria pode provar isso depois.
+ * A PURE rule: no I/O, no framework, no clock. This is the platform's regulatory
+ * heart — where a `restricted` project is guaranteed to be served only by a
+ * local model, and where audit can prove it afterwards.
  *
- * A politica do projeto pode RESTRINGIR as zonas, nunca amplia-las: a lista de
- * zonas permitidas ja chega derivada da classificacao.
+ * A project policy may NARROW the zones, never widen them: the allowed-zone list
+ * already arrives derived from the classification.
  */
 export const ModelSelectionPolicy = {
   /**
-   * Deployments que podem atender, na ordem em que devem ser tentados.
+   * Deployments that may serve, in the order they should be tried.
    *
-   * Lanca em vez de devolver lista vazia: "nao ha destino compativel" e uma
-   * resposta de negocio, nao um caso de borda para o chamador adivinhar.
+   * Throws instead of returning an empty list: "no compatible destination" is a
+   * business answer, not an edge case for the caller to infer.
    */
   compatible(
     alias: ModelAlias,
@@ -60,15 +60,16 @@ export const ModelSelectionPolicy = {
       });
     }
 
-    // Ja vem ordenado por prioridade do alias; a filtragem preserva a ordem.
+    // Already ordered by the alias's priority; filtering preserves that order.
     return compatible;
   },
 
   /**
-   * Teto de tokens de saida efetivo.
+   * The effective output token ceiling.
    *
-   * O menor entre o que o cliente pediu, o que a politica do projeto permite e o
-   * que o deployment aguenta. Sem isso, LLM10 (consumo ilimitado) fica aberto.
+   * The smallest of what the client asked for, what the project policy permits
+   * and what the deployment can take. Without it, LLM10 (unbounded consumption)
+   * stays wide open.
    */
   effectiveMaxOutputTokens(
     requested: number | undefined,
@@ -85,7 +86,7 @@ export const ModelSelectionPolicy = {
     return Math.min(...candidates);
   },
 
-  /** Aliases que este projeto consegue usar. Alimenta `GET /v1/models`. */
+  /** Aliases this project can actually use. Backs `GET /v1/models`. */
   visibleAliases(aliases: readonly ModelAlias[], policy: ProjectPolicySnapshot): ModelAlias[] {
     return aliases.filter((alias) => {
       if (!policy.isAliasAllowed(alias.id)) return false;

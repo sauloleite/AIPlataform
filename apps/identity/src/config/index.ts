@@ -2,10 +2,11 @@ import { z } from 'zod';
 import { validateConfig } from '@aia/nest';
 
 /**
- * Configuracao validada na inicializacao. 12-factor: tudo vem do ambiente.
+ * Configuration validated at start-up. Twelve-factor: everything comes from the
+ * environment.
  *
- * Em producao, chave de assinatura ausente derruba o boot: um par efemero faria
- * todo token existente virar invalido no proximo restart.
+ * In production a missing signing key fails the boot: an ephemeral pair would
+ * invalidate every existing token on the next restart.
  */
 const schema = z
   .object({
@@ -20,9 +21,9 @@ const schema = z
     IDENTITY_ISSUER: z.string().url(),
     IDENTITY_AUDIENCE: z.string().default('aia-platform'),
     IDENTITY_ACCESS_TOKEN_TTL: z.coerce.number().int().positive().default(3600),
-    /** Pepper do HMAC usado no hash de PAT. */
+    /** HMAC pepper used when hashing PATs. */
     IDENTITY_TOKEN_PEPPER: z.string().min(16).default('dev-pepper-troque-em-producao'),
-    /** Chave privada PKCS#8 em PEM (com quebras de linha ou \n literais). */
+    /** PKCS#8 private key in PEM, with real newlines or literal \n. */
     IDENTITY_SIGNING_PRIVATE_KEY: z.string().optional(),
     IDENTITY_SIGNING_PUBLIC_KEY: z.string().optional(),
     IDENTITY_SIGNING_KID: z.string().default('aia-1'),
@@ -30,11 +31,11 @@ const schema = z
     IDENTITY_BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional(),
     IDENTITY_BOOTSTRAP_ADMIN_PASSWORD: z.string().min(8).optional(),
     /**
-     * Clientes de servico registrados na inicializacao, em JSON:
+     * Service clients registered at start-up, as JSON:
      *   [{"clientId":"aia-inference-router","secret":"...","scopes":["projects:read"]}]
      *
-     * Sem identidade gerenciada de nuvem, e assim que um servico prova quem e
-     * para outro (doc 02, secao 6).
+     * With no managed cloud identity, this is how one service proves who it is
+     * to another (reference doc 02 §6).
      */
     IDENTITY_BOOTSTRAP_SERVICE_CLIENTS: z.string().default('[]'),
 
@@ -46,7 +47,7 @@ const schema = z
         code: z.ZodIssueCode.custom,
         path: ['IDENTITY_SIGNING_PRIVATE_KEY'],
         message:
-          'obrigatoria em producao: sem chave persistida, reiniciar o servico invalida todos os tokens',
+          'required in production: without a persisted key, restarting the service invalidates every token',
       });
     }
     if (
@@ -56,7 +57,7 @@ const schema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['IDENTITY_TOKEN_PEPPER'],
-        message: 'o pepper padrao nao pode ir para producao',
+        message: 'the default pepper must not reach production',
       });
     }
   });
@@ -67,7 +68,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): IdentityCon
   const config = validateConfig(schema, source);
   return {
     ...config,
-    // Chave em variavel de ambiente costuma vir com \n literal.
+    // A key in an environment variable usually arrives with literal \n.
     ...(config.IDENTITY_SIGNING_PRIVATE_KEY !== undefined && {
       IDENTITY_SIGNING_PRIVATE_KEY: config.IDENTITY_SIGNING_PRIVATE_KEY.replace(/\\n/g, '\n'),
     }),

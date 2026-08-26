@@ -66,6 +66,7 @@ lint-fix: ## Corrige o que for automatico
 
 typecheck: ## Verificacao de tipos nos dois ecossistemas
 	pnpm exec tsc --build tsconfig.build.json --pretty
+	pnpm exec nx run-many -t typecheck --all
 	uv run mypy .
 
 arch: ## Regra de dependencia da Clean Architecture (falha o build)
