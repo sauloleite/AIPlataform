@@ -93,3 +93,27 @@ function encode(value: string): string {
 function decode(value: string): string {
   return Buffer.from(value, 'base64url').toString('utf8');
 }
+
+/**
+ * Whether THIS request arrived over HTTPS, which is what decides the `Secure`
+ * flag on the session cookies.
+ *
+ * Not `NODE_ENV`. That describes the build, not the connection, and deriving
+ * `Secure` from it is wrong in both directions: a production build served over
+ * plain HTTP -- which is exactly `make dev` -- gets cookies a strict client
+ * refuses to store, so the user is asked to sign in again on every page. Next's
+ * standalone server makes it wrong every single time, because `server.js`
+ * overwrites `NODE_ENV` to 'production' at startup no matter what the
+ * environment says.
+ *
+ * TLS terminates at the proxy -- Traefik under compose, the Ingress on
+ * Kubernetes -- and Next never speaks it directly, so `x-forwarded-proto` is the
+ * signal. Absent, the request reached us in the clear, and a `Secure` cookie
+ * would simply never come back.
+ */
+export function servedOverHttps(headerList: { get(name: string): string | null }): boolean {
+  const forwarded = headerList.get('x-forwarded-proto');
+  if (forwarded === null) return false;
+  // A chain of proxies appends, so the client-facing protocol is the first.
+  return forwarded.split(',')[0]?.trim().toLowerCase() === 'https';
+}

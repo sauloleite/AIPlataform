@@ -1,8 +1,11 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 
 import { loadConfig } from './modules/console/config';
 import { HttpPlatformGateway } from './modules/console/infrastructure/http/platform-gateway';
-import { CookieSessionStore } from './modules/console/infrastructure/session/cookie-session';
+import {
+  CookieSessionStore,
+  servedOverHttps,
+} from './modules/console/infrastructure/session/cookie-session';
 import { AuthorizeRequest } from './modules/console/application/use-cases/authorize-request';
 import { CreateProject } from './modules/console/application/use-cases/create-project';
 import { InspectProject } from './modules/console/application/use-cases/inspect-project';
@@ -56,8 +59,8 @@ export interface Container {
  * closes over the current request's cookies.
  */
 export async function getContainer(): Promise<Container> {
-  const jar = await cookies();
-  const sessions = new CookieSessionStore(jar, config.NODE_ENV === 'production');
+  const [jar, headerList] = await Promise.all([cookies(), headers()]);
+  const sessions = new CookieSessionStore(jar, servedOverHttps(headerList));
 
   return {
     sessions,

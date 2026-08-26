@@ -3,6 +3,18 @@
 # something to exercise. Idempotent: running it again duplicates nothing.
 set -euo pipefail
 
+# Loads .env when it exists, WITHOUT overriding anything already exported: an
+# explicit `IDENTITY_BOOTSTRAP_ADMIN_PASSWORD=... bash tools/scripts/...` still
+# wins. Without this, changing a value in .env leaves the script on its built-in
+# defaults and the failure reads as bad credentials rather than as stale config.
+ENV_FILE="${ENV_FILE:-.env}"
+if [ -f "$ENV_FILE" ]; then
+  while IFS='=' read -r key value; do
+    case "$key" in ''|'#'*) continue ;; esac
+    if [ -z "${!key:-}" ]; then export "$key=$value"; fi
+  done < "$ENV_FILE"
+fi
+
 BASE_URL="${PLATFORM_BASE_URL:-http://localhost:8080}"
 ADMIN_EMAIL="${IDENTITY_BOOTSTRAP_ADMIN_EMAIL:-admin@aia.local}"
 ADMIN_PASSWORD="${IDENTITY_BOOTSTRAP_ADMIN_PASSWORD:-change-me-now}"

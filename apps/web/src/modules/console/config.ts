@@ -8,8 +8,12 @@ import { z } from 'zod';
  * is deliberate: a `NEXT_PUBLIC_` variable is inlined into the JavaScript bundle
  * and is therefore public. The browser talks only to this app's own routes.
  */
+// NODE_ENV is deliberately absent. Next's standalone server overwrites it to
+// 'production' at startup regardless of the environment, so reading it here
+// would describe the build rather than the deployment and mislead whoever
+// reached for it. Whether the connection is encrypted comes from the request
+// itself -- see `servedOverHttps`.
 const schema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3005),
 
   IDENTITY_URL: z.string().url().default('http://identity:3001'),

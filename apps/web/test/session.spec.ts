@@ -6,6 +6,7 @@ import {
   isExpired,
   rolesIn,
 } from '../src/modules/console/domain/session';
+import { servedOverHttps } from '../src/modules/console/infrastructure/session/cookie-session';
 import type { Principal } from '../src/modules/console/domain/session';
 
 function aPrincipal(overrides: Partial<Principal> = {}): Principal {
@@ -62,5 +63,36 @@ describe('session', () => {
     expect(displayNameOf(aPrincipal({ displayName: 'Ana', email: 'a@b.c' }))).toBe('Ana');
     expect(displayNameOf(aPrincipal({ email: 'a@b.c' }))).toBe('a@b.c');
     expect(displayNameOf(aPrincipal())).toBe('user-1');
+  });
+});
+
+describe('servedOverHttps', () => {
+  const headers = (value?: string) => ({
+    get: (name: string) => (name === 'x-forwarded-proto' && value !== undefined ? value : null),
+  });
+
+  it('marks the cookie Secure when the proxy terminated TLS', () => {
+    expect(servedOverHttps(headers('https'))).toBe(true);
+  });
+
+  it('does NOT mark it Secure over plain HTTP', () => {
+    // The regression this guards: a Secure cookie on a plaintext connection is
+    // never stored, so the user is asked to sign in again on every page.
+    expect(servedOverHttps(headers('http'))).toBe(false);
+  });
+
+  it('treats a missing header as plaintext', () => {
+    // Next never terminates TLS itself, so no proxy header means no TLS.
+    expect(servedOverHttps(headers())).toBe(false);
+  });
+
+  it('reads the client-facing protocol from a chain of proxies', () => {
+    // Each hop appends, so the first entry is the one the browser spoke.
+    expect(servedOverHttps(headers('https, http'))).toBe(true);
+    expect(servedOverHttps(headers('http, https'))).toBe(false);
+  });
+
+  it('is case insensitive, because proxies disagree on casing', () => {
+    expect(servedOverHttps(headers('HTTPS'))).toBe(true);
   });
 });

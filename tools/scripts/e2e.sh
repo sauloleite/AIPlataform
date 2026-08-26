@@ -9,6 +9,18 @@
 # Providers with no configured key are SKIPPED, and the script says it skipped.
 set -euo pipefail
 
+# Loads .env when it exists, WITHOUT overriding anything already exported: an
+# explicit `IDENTITY_BOOTSTRAP_ADMIN_PASSWORD=... bash tools/scripts/...` still
+# wins. Without this, changing a value in .env leaves the script on its built-in
+# defaults and the failure reads as bad credentials rather than as stale config.
+ENV_FILE="${ENV_FILE:-.env}"
+if [ -f "$ENV_FILE" ]; then
+  while IFS='=' read -r key value; do
+    case "$key" in ''|'#'*) continue ;; esac
+    if [ -z "${!key:-}" ]; then export "$key=$value"; fi
+  done < "$ENV_FILE"
+fi
+
 BASE_URL="${PLATFORM_BASE_URL:-http://localhost:8080}"
 ADMIN_EMAIL="${IDENTITY_BOOTSTRAP_ADMIN_EMAIL:-admin@aia.local}"
 ADMIN_PASSWORD="${IDENTITY_BOOTSTRAP_ADMIN_PASSWORD:-change-me-now}"
@@ -392,9 +404,74 @@ else
     -d '{"projectId":"x","alias":"chat-local","message":"hi"}')
   assert_contains "$NO_SESSION" 'unauthenticated' "the BFF refuses a request with no session"
 
-  # The session cookies are built here exactly as CookieSessionStore builds
-  # them, which is what makes this a faithful test of the BFF boundary rather
-  # than of a test-only backdoor.
+  # A REAL sign-in through the console's own form, with a cookie jar.
+  #
+  # Handing curl a `-H "Cookie: ..."` built by hand would bypass every rule a
+  # client applies to a Set-Cookie -- Secure, SameSite, path, expiry -- and that
+  # is exactly how a `Secure` cookie on a plaintext connection once passed this
+  # suite while the console was unusable in a browser. The jar makes the client
+  # decide whether to keep the cookie, which is the thing under test.
+  JAR=$(mktemp)
+  LOGIN_HTML=$(mktemp)
+  curl -sS "${WEB_URL}/login" -o "$LOGIN_HTML"
+
+  ACTION_ID=$(python3 -c "
+import re, sys
+html = open('${LOGIN_HTML}').read()
+field = re.search(r'name=\"\\\$ACTION_1:0\" value=\"([^\"]*)\"', html)
+print(re.search(r'&quot;id&quot;:&quot;([a-f0-9]+)&quot;', field.group(1)).group(1) if field else '')")
+  ACTION_KEY=$(python3 -c "
+import re
+html = open('${LOGIN_HTML}').read()
+m = re.search(r'name=\"\\\$ACTION_KEY\" value=\"([^\"]*)\"', html)
+print(m.group(1) if m else '')")
+
+  if [ -z "$ACTION_ID" ]; then
+    skip "could not read the sign-in action from the login page"
+  else
+    # `$ACTION_REF_1` and `$ACTION_1:1` are literal field names Next expects,
+    # not shell variables, so single quotes are exactly right here.
+    # shellcheck disable=SC2016
+    curl -sS -o /dev/null -D "$LOGIN_HTML" -c "$JAR" --max-time "$CHAT_TIMEOUT" \
+      -X POST "${WEB_URL}/login" \
+      -F '$ACTION_REF_1=' \
+      -F "\$ACTION_1:0={\"id\":\"${ACTION_ID}\",\"bound\":\"\$@1\"}" \
+      -F '$ACTION_1:1=[{}]' \
+      -F "\$ACTION_KEY=${ACTION_KEY}" \
+      -F "username=${ADMIN_EMAIL}" \
+      -F "password=${ADMIN_PASSWORD}"
+
+    # A Secure cookie over plain HTTP is refused by a strict client, so the jar
+    # would come back without the session and every page would ask to sign in
+    # again. The flag has to follow the connection, not the build.
+    if grep -qi 'Secure' "$LOGIN_HTML"; then
+      fail "the session cookie is marked Secure on a plaintext connection"
+    else
+      ok "the session cookie suits the connection it travelled over"
+    fi
+
+    if grep -q 'aia_token' "$JAR"; then
+      ok "the client kept the session cookie"
+    else
+      fail "the client refused to keep the session cookie"
+    fi
+
+    # The point: ONE sign-in, then navigate. A second page that asks to sign in
+    # again means the session is not surviving navigation.
+    for page in / /chat; do
+      PAGE_CODE=$(curl -sS -o "$LOGIN_HTML" -w '%{http_code}' -b "$JAR" \
+        --max-time "$CHAT_TIMEOUT" "${WEB_URL}${page}")
+      if [ "$PAGE_CODE" = "200" ] && grep -q 'Sign out' "$LOGIN_HTML"; then
+        ok "${page} stays signed in after one sign-in"
+      else
+        fail "${page} asked to sign in again (status ${PAGE_CODE})"
+      fi
+    done
+  fi
+  rm -f "$JAR" "$LOGIN_HTML"
+
+  # The remaining checks build the cookies directly, which keeps them focused on
+  # what the BFF does with a session rather than on how the session was obtained.
   PRINCIPAL=$(curl -sS "http://localhost:3001/v1/me" -H "Authorization: Bearer ${TOKEN}")
   SESSION_COOKIE=$(printf '%s' "$PRINCIPAL" | python3 -c '
 import base64, json, sys, time
