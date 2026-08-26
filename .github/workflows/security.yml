@@ -104,10 +104,12 @@ jobs:
           # o que bloqueia e a que tem patch e ninguem aplicou.
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          # Excecoes vivem em .trivyignore.yaml, com prazo de validade. Quando
-          # o prazo vence, o scan volta a reprovar e alguem precisa reavaliar.
-          trivyignores: .trivyignore.yaml
           exit-code: '1'
+        env:
+          # Via variavel de ambiente, e nao pelo input `trivyignores`: aquele
+          # concatena os arquivos como texto puro e quebra o formato YAML, que e
+          # justamente o que permite o prazo de validade em cada excecao.
+          TRIVY_IGNOREFILE: .trivyignore.yaml
 
       - name: Publicar no code scanning
         uses: github/codeql-action/upload-sarif@v3
