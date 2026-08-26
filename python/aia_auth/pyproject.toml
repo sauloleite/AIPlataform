@@ -3,7 +3,13 @@ name = "aia-auth"
 version = "0.1.0"
 description = "Validacao local de JWT com JWKS, Principal, RBAC e ABAC"
 requires-python = ">=3.12"
-dependencies = ["aia-errors", "pyjwt[crypto]>=2.10.1", "httpx>=0.28.1"]
+dependencies = [
+    "aia-errors",
+    "pyjwt[crypto]>=2.10.1",
+    # Piso explicito: versoes anteriores carregam PYSEC-2026-3552/3553/3554.
+    "cryptography>=50.0.0",
+    "httpx>=0.28.1",
+]
 
 [build-system]
 requires = ["hatchling"]

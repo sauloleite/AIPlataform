@@ -104,6 +104,9 @@ jobs:
           # o que bloqueia e a que tem patch e ninguem aplicou.
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          # Excecoes vivem em .trivyignore.yaml, com prazo de validade. Quando
+          # o prazo vence, o scan volta a reprovar e alguem precisa reavaliar.
+          trivyignores: .trivyignore.yaml
           exit-code: '1'
 
       - name: Publicar no code scanning

@@ -1,0 +1,53 @@
+# Vulnerabilities acknowledged with an expiry date.
+#
+# Nothing is silenced forever. Every entry carries `expired_at`, so the weekly
+# scan starts failing again once the date passes and someone has to look at it.
+# An ignore file without expiry is how a known CRITICAL quietly ships for a year.
+#
+# Rules for adding an entry:
+#   1. The fix must be genuinely outside this repository. A vulnerability in a
+#      dependency we declare gets upgraded, never ignored.
+#   2. State the reachability. "Present in the image" and "exploitable from our
+#      code" are different claims.
+#   3. Set the shortest expiry that is realistic, not the most convenient.
+
+vulnerabilities:
+  # ---------------------------------------------------------------------------
+  # libssl3 in the distroless base image.
+  #
+  # `gcr.io/distroless/nodejs22-debian12` ships OpenSSL 3.0.18-1~deb12u2 in both
+  # the `:nonroot` and `:latest` tags. Debian has published 3.0.19; the
+  # distroless images have not been rebuilt against it yet. There is no version
+  # of the base image we can pin that carries the fix, and the build already
+  # uses `--pull` so a rebuilt image is picked up the moment it exists.
+  #
+  # Reachability: Node 22 in distroless links the system libssl for TLS. Our
+  # services terminate TLS at Traefik and speak plain HTTP inside the network,
+  # so the exposed surface is outbound TLS to model providers — a server we
+  # already trust, over connections we initiate.
+  #
+  # Alternative considered: switching to `node:22-alpine`, which uses musl and
+  # a different OpenSSL build. Rejected because it trades a tracked CVE for a
+  # larger permanent attack surface: alpine images carry a shell and a package
+  # manager, which is exactly what distroless removes.
+  #
+  # Revisit: 2026-10-01. If distroless still has not rebuilt by then, the
+  # decision to stay on it needs to be re-argued, not renewed by default.
+  - id: CVE-2026-31789
+    statement: 'OpenSSL in the distroless base; no rebuilt base image available yet'
+    expired_at: 2026-10-01
+  - id: CVE-2026-28387
+    statement: 'OpenSSL in the distroless base; no rebuilt base image available yet'
+    expired_at: 2026-10-01
+  - id: CVE-2026-28388
+    statement: 'OpenSSL in the distroless base; no rebuilt base image available yet'
+    expired_at: 2026-10-01
+  - id: CVE-2026-28389
+    statement: 'OpenSSL in the distroless base; no rebuilt base image available yet'
+    expired_at: 2026-10-01
+  - id: CVE-2026-28390
+    statement: 'OpenSSL in the distroless base; no rebuilt base image available yet'
+    expired_at: 2026-10-01
+  - id: CVE-2026-45447
+    statement: 'OpenSSL in the distroless base; no rebuilt base image available yet'
+    expired_at: 2026-10-01
