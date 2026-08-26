@@ -94,22 +94,39 @@ jobs:
             --build-arg SERVICE=${{ matrix.service }} \
             -t aia-${{ matrix.service }}:scan .
 
-      - name: Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Instalar Trivy
+        uses: aquasecurity/setup-trivy@v0.2.3
         with:
-          image-ref: aia-${{ matrix.service }}:scan
-          format: sarif
-          output: trivy-${{ matrix.service }}.sarif
-          # Vulnerabilidade critica sem correcao disponivel nao bloqueia o build;
-          # o que bloqueia e a que tem patch e ninguem aplicou.
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '1'
-        env:
-          # Via variavel de ambiente, e nao pelo input `trivyignores`: aquele
-          # concatena os arquivos como texto puro e quebra o formato YAML, que e
-          # justamente o que permite o prazo de validade em cada excecao.
-          TRIVY_IGNOREFILE: .trivyignore.yaml
+          version: v0.70.0
+
+      # O binario e chamado direto, e nao pelo wrapper da action, por dois
+      # motivos concretos: o input `trivyignores` concatena os arquivos como
+      # texto puro e destroi o formato YAML (que e o que carrega o prazo de
+      # validade de cada excecao), e o wrapper resolve caminhos relativos a
+      # partir de um diretorio proprio, entao o arquivo simplesmente nao era
+      # encontrado.
+      - name: Trivy (relatorio para o code scanning)
+        run: |
+          trivy image \
+            --scanners vuln \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --ignorefile "${GITHUB_WORKSPACE}/.trivyignore.yaml" \
+            --format sarif \
+            --output "trivy-${{ matrix.service }}.sarif" \
+            "aia-${{ matrix.service }}:scan"
+
+      - name: Trivy (gate)
+        # Vulnerabilidade sem correcao disponivel nao bloqueia o build; o que
+        # bloqueia e a que tem patch publicado e ninguem aplicou.
+        run: |
+          trivy image \
+            --scanners vuln \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --ignorefile "${GITHUB_WORKSPACE}/.trivyignore.yaml" \
+            --exit-code 1 \
+            "aia-${{ matrix.service }}:scan"
 
       - name: Publicar no code scanning
         uses: github/codeql-action/upload-sarif@v3
