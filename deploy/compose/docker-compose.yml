@@ -106,6 +106,13 @@ services:
   ollama:
     <<: *service-defaults
     image: ollama/ollama:0.5.7
+    environment:
+      # Keep the model resident instead of unloading it after five minutes of
+      # idleness. Reloading costs tens of seconds on CPU, and paying that on the
+      # first message after a short pause makes the zero-cost local path feel
+      # broken rather than slow. The memory is spent either way while anyone is
+      # using the console.
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:--1}
     ports: ['11434:11434']
     volumes: [ollama-data:/root/.ollama]
     healthcheck:
