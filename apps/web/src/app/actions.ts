@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 
 import { getContainer } from '../container';
-import { messageFor } from '../modules/console/domain/errors';
+import { messageFor, messageForSignIn } from '../modules/console/domain/errors';
 
 /**
  * Server Actions: the console's write path.
@@ -48,7 +48,7 @@ export async function signInAction(_previous: ActionResult, form: FormData): Pro
   try {
     await signIn.execute(username, password);
   } catch (error) {
-    return { error: messageFor(error) };
+    return { error: messageForSignIn(error) };
   }
 
   // Outside the try: `redirect` works by throwing, and catching it here would

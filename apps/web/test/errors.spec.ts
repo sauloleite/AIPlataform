@@ -3,6 +3,7 @@ import {
   PlatformError,
   isPlatformError,
   messageFor,
+  messageForSignIn,
   requiresSignIn,
 } from '../src/modules/console/domain/errors';
 
@@ -88,5 +89,25 @@ describe('messageFor, on a validation error', () => {
     });
 
     expect(messageFor(error)).toMatch(/used up its budget/);
+  });
+});
+
+describe('messageForSignIn', () => {
+  it('says the credentials are wrong, not that a session expired', () => {
+    // The regression this guards: identity answers `unauthenticated` for a bad
+    // password, and "your session has expired" on a login form sends the user
+    // hunting for a problem that does not exist instead of at their typo.
+    expect(messageForSignIn(problem('unauthenticated', 'Invalid credentials'))).toMatch(
+      /do not match an account/,
+    );
+  });
+
+  it('still says session expired everywhere else', () => {
+    expect(messageFor(problem('unauthenticated'))).toMatch(/session has expired/);
+  });
+
+  it('passes any other failure through unchanged', () => {
+    expect(messageForSignIn(problem('upstream_timeout'))).toMatch(/dependency timed out/i);
+    expect(messageForSignIn(new Error('network down'))).toBe('network down');
   });
 });

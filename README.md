@@ -33,6 +33,13 @@ The platform solves that with a single inference entry point:
 
 **You need**: Docker, Node 22 and Python 3.12. Nothing else.
 
+Give Docker **at least 6 GiB** of memory. The local model wants 2.2 GiB and the
+rest of the platform about 1.4 GiB; below that the model fails to load and every
+alias falls over to a provider that needs an API key — which defeats the point.
+A container also reaches no GPU on macOS or Windows, so replies there take tens
+of seconds. For a fast local model on those, run Ollama natively and point the
+router at it (see `.env.example`).
+
 ```bash
 git clone https://github.com/sauloleite/AIPlataform && cd AIPlataform
 

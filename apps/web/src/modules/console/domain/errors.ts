@@ -89,10 +89,28 @@ export function messageFor(error: unknown): string {
   return MESSAGES[error.code] ?? detail ?? error.problem.title;
 }
 
+/**
+ * What to say when a SIGN-IN was refused.
+ *
+ * `unauthenticated` means two different things depending on where it happens.
+ * On any other request it means the session is gone, and "sign in again" is the
+ * right advice. On the sign-in form itself there was never a session to lose,
+ * and telling someone their session expired sends them looking for a problem
+ * that does not exist instead of at the email they mistyped.
+ *
+ * Only the caller knows which situation it is in, which is why this is separate
+ * from `messageFor` rather than a branch inside it.
+ */
+export function messageForSignIn(error: unknown): string {
+  if (isPlatformError(error) && SESSION_GONE.has(error.code)) {
+    return 'That email and password do not match an account.';
+  }
+  return messageFor(error);
+}
+
 /** Codes that mean the session is gone and the user has to sign in again. */
+const SESSION_GONE = new Set(['unauthenticated', 'token_expired', 'invalid_token']);
+
 export function requiresSignIn(error: unknown): boolean {
-  return (
-    isPlatformError(error) &&
-    ['unauthenticated', 'token_expired', 'invalid_token'].includes(error.code)
-  );
+  return isPlatformError(error) && SESSION_GONE.has(error.code);
 }
