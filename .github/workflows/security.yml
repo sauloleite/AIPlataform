@@ -90,7 +90,7 @@ jobs:
 
       - name: Construir a imagem
         run: |
-          docker build -f ${{ matrix.dockerfile }} \
+          docker build --pull -f ${{ matrix.dockerfile }} \
             --build-arg SERVICE=${{ matrix.service }} \
             -t aia-${{ matrix.service }}:scan .
 

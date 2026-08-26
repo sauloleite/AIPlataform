@@ -12,7 +12,8 @@ set -euo pipefail
 BASE_URL="${PLATFORM_BASE_URL:-http://localhost:8080}"
 ADMIN_EMAIL="${IDENTITY_BOOTSTRAP_ADMIN_EMAIL:-admin@aia.local}"
 ADMIN_PASSWORD="${IDENTITY_BOOTSTRAP_ADMIN_PASSWORD:-change-me-now}"
-COMPOSE="docker compose -f deploy/compose/docker-compose.yml"
+# O CI acrescenta o overlay com o provedor deterministico.
+COMPOSE="docker compose ${COMPOSE_FILES:--f deploy/compose/docker-compose.yml}"
 
 PASSED=0
 FAILED=0
@@ -43,6 +44,7 @@ step "0. Verificando que a plataforma esta de pe"
 # Em maquina sem GPU, cada chamada ao modelo local pode levar mais de um minuto.
 # Os tetos abaixo existem para o teste medir o PROTOCOLO, e nao o hardware.
 CHAT_TIMEOUT="${E2E_CHAT_TIMEOUT:-300}"
+POLICY_TTL="${POLICY_CACHE_TTL_SECONDS:-30}"
 
 if ! curl -sf "${BASE_URL}/health/live" >/dev/null 2>&1 &&
    ! curl -sf "http://localhost:3001/health/live" >/dev/null 2>&1; then
@@ -244,39 +246,66 @@ done
 # ---------------------------------------------------------------------------
 step "10. Orcamento esgotado devolve 429 em Problem Details"
 
-curl -sS -X PUT "${BASE_URL}/v1/projects/${PROJECT_INTERNO}/budget" \
-  -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
-  -d '{"limit":{"currency":"BRL","micros":1},"period":"monthly"}' >/dev/null
+# Um deployment local custa zero, entao um alias que caia nele jamais estoura o
+# orcamento. O teste descobre qual alias tem custo real ANTES de afirmar
+# qualquer coisa, em vez de assumir.
+PAID_ALIAS=""
+for candidate in chat-rapido chat-avancado; do
+  PROBE=$(curl -sS --max-time "$CHAT_TIMEOUT" -X POST "${BASE_URL}/v1/chat/completions" \
+    -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNO}" \
+    -H 'Content-Type: application/json' \
+    -d "{\"model\":\"${candidate}\",\"messages\":[{\"role\":\"user\",\"content\":\"ok\"}],\"max_tokens\":8}" \
+    2>/dev/null || echo '{}')
+  COST=$(printf '%s' "$PROBE" | json 'd["aia"]["cost"]["micros"]')
+  if [ -n "$COST" ] && [ "$COST" -gt 0 ] 2>/dev/null; then
+    PAID_ALIAS="$candidate"
+    break
+  fi
+done
 
-# O Ollama custa zero, entao um alias local jamais estoura o orcamento.
-# O teste usa um alias com deployment pago para exercitar o limite.
-EXHAUSTED=$(curl -sS --max-time "$CHAT_TIMEOUT" -w '\n%{http_code}' -X POST "${BASE_URL}/v1/chat/completions" \
-  -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNO}" \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"chat-avancado","messages":[{"role":"user","content":"ola"}],"max_tokens":512}')
+if [ -z "$PAID_ALIAS" ]; then
+  skip "nenhum alias com custo alcancavel: so ha provedor de custo zero configurado"
+else
+  curl -sS -X PUT "${BASE_URL}/v1/projects/${PROJECT_INTERNO}/budget" \
+    -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
+    -d '{"limit":{"currency":"BRL","micros":1},"period":"monthly"}' >/dev/null
 
-EXHAUSTED_CODE=$(printf '%s' "$EXHAUSTED" | tail -n1)
-EXHAUSTED_BODY=$(printf '%s' "$EXHAUSTED" | sed '$d')
+  # O router serve a politica de um cache local com TTL curto, entao a mudanca
+  # de orcamento so vale depois que ele vence. Esperar aqui e o preco de o
+  # governance nao estar no caminho critico de toda inferencia.
+  echo "  (aguardando ${POLICY_TTL}s para o novo orcamento chegar ao router)"
+  sleep $((POLICY_TTL + 3))
 
-if [ "$EXHAUSTED_CODE" = "429" ]; then
+  EXHAUSTED=$(curl -sS --max-time "$CHAT_TIMEOUT" -w '\n%{http_code}' -X POST "${BASE_URL}/v1/chat/completions" \
+    -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNO}" \
+    -H 'Content-Type: application/json' \
+    -d "{\"model\":\"${PAID_ALIAS}\",\"messages\":[{\"role\":\"user\",\"content\":\"ok\"}],\"max_tokens\":512}")
+
+  EXHAUSTED_CODE=$(printf '%s' "$EXHAUSTED" | tail -n1)
+  EXHAUSTED_BODY=$(printf '%s' "$EXHAUSTED" | sed '$d')
+
+  assert_eq "$EXHAUSTED_CODE" "429" "alias pago (${PAID_ALIAS}) recusado por orcamento"
   assert_contains "$EXHAUSTED_BODY" 'budget_exhausted' "codigo estavel budget_exhausted"
   assert_contains "$EXHAUSTED_BODY" 'retry_after' "informa quando tentar de novo"
-elif [ "$EXHAUSTED_CODE" = "503" ] || [ "$EXHAUSTED_CODE" = "422" ]; then
-  # Sem chave da Anthropic, o alias cai para o Ollama (custo zero) ou fica sem
-  # deployment: o limite nao chega a ser exercitado.
-  skip "orcamento nao exercitado: alias caiu para provedor de custo zero (${EXHAUSTED_CODE})"
-else
-  fail "esperado 429, recebido ${EXHAUSTED_CODE}"
-fi
 
-curl -sS -X PUT "${BASE_URL}/v1/projects/${PROJECT_INTERNO}/budget" \
-  -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
-  -d '{"limit":{"currency":"BRL","micros":50000000},"period":"monthly"}' >/dev/null
+  # Restaura o orcamento E forca o router a reler, ainda com o governance de pe.
+  # Sem isso, o proximo passo derruba o governance e o router serve a politica
+  # com limite de 1 micro, recusando tudo por um motivo que nao e o testado.
+  curl -sS -X PUT "${BASE_URL}/v1/projects/${PROJECT_INTERNO}/budget" \
+    -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
+    -d '{"limit":{"currency":"BRL","micros":50000000},"period":"monthly"}' >/dev/null
+
+  sleep $((POLICY_TTL + 3))
+  curl -sS --max-time "$CHAT_TIMEOUT" -o /dev/null -X POST "${BASE_URL}/v1/chat/completions" \
+    -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNO}" \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"chat-local","messages":[{"role":"user","content":"ok"}],"max_tokens":8}'
+  ok "orcamento restaurado e recarregado pelo router"
+fi
 
 # ---------------------------------------------------------------------------
 step "11. Degradacao graciosa: governance fora"
 
-POLICY_TTL="${POLICY_CACHE_TTL_SECONDS:-30}"
 
 if $COMPOSE ps governance --status running >/dev/null 2>&1; then
   $COMPOSE stop governance >/dev/null 2>&1

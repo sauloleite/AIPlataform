@@ -1,0 +1,48 @@
+# CI-only overlay.
+#
+# Replaces the local model with a deterministic OpenAI-compatible server, so the
+# end-to-end suite measures the PLATFORM instead of the runner's hardware. The
+# production `OpenAiProvider` adapter is still the code under test: only the
+# server on the other side of the socket changes.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
+
+services:
+  mock-provider:
+    build:
+      context: ../../tools/mock-provider
+    environment:
+      PORT: 8090
+    networks: [aia]
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Ollama would need to download and load a model on every CI run. The mock
+  # answers instantly, so the suite stays fast and reproducible.
+  ollama:
+    profiles: ['never']
+
+  inference-router:
+    environment:
+      # Any non-empty key enables the provider; the mock ignores its value.
+      OPENAI_API_KEY: ci-mock-key
+      OPENAI_BASE_URL: http://mock-provider:8090/v1
+      OPENAI_CHAT_MODEL: mock-chat
+      OPENAI_EMBEDDING_MODEL: mock-embedding
+      # The mock speaks Ollama's protocol as well, so the local data zone
+      # stays testable — and the real OllamaProvider adapter is exercised.
+      OLLAMA_BASE_URL: http://mock-provider:8090
+      OLLAMA_CHAT_MODEL: mock-chat
+      OLLAMA_EMBEDDING_MODEL: mock-embedding
+    depends_on:
+      mock-provider:
+        condition: service_healthy

@@ -24,5 +24,8 @@
   "dependencies": {
     "@aia/contracts": "workspace:*",
     "@aia/errors": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
   }
 }

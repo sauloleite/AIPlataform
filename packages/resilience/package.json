@@ -26,5 +26,8 @@
     "@aia/telemetry": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "ioredis": "^5.4.2"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
   }
 }

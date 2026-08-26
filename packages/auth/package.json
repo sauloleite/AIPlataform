@@ -25,5 +25,8 @@
     "@aia/errors": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "jose": "^5.9.6"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
   }
 }
