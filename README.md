@@ -1,11 +1,11 @@
 # AIA Platform
 
-Plataforma corporativa de IA, **open source e agnóstica de cloud**. Um ponto de
-entrada para todos os modelos, com orçamento, governança, auditoria e a garantia
-de que dado sensível não sai da sua máquina.
+An enterprise AI platform, **open source and cloud-agnostic**. One entry point
+for every model, with budget, governance, audit and the guarantee that sensitive
+data never leaves your machine.
 
-Sobe inteira com `docker compose`. **Sem nenhuma conta de nuvem e sem nenhuma
-chave de API paga** — os modelos locais rodam via Ollama, com custo zero.
+The whole thing comes up with `docker compose`. **No cloud account and no paid
+API key** — local models run through Ollama, at zero cost.
 
 ```bash
 make bootstrap && make dev && make models && make seed
@@ -13,54 +13,54 @@ make bootstrap && make dev && make models && make seed
 
 ---
 
-## O problema que ela resolve
+## The problem it solves
 
-Quando cada aplicação chama o provedor de modelo direto, três coisas ficam
-impossíveis: saber quanto se gastou e onde, trocar de modelo sem mexer em N
-aplicações, e provar onde cada dado foi processado.
+When each application calls the model provider directly, three things become
+impossible: knowing how much was spent and where, swapping models without
+touching N applications, and proving where each piece of data was processed.
 
-A plataforma resolve isso com um ponto único de inferência:
+The platform solves that with a single inference entry point:
 
-|                                       |                                                                                                                                                     |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Uma API para todos os provedores**  | Compatível com OpenAI. A aplicação escolhe um _alias_ (`chat-rapido`), nunca um provedor. Trocar OpenAI por Gemini é editar o catálogo.             |
-| **Orçamento em moeda, não em tokens** | Reserva antes da chamada, commit do custo real depois, com scripts Lua atômicos no Redis. Chamadas simultâneas não gastam o mesmo saldo duas vezes. |
-| **Dado sensível não sai daqui**       | Um projeto `restrito` é atendido pelo modelo local, mesmo pedindo um alias que tem OpenAI e Gemini. O provedor externo nem é chamado.               |
-| **PII redigida antes de sair**        | CPF, CNPJ, cartão e conta são detectados com validação de dígito verificador e substituídos antes de qualquer chamada externa ou persistência.      |
-| **Auditoria que serve de evidência**  | Cada chamada registra quem, qual projeto, qual modelo e **em que zona de dados** foi processada.                                                    |
+|                                        |                                                                                                                                                       |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **One API for every provider**         | OpenAI-compatible. The application picks an _alias_ (`chat-fast`), never a provider. Swapping OpenAI for Gemini means editing the catalogue.          |
+| **Budget in currency, not in tokens**  | Reserve before the call, commit the real cost afterwards, with atomic Lua scripts in Redis. Concurrent calls do not spend the same balance twice.     |
+| **Sensitive data does not leave here** | A `restricted` project is served by the local model, even when asking for an alias that has OpenAI and Gemini. The external provider is never called. |
+| **PII redacted before it leaves**      | CPF, CNPJ, card and bank account are detected with check-digit validation and replaced before any external call or persistence.                       |
+| **Audit that stands as evidence**      | Every call records who, which project, which model and **in which data zone** it was processed.                                                       |
 
-## Começando
+## Getting started
 
-**Precisa de**: Docker, Node 22 e Python 3.12. Mais nada.
+**You need**: Docker, Node 22 and Python 3.12. Nothing else.
 
 ```bash
 git clone https://github.com/sauloleite/AIPlataform && cd AIPlataform
 
-make bootstrap    # instala pnpm, uv e as dependências
-make dev          # sobe a plataforma (Docker precisa estar rodando)
-make models       # baixa o modelo local (~1,3 GB, uma vez só)
-make seed         # cria um projeto de exemplo com orçamento
+make bootstrap    # installs pnpm, uv and the dependencies
+make dev          # brings the platform up (Docker has to be running)
+make models       # pulls the local model (~1.3 GB, once)
+make seed         # creates a sample project with a budget
 ```
 
-O `make seed` imprime um token e um `project_id`. Com eles:
+`make seed` prints a token and a `project_id`. With those:
 
 ```bash
 curl -N -X POST http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer $AIA_TOKEN" \
   -H "X-Project-Id: $AIA_PROJECT" \
   -H 'Content-Type: application/json' \
-  -d '{"model":"chat-local","messages":[{"role":"user","content":"ola"}],"stream":true}'
+  -d '{"model":"chat-local","messages":[{"role":"user","content":"hello"}],"stream":true}'
 ```
 
-| Onde                            | O quê                                                       |
+| Where                           | What                                                        |
 | ------------------------------- | ----------------------------------------------------------- |
-| http://localhost:8080           | API da plataforma                                           |
-| http://localhost:3000           | Grafana — os traces com `gen_ai.*` estão em Explore → Tempo |
+| http://localhost:8080           | The platform API                                            |
+| http://localhost:3000           | Grafana — traces with `gen_ai.*` live under Explore → Tempo |
 | http://localhost:9001           | MinIO                                                       |
 | http://localhost:6333/dashboard | Qdrant                                                      |
 
-Para usar provedores pagos, preencha as chaves no `.env` e reinicie. **Chave
-ausente apenas desabilita aquele provedor**; a plataforma continua funcionando.
+To use paid providers, fill the keys into `.env` and restart. **A missing key
+only disables that provider**; the platform keeps working.
 
 ```bash
 OPENAI_API_KEY=sk-...
@@ -68,138 +68,139 @@ GEMINI_API_KEY=...
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-## Como funciona uma requisição
+## How a request works
 
 ```mermaid
 flowchart LR
-    APP["aplicação"] --> T["Traefik"] --> R["inference-router"]
-    R -->|"1 política"| G["governance"]
-    R -->|"2 redige PII"| GR["guardrails"]
-    R -->|"3 reserva"| RD[("Redis")]
-    R -->|"4 roteia por<br/>classificação"| P{"zona<br/>compatível?"}
+    APP["application"] --> T["Traefik"] --> R["inference-router"]
+    R -->|"1 policy"| G["governance"]
+    R -->|"2 redact PII"| GR["guardrails"]
+    R -->|"3 reserve"| RD[("Redis")]
+    R -->|"4 route by<br/>classification"| P{"compatible<br/>zone?"}
     P -->|"local"| OL["Ollama"]
     P -->|"us / global"| EXT["OpenAI · Gemini<br/>Anthropic"]
-    R -->|"5 commit + auditoria"| M[("MongoDB")]
-    R -->|"6 evento"| S[("Redis Streams")]
+    R -->|"5 commit + audit"| M[("MongoDB")]
+    R -->|"6 event"| S[("Redis Streams")]
 ```
 
-1. **Política do projeto**: classificação de dados, orçamento e limites. Cache
-   local com TTL curto — se o governance cair, a última política vale e a
-   resposta é marcada com `policy_stale`.
-2. **Guardrails**: PII redigida antes de qualquer chamada externa. Injeção de
-   prompt forte é bloqueada.
-3. **Reserva de orçamento**: atômica, com script Lua. Sem saldo, `429` com
-   `budget_exhausted` e `retry_after`.
-4. **Roteamento**: só deployments cuja zona de dados é compatível com a
-   classificação do projeto. Falha com `no_compatible_deployment` em vez de
-   enviar assim mesmo. Se o primeiro falhar, cai para o próximo, com circuit
-   breaker por deployment.
-5. **Commit do custo real** e auditoria com a zona de dados.
-6. **Evento** `UsageRecorded` pela outbox — gravado na mesma transação que a
-   auditoria, publicado depois.
+1. **Project policy**: data classification, budget and limits. Cached locally
+   with a short TTL — if governance goes down, the last policy applies and the
+   response is flagged `policy_stale`.
+2. **Guardrails**: PII redacted before any external call. Strong prompt injection
+   is blocked.
+3. **Budget reservation**: atomic, with a Lua script. With no balance left, `429`
+   with `budget_exhausted` and `retry_after`.
+4. **Routing**: only deployments whose data zone is compatible with the project's
+   classification. It fails with `no_compatible_deployment` rather than sending
+   anyway. If the first one fails, it falls through to the next, with a
+   per-deployment circuit breaker.
+5. **Commit of the real cost** and an audit record carrying the data zone.
+6. **A `UsageRecorded` event** through the outbox — written in the same
+   transaction as the audit record, published afterwards.
 
-## Serviços
+## Services
 
-| Serviço                                                                                       | Stack   | Estado                                                       |
-| --------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------ |
-| `aia-inference-router`                                                                        | NestJS  | **completo** — 4 provedores, orçamento, SSE, auditoria       |
-| `aia-identity`                                                                                | NestJS  | **completo** — JWT RS256, JWKS, PAT, credencial de serviço   |
-| `aia-governance`                                                                              | NestJS  | **completo** — projetos, orçamento, classificação, políticas |
-| `aia-guardrails`                                                                              | FastAPI | **completo** — PII brasileira, injeção de prompt             |
-| `aia-agent-runtime`                                                                           | FastAPI | esqueleto — LangGraph na Fase 3                              |
-| `aia-registry`                                                                                | NestJS  | esqueleto — Fase 2                                           |
-| `aia-evaluation`                                                                              | FastAPI | esqueleto — Fase 2                                           |
-| `aia-knowledge`, `aia-mcp-gateway`, `aia-document-processing`, `aia-data-platform`, `aia-web` | —       | Fases 2 a 4                                                  |
+| Service                                                                                       | Stack   | State                                                     |
+| --------------------------------------------------------------------------------------------- | ------- | --------------------------------------------------------- |
+| `aia-inference-router`                                                                        | NestJS  | **complete** — 4 providers, budget, SSE, audit            |
+| `aia-identity`                                                                                | NestJS  | **complete** — RS256 JWT, JWKS, PAT, service credentials  |
+| `aia-governance`                                                                              | NestJS  | **complete** — projects, budget, classification, policies |
+| `aia-guardrails`                                                                              | FastAPI | **complete** — Brazilian PII, prompt injection            |
+| `aia-agent-runtime`                                                                           | FastAPI | skeleton — LangGraph in phase 3                           |
+| `aia-registry`                                                                                | NestJS  | skeleton — phase 2                                        |
+| `aia-evaluation`                                                                              | FastAPI | skeleton — phase 2                                        |
+| `aia-knowledge`, `aia-mcp-gateway`, `aia-document-processing`, `aia-data-platform`, `aia-web` | —       | phases 2 to 4                                             |
 
-Serviço novo nasce no padrão certo pelo gerador:
+A new service is born in the right shape through the generator:
 
 ```bash
-node tools/generators/new-service.mjs --name meu-servico --runtime node --port 3010
+node tools/generators/new-service.mjs --name my-service --runtime node --port 3010
 ```
 
-## Arquitetura
+## Architecture
 
-Clean Architecture por serviço, com a regra de dependência **verificada no CI**:
+Clean Architecture per service, with the dependency rule **verified in CI**:
 
 ```
-presentation/    controllers e SSE — só adaptam entrada e saída
-application/     casos de uso e ports (interfaces)
-domain/          entidades e regras puras — sem framework, sem I/O
-infrastructure/  adapters que implementam os ports
+presentation/    controllers and SSE — they only adapt input and output
+application/     use cases and ports (interfaces)
+domain/          entities and pure rules — no framework, no I/O
+infrastructure/  adapters that implement the ports
 ```
 
-`make arch` reprova se `domain/` importar de `infrastructure/`. O CI vai além:
-ele **introduz uma violação de propósito** e falha se a regra não pegar — um
-teste de arquitetura que nunca reprova não protege nada.
+`make arch` fails if `domain/` imports from `infrastructure/`. CI goes further:
+it **introduces a violation on purpose** and fails if the rule does not catch it
+— an architecture test that never fails protects nothing.
 
-Cada peça de infraestrutura está atrás de um port, com implementação padrão open
-source ([ADR-012](docs/adr/ADR-012-independencia-de-cloud.md)):
+Every piece of infrastructure sits behind a port, with an open source default
+implementation ([ADR-012](docs/adr/ADR-012-cloud-independence.md)):
 
-| Papel             | Padrão                | Trocável por                 |
+| Role              | Default               | Swappable for                |
 | ----------------- | --------------------- | ---------------------------- |
-| Documentos        | MongoDB               | Atlas, DocumentDB, Cosmos DB |
-| Cache e orçamento | Redis                 | Valkey, ElastiCache          |
-| Eventos e filas   | Redis Streams, BullMQ | Kafka, RabbitMQ, SQS         |
-| Objetos           | MinIO                 | S3, GCS, Blob                |
-| Vetorial          | Qdrant                | pgvector, AI Search, Vertex  |
-| Observabilidade   | OTel → Grafana LGTM   | qualquer backend OTLP        |
+| Documents         | MongoDB               | Atlas, DocumentDB, Cosmos DB |
+| Cache and budget  | Redis                 | Valkey, ElastiCache          |
+| Events and queues | Redis Streams, BullMQ | Kafka, RabbitMQ, SQS         |
+| Objects           | MinIO                 | S3, GCS, Blob                |
+| Vectors           | Qdrant                | pgvector, AI Search, Vertex  |
+| Observability     | OTel → Grafana LGTM   | any OTLP backend             |
 
-## Desenvolvimento
+## Development
 
 ```bash
-make check        # o que o CI roda: lint, tipos, arquitetura, testes
-make test         # unitários e integração
-make e2e          # fluxo completo contra o ambiente local
-make lint-fix     # corrige o automático
-make contracts    # regera os tipos a partir de contracts/openapi
+make check        # what CI runs: lint, types, architecture, tests
+make test         # unit and integration
+make e2e          # the full flow against the local environment
+make lint-fix     # fixes what can be fixed automatically
+make contracts    # regenerates the types from contracts/openapi
 ```
 
-Contract-first: o YAML em `contracts/` é a fonte da verdade, e o CI falha se os
-tipos gerados divergirem do commitado.
+Contract-first: the YAML under `contracts/` is the source of truth, and CI fails
+if the generated types differ from what was committed.
 
-## Implantação
+## Deployment
 
 ```bash
-# Self-host (VPS, servidor, homelab)
+# Self-hosted (VPS, server, homelab)
 docker compose -f deploy/compose/docker-compose.yml \
                -f deploy/compose/docker-compose.prod.yml up -d
 
 # Kubernetes (k3s, kind, EKS, GKE, AKS)
 helm install aia deploy/helm/aia-platform \
-  --set mongodb.enabled=false --set mongodb.externalUri=mongodb://seu-cluster
+  --set mongodb.enabled=false --set mongodb.externalUri=mongodb://your-cluster
 ```
 
-Antes do compose de produção, gere os segredos: veja
+Before the production compose, generate the secrets: see
 [deploy/compose/secrets/README.md](deploy/compose/secrets/README.md).
 
-## Documentação
+## Documentation
 
-|                                |                                                                     |
-| ------------------------------ | ------------------------------------------------------------------- |
-| [ADRs](docs/adr/)              | As 15 decisões de arquitetura, com alternativas e consequências     |
-| [Runbooks](docs/runbooks/)     | O que fazer quando algo dá errado                                   |
-| [Checklists](docs/checklists/) | Sprint 0 e prontidão para produção                                  |
-| [Referência](docs/reference/)  | Os documentos originais de arquitetura, que originaram este projeto |
+|                                |                                                                   |
+| ------------------------------ | ----------------------------------------------------------------- |
+| [ADRs](docs/adr/)              | The 15 architecture decisions, with alternatives and consequences |
+| [Runbooks](docs/runbooks/)     | What to do when something goes wrong                              |
+| [Checklists](docs/checklists/) | Sprint 0 and production readiness                                 |
+| [Reference](docs/reference/)   | The original architecture documents this project came from        |
 
-Os documentos de referência desenham a plataforma sobre Azure. Esta
-implementação é agnóstica de cloud; onde as decisões divergem, o ADR
-correspondente diz o que mudou e por quê.
+The reference documents design the platform on Azure, and are kept in their
+original Portuguese as the unaltered source this work started from. This
+implementation is cloud-agnostic; wherever the decisions diverge, the
+corresponding ADR says what changed and why.
 
-## Conformidade
+## Compliance
 
-Construída com regulação em mente (BACEN, LGPD), e os controles são estruturais,
-não documentais:
+Built with regulation in mind (BACEN, LGPD), and the controls are structural, not
+documentary:
 
-- **Base legal e finalidade** obrigatórias no cadastro do projeto (LGPD art. 7).
-- **Redação de PII** antes de qualquer persistência de conteúdo.
-- **Residência de dados** provável: a zona de processamento está em cada registro
-  de auditoria.
-- **Retenção** aplicada pelo banco via TTL, não por job que alguém pode esquecer.
-- **Direitos do titular**: procedimento em
-  [runbook](docs/runbooks/pedido-de-titular-lgpd.md).
-- **OWASP Top 10 for LLM**: LLM01, LLM02, LLM06, LLM07 e LLM10 com controles
-  explícitos e testados.
+- **Legal basis and purpose** are required when a project is created (LGPD art. 7).
+- **PII redaction** before any content is persisted.
+- **Data residency** is provable: the processing zone is on every audit record.
+- **Retention** enforced by the database through TTL, not by a job someone can
+  forget.
+- **Data subject rights**: procedure in a
+  [runbook](docs/runbooks/lgpd-data-subject-request.md).
+- **OWASP Top 10 for LLM**: LLM01, LLM02, LLM06, LLM07 and LLM10 with explicit,
+  tested controls.
 
-## Licença
+## License
 
-MIT. Veja [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

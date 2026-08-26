@@ -1,4 +1,4 @@
-# Valores padrao do chart. Tudo que aponta para fora e substituivel.
+# Chart default values. Everything that points outwards is replaceable.
 
 global:
   imageRegistry: ghcr.io
@@ -8,15 +8,15 @@ global:
   imagePullSecrets: []
 
 # ---------------------------------------------------------------------------
-# Dependencias de infraestrutura
+# Infrastructure dependencies
 #
-# `enabled: true` sobe o componente dentro do cluster (bom para comecar).
-# `enabled: false` + `externalUri` aponta para um servico existente.
+# `enabled: true` brings the component up inside the cluster (good to start with).
+# `enabled: false` + `externalUri` points at an existing service.
 # ---------------------------------------------------------------------------
 mongodb:
-  # `true` sobe um StatefulSet simples, suficiente para comecar.
-  # Em producao com alta disponibilidade, use `false` + operador dedicado ou
-  # servico gerenciado, e informe `externalUri`.
+  # `true` brings up a simple StatefulSet, enough to get started.
+  # In production with high availability, use `false` + a dedicated operator or a
+  # managed service, and set `externalUri`.
   enabled: true
   replicaCount: 1
   persistence:
@@ -41,7 +41,7 @@ minio:
 ollama:
   enabled: true
   image: ollama/ollama:0.5.7
-  # Modelos baixados na inicializacao. Vazio nao baixa nada.
+  # Models pulled at startup. Empty pulls nothing.
   models:
     - llama3.2:1b
     - nomic-embed-text
@@ -51,26 +51,26 @@ ollama:
   resources:
     requests: { cpu: '500m', memory: 4Gi }
     limits: { memory: 8Gi }
-  # Modelo grande costuma exigir um no dedicado.
+  # A large model usually needs a dedicated node.
   nodeSelector: {}
 
 # ---------------------------------------------------------------------------
-# Observabilidade
+# Observability
 # ---------------------------------------------------------------------------
 telemetry:
-  # Endpoint OTLP. Aponte para o seu collector, Tempo, Jaeger ou Grafana Cloud.
+  # OTLP endpoint. Point it at your collector, Tempo, Jaeger or Grafana Cloud.
   otlpEndpoint: 'http://otel-collector:4318'
   contentCapture: false
 
 # ---------------------------------------------------------------------------
-# Servicos da plataforma
+# Platform services
 # ---------------------------------------------------------------------------
 identity:
   enabled: true
   replicaCount: 2
   port: 3001
-  # Segredo com `signing-key` (PEM PKCS#8) e `token-pepper`.
-  # Sem ele, reiniciar o pod invalida todos os tokens emitidos.
+  # A Secret holding `signing-key` (PEM PKCS#8) and `token-pepper`.
+  # Without it, restarting the pod invalidates every issued token.
   existingSecret: ''
   issuer: 'http://identity:3001'
   audience: aia-platform
@@ -122,8 +122,8 @@ inferenceRouter:
   semanticCache:
     enabled: false
     ttlSeconds: 3600
-  # Segredo com as chaves dos provedores. Chave ausente desabilita o provedor;
-  # a plataforma continua funcionando pelo Ollama.
+  # A Secret holding the provider keys. A missing key disables that provider;
+  # the platform keeps working through Ollama.
   providersSecret: ''
   providers:
     openai:
@@ -133,7 +133,7 @@ inferenceRouter:
     gemini:
       baseUrl: https://generativelanguage.googleapis.com
       apiVersion: v1beta
-      # `interactions` e a interface atual; `generate-content` e a anterior.
+      # `interactions` is the current interface; `generate-content` is the previous one.
       protocol: interactions
       chatModel: gemini-2.5-flash
       embeddingModel: text-embedding-004
@@ -159,14 +159,14 @@ agentRuntime:
     limits: { memory: 512Mi }
 
 # ---------------------------------------------------------------------------
-# Rede
+# Networking
 # ---------------------------------------------------------------------------
 ingress:
   enabled: true
   className: nginx
   host: aia.local
   annotations:
-    # SSE nao pode ser bufferizado: o stream chegaria em bloco no fim.
+    # SSE must not be buffered: the stream would arrive as one block at the end.
     nginx.ingress.kubernetes.io/proxy-buffering: 'off'
     nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
   tls:
@@ -174,7 +174,7 @@ ingress:
     secretName: aia-tls
 
 networkPolicy:
-  # Nega tudo por padrao e libera so o necessario. Deixe ligado.
+  # Denies everything by default and allows only what is needed. Leave it on.
   enabled: true
 
 podSecurityContext:

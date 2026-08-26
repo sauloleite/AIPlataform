@@ -1,4 +1,4 @@
-name: Build e publicacao
+name: Build and publish
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
   packages: write
-  # Necessario para a assinatura keyless do Cosign (OIDC do proprio GitHub).
+  # Needed for Cosign's keyless signing (GitHub's own OIDC).
   id-token: write
   attestations: write
 
@@ -37,10 +37,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Nome da imagem em minusculas
+      - name: Lowercase image name
         id: image
-        # Registro OCI so aceita minuscula, e o nome do repositorio tem
-        # maiuscula. Sem isto, Syft e Cosign falham ao interpretar a referencia.
+        # An OCI registry accepts lowercase only, and the repository name has
+        # uppercase in it. Without this, Syft and Cosign fail to parse the
+        # reference.
         run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
@@ -82,13 +83,13 @@ jobs:
           format: spdx-json
           artifact-name: sbom-${{ matrix.service }}.spdx.json
 
-      - name: Assinar a imagem (Cosign keyless)
+      - name: Sign the image (Cosign keyless)
         uses: sigstore/cosign-installer@v3
       - run: |
           cosign sign --yes \
             ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}/${{ matrix.service }}@${{ steps.push.outputs.digest }}
 
-      - name: Atestado de proveniencia
+      - name: Provenance attestation
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}/${{ matrix.service }}
@@ -96,7 +97,7 @@ jobs:
           push-to-registry: true
 
   chart:
-    name: Chart Helm
+    name: Helm chart
     runs-on: ubuntu-latest
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')

@@ -2,7 +2,7 @@
   "name": "@aia/inference-router",
   "version": "0.1.0",
   "private": true,
-  "description": "API canonica de inferencia: aliasing, orcamento, guardrails e auditoria",
+  "description": "The canonical inference API: aliasing, budget, guardrails and audit",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {

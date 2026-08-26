@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Imagem dos servicos FastAPI.
+# Image for the FastAPI services.
 #
 #   docker build -f deploy/docker/python.Dockerfile --build-arg SERVICE=guardrails .
 
@@ -24,8 +24,8 @@ COPY apps/${SERVICE}/ apps/${SERVICE}/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --package "${SERVICE}"
 
-# O modelo do spaCy pesa ~15 MB e so o guardrails precisa dele. Sem o modelo, o
-# detector cai para regex, que ainda cobre CPF, CNPJ e cartao.
+# The spaCy model weighs ~15 MB and only guardrails needs it. Without it, the
+# detector falls back to regex, which still covers CPF, CNPJ and card.
 RUN if [ "${WITH_SPACY_MODEL}" = "true" ]; then \
       uv run python -m spacy download pt_core_news_sm && \
       uv run python -m spacy download en_core_web_sm; \
@@ -51,5 +51,5 @@ ENV PATH="/app/.venv/bin:$PATH" \
 USER aia
 EXPOSE 8000
 
-# `sh -c` porque o modulo vem de uma variavel; o nome do pacote troca o `-` por `_`.
+# `sh -c` because the module comes from a variable; the package name swaps `-` for `_`.
 CMD ["sh", "-c", "uvicorn $(echo $SERVICE_MODULE | tr '-' '_').main:app --host 0.0.0.0 --port ${PORT:-8000}"]

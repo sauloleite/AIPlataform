@@ -1,9 +1,9 @@
 {{/*
-Deployments e Services da plataforma.
+Platform Deployments and Services.
 
-Um unico template para os quatro servicos: eles compartilham a mesma forma
-(stateless, health checks, sem segredo em variavel, HPA opcional). Duplicar o
-manifesto por servico so criaria quatro lugares para esquecer de atualizar.
+One template for all four services: they share the same shape (stateless, health
+checks, no secret in a variable, optional HPA). Duplicating the manifest per
+service would only create four places to forget to update.
 */}}
 
 {{- $services := list
@@ -37,7 +37,7 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      # Nenhuma replica sai antes da substituta estar pronta.
+      # No replica leaves before its replacement is ready.
       maxUnavailable: 0
   template:
     metadata:
@@ -45,8 +45,8 @@ spec:
         {{- include "aia.selectorLabels" $ | nindent 8 }}
         app.kubernetes.io/component: {{ $service.name }}
       annotations:
-        # Mudar a configuracao reinicia o pod; sem isso, um ConfigMap novo
-        # ficaria ignorado ate o proximo deploy.
+        # Changing the configuration restarts the pod; without this, a new
+        # ConfigMap would sit ignored until the next deployment.
         checksum/config: {{ toJson $service.values | sha256sum }}
     spec:
       {{- with $.Values.global.imagePullSecrets }}
@@ -54,8 +54,8 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml $.Values.podSecurityContext | nindent 8 }}
-      # Sobe pausa suficiente para o balanceador tirar a replica da rotacao
-      # antes do processo comecar a recusar conexao.
+      # Enough grace for the load balancer to take the replica out of rotation
+      # before the process starts refusing connections.
       terminationGracePeriodSeconds: 30
       containers:
         - name: {{ $service.name }}
@@ -141,9 +141,9 @@ spec:
               value: {{ $service.values.providers.anthropic.chatModel | quote }}
             {{- if $service.values.providersSecret }}
             {{/*
-              Chave ausente no Secret nao quebra o pod: `optional: true` deixa a
-              variavel vazia, e o provedor correspondente simplesmente nao
-              participa do roteamento.
+              A missing key in the Secret does not break the pod: `optional: true`
+              leaves the variable empty, and the matching provider simply does not
+              take part in routing.
             */}}
             - name: OPENAI_API_KEY
               valueFrom:
@@ -175,8 +175,8 @@ spec:
             httpGet: { path: /health/live, port: http }
             initialDelaySeconds: 15
             periodSeconds: 20
-            # Liveness NAO consulta dependencia: reiniciar o pod porque o Mongo
-            # piscou so transformaria uma degradacao em indisponibilidade.
+            # Liveness does NOT query a dependency: restarting the pod because
+            # Mongo blinked would only turn degradation into an outage.
             failureThreshold: 3
           readinessProbe:
             httpGet: { path: /health/ready, port: http }
@@ -186,7 +186,7 @@ spec:
           startupProbe:
             httpGet: { path: /health/live, port: http }
             periodSeconds: 5
-            # Ate 2,5 min para subir: o guardrails com Presidio carrega modelo.
+            # Up to 2.5 min to start: guardrails with Presidio loads a model.
             failureThreshold: 30
           resources:
             {{- toYaml $service.values.resources | nindent 12 }}
@@ -253,7 +253,7 @@ metadata:
   labels:
     {{- include "aia.labels" $ | nindent 4 }}
 spec:
-  # Um drain de no nunca leva a ultima replica junto.
+  # A node drain never takes the last replica with it.
   minAvailable: 1
   selector:
     matchLabels:

@@ -1,5 +1,5 @@
 {
-  "//": "Agregador de build. `tsc --build tsconfig.build.json` compila tudo na ordem certa.",
+  "//": "Build aggregator. `tsc --build tsconfig.build.json` compiles everything in the right order.",
   "files": [],
   "references": [
     {

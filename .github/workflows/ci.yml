@@ -19,11 +19,11 @@ env:
 
 jobs:
   # ==========================================================================
-  # Qualidade: lint, formatacao e tipos nos dois ecossistemas.
-  # Build falha em warning (doc 03, secao 5).
+  # Quality: lint, formatting and types in both ecosystems.
+  # The build fails on a warning (reference doc 03 §5).
   # ==========================================================================
   quality:
-    name: Lint e tipos
+    name: Lint and types
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,9 +40,10 @@ jobs:
           enable-cache: true
       - run: uv sync --all-packages --frozen
 
-      - name: Compilar os pacotes
-        # Precisa vir ANTES do ESLint: as regras tipadas resolvem `@aia/*` pelos
-        # `.d.ts` em dist/, e sem eles todo import vira tipo nao resolvido.
+      - name: Compile the packages
+        # This has to come BEFORE ESLint: the typed rules resolve `@aia/*` through
+        # the `.d.ts` files in dist/, and without them every import becomes an
+        # unresolved type.
         run: pnpm exec tsc --build tsconfig.build.json
 
       - name: Prettier
@@ -51,9 +52,9 @@ jobs:
       - name: ESLint
         run: pnpm exec eslint . --max-warnings 0
 
-      - name: tsc (inclui os testes)
-        # `tsconfig.build.json` deixa os testes de fora para nao irem para a
-        # imagem, entao sem este passo nada checa o tipo de um arquivo de teste.
+      - name: tsc (tests included)
+        # `tsconfig.build.json` excludes the tests so they stay out of the image,
+        # so without this step nothing typechecks a test file.
         run: pnpm exec nx run-many -t typecheck --all
 
       - name: Ruff (lint)
@@ -66,10 +67,10 @@ jobs:
         run: uv run mypy .
 
   # ==========================================================================
-  # Regra de dependencia da Clean Architecture. Falha o build (doc 03, 3.1).
+  # The Clean Architecture dependency rule. It fails the build (reference doc 03 §3.1).
   # ==========================================================================
   architecture:
-    name: Regra de dependencia
+    name: Dependency rule
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -89,29 +90,29 @@ jobs:
       - name: import-linter (Python)
         run: uv run lint-imports
 
-      - name: A regra realmente falha quando violada
-        # Um teste de arquitetura que nunca reprova nao protege nada. Este passo
-        # introduz uma violacao de proposito e exige que o depcruise a pegue.
+      - name: The rule really fails when violated
+        # An architecture test that never fails protects nothing. This step
+        # introduces a violation on purpose and requires depcruise to catch it.
         run: |
           set -euo pipefail
-          VIOLACAO=apps/inference-router/src/modules/completions/domain/__ci-violacao.ts
-          cat > "$VIOLACAO" <<'TS'
+          VIOLATION=apps/inference-router/src/modules/completions/domain/__ci-violation.ts
+          cat > "$VIOLATION" <<'TS'
           import { MongoAuditRepository } from '../infrastructure/mongo/audit.repository.js';
           export const x = MongoAuditRepository;
           TS
           if pnpm exec depcruise --config .dependency-cruiser.cjs --output-type err apps/inference-router; then
-            rm -f "$VIOLACAO"
-            echo "::error::A regra de dependencia NAO detectou uma violacao proposital."
+            rm -f "$VIOLATION"
+            echo "::error::The dependency rule did NOT detect a deliberate violation."
             exit 1
           fi
-          rm -f "$VIOLACAO"
-          echo "regra de arquitetura confirmada"
+          rm -f "$VIOLATION"
+          echo "architecture rule confirmed"
 
   # ==========================================================================
-  # Contratos: o gerado precisa bater com o commitado.
+  # Contracts: what is generated has to match what was committed.
   # ==========================================================================
   contracts:
-    name: Contratos
+    name: Contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -120,7 +121,7 @@ jobs:
         with: { node-version: '22', cache: pnpm }
       - run: pnpm install --frozen-lockfile
 
-      - name: Contratos OpenAPI e AsyncAPI sao YAML valido
+      - name: The OpenAPI and AsyncAPI contracts are valid YAML
         run: |
           python3 - <<'PY'
           import pathlib, sys, yaml
@@ -133,19 +134,19 @@ jobs:
               print(f"ok {path}")
           PY
 
-      - name: Tipos gerados estao sincronizados com os contratos
+      - name: Generated types are in sync with the contracts
         run: |
           node tools/scripts/generate-contracts.mjs
           if ! git diff --exit-code --stat packages/contracts/src/generated; then
-            echo "::error::Os tipos gerados divergem dos contratos. Rode 'make contracts' e commite."
+            echo "::error::The generated types differ from the contracts. Run 'make contracts' and commit."
             exit 1
           fi
 
   # ==========================================================================
-  # Testes unitarios: dominio e aplicacao, sem I/O.
+  # Unit tests: domain and application, no I/O.
   # ==========================================================================
   test-unit:
-    name: Testes unitarios
+    name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -167,10 +168,10 @@ jobs:
         run: uv run pytest -m "not integration"
 
   # ==========================================================================
-  # Integracao com dependencias reais em container.
+  # Integration against real dependencies in containers.
   # ==========================================================================
   test-integration:
-    name: Testes de integracao
+    name: Integration tests
     runs-on: ubuntu-latest
     services:
       mongo:
@@ -196,26 +197,26 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --build tsconfig.build.json
 
-      - name: Vitest (integracao)
+      - name: Vitest (integration)
         run: pnpm exec vitest run --dir apps --testNamePattern "" --passWithNoTests
         env:
           RUN_INTEGRATION: '1'
 
   # ==========================================================================
-  # Ponta a ponta: sobe a plataforma inteira e roda o fluxo 7.1.
+  # End to end: brings the whole platform up and runs flow 7.1.
   # ==========================================================================
   e2e:
-    name: Ponta a ponta
+    name: End to end
     runs-on: ubuntu-latest
-    # Sobe seis containers e um modelo local: caro demais para toda PR de docs.
+    # It starts six containers and a local model: too expensive for every docs PR.
     if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'e2e')
     steps:
       - uses: actions/checkout@v4
 
-      - name: Subir a plataforma
-        # O overlay de CI troca o modelo local por um servidor deterministico
-        # que fala os mesmos protocolos. Os adapters de producao continuam sendo
-        # o codigo sob teste; some apenas a dependencia do hardware do runner.
+      - name: Bring the platform up
+        # The CI overlay swaps the local model for a deterministic server speaking
+        # the same protocols. The production adapters remain the code under test;
+        # only the dependency on the runner's hardware goes away.
         run: |
           cp .env.example .env
           docker compose \
@@ -223,12 +224,12 @@ jobs:
             -f deploy/compose/docker-compose.ci.yml \
             --env-file .env up -d --build --wait --wait-timeout 600
 
-      - name: Fluxo 7.1
+      - name: Flow 7.1
         run: bash tools/scripts/e2e.sh
         env:
           COMPOSE_FILES: '-f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.ci.yml'
 
-      - name: Logs em caso de falha
+      - name: Logs on failure
         if: failure()
         run: |
           docker compose \
@@ -236,7 +237,7 @@ jobs:
             -f deploy/compose/docker-compose.ci.yml logs --tail 200
 
   # ==========================================================================
-  # Shell scripts: eles fazem parte da operacao, entao passam por lint tambem.
+  # Shell scripts: they are part of operations, so they get linted too.
   # ==========================================================================
   shell:
     name: Shell
@@ -255,11 +256,11 @@ jobs:
       - uses: azure/setup-helm@v4
       - run: helm dependency update deploy/helm/aia-platform
       - run: helm lint deploy/helm/aia-platform
-      - name: Renderizar com os valores padrao
+      - name: Render with the default values
         run: helm template aia deploy/helm/aia-platform > /dev/null
-      - name: Renderizar apontando para dependencias externas
+      - name: Render pointing at external dependencies
         run: |
           helm template aia deploy/helm/aia-platform \
-            --set mongodb.enabled=false --set mongodb.externalUri=mongodb://externo:27017 \
-            --set redis.enabled=false --set redis.externalUri=redis://externo:6379 \
+            --set mongodb.enabled=false --set mongodb.externalUri=mongodb://external:27017 \
+            --set redis.enabled=false --set redis.externalUri=redis://external:6379 \
             > /dev/null

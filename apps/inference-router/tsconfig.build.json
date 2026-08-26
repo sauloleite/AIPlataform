@@ -32,5 +32,5 @@
       "path": "../../packages/nest/tsconfig.build.json"
     }
   ],
-  "//": "Config de BUILD: emite para dist/. Testes ficam de fora para nao irem para a imagem."
+  "//": "BUILD config: emits to dist/. Tests are excluded so they stay out of the image."
 }

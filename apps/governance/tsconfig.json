@@ -1,5 +1,5 @@
 {
-  "//": "Config de EDITOR e LINT: inclui testes e configs, que precisam de informacao de tipo para as regras tipadas rodarem. Nao emite nada.",
+  "//": "EDITOR and LINT config: includes tests and configs, which need type information for the typed rules to run. It emits nothing.",
   "extends": "./tsconfig.build.json",
   "compilerOptions": {
     "noEmit": true,

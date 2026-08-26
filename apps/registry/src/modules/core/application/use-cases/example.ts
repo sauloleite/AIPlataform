@@ -1,23 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CLOCK, ID_GENERATOR, type Clock, type IdGenerator } from '../ports.js';
-import type { ExemploCommand, ExemploResult } from '../dto.js';
+import type { ExampleCommand, ExampleResult } from '../dto.js';
 
 /**
- * Caso de uso de exemplo. Troque por um real e apague este.
+ * Placeholder use case. Replace it with a real one and delete this.
  *
- * Regras do template (doc 03, secao 3.2):
- *   - recebe um comando, nunca o `Request` do Express;
- *   - fala so com ports;
- *   - todo caminho de erro tem teste.
+ * Template rules (reference doc 03 §3.2):
+ *   - it takes a command, never the Express `Request`;
+ *   - it talks only to ports;
+ *   - every error path has a test.
  */
 @Injectable()
-export class Exemplo {
+export class Example {
   constructor(
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(ID_GENERATOR) private readonly ids: IdGenerator,
   ) {}
 
-  async execute(command: ExemploCommand): Promise<ExemploResult> {
+  async execute(command: ExampleCommand): Promise<ExampleResult> {
     void command;
     void this.clock;
     return Promise.resolve({ id: this.ids.next() });

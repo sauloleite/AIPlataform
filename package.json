@@ -2,7 +2,7 @@
   "name": "aia-platform",
   "version": "0.1.0",
   "private": true,
-  "description": "AIA 2.0 OSS - plataforma corporativa de IA, agnostica de cloud e open source",
+  "description": "AIA 2.0 OSS - an enterprise AI platform, cloud-agnostic and open source",
   "license": "MIT",
   "packageManager": "pnpm@11.24.0",
   "engines": {

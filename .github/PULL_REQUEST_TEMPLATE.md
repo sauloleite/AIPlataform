@@ -1,22 +1,22 @@
-## O que muda
+## What changes
 
-<!-- Uma frase. O porque vai na secao seguinte. -->
+<!-- One sentence. The why goes in the next section. -->
 
-## Por que
+## Why
 
-<!-- Problema resolvido. Se muda uma decisao de arquitetura, aponte o ADR. -->
+<!-- The problem solved. If it changes an architecture decision, point at the ADR. -->
 
 ## Checklist
 
-- [ ] Commits seguem Conventional Commits
-- [ ] `make check` passa localmente (lint, tipos, arquitetura, testes)
-- [ ] Contrato OpenAPI/AsyncAPI atualizado quando a API mudou
-- [ ] Caminhos de erro cobertos por teste
-- [ ] Sem segredo em codigo, log ou variavel commitada
-- [ ] Telemetria com `aia.project_id` nos spans novos
-- [ ] ADR criado ou atualizado quando a decisao e estrutural
-- [ ] Revisor de outro servico marcado
+- [ ] Commits follow Conventional Commits
+- [ ] `make check` passes locally (lint, types, architecture, tests)
+- [ ] The OpenAPI/AsyncAPI contract is updated when the API changed
+- [ ] Error paths are covered by tests
+- [ ] No secret in code, logs or a committed variable
+- [ ] Telemetry carries `aia.project_id` on the new spans
+- [ ] An ADR is created or updated when the decision is structural
+- [ ] A reviewer from another service is tagged
 
-## Risco e reversao
+## Risk and rollback
 
-<!-- O que quebra se der errado e como voltar. -->
+<!-- What breaks if this goes wrong, and how to roll back. -->

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { validateConfig } from '@aia/nest';
 
-/** Configuracao validada no boot. A aplicacao nao sobe com config invalida. */
+/** Configuration validated at boot. The app does not start on invalid config. */
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3004),

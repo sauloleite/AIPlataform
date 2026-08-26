@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
-# Imagem dos servicos TypeScript. Multi-stage e distroless: a imagem final nao
-# tem shell nem gerenciador de pacotes, entao um RCE nao encontra ferramenta.
+# Image for the TypeScript services. Multi-stage and distroless: the final image
+# has neither a shell nor a package manager, so an RCE finds no tooling.
 #
 #   docker build -f deploy/docker/node.Dockerfile --build-arg SERVICE=inference-router .
 
@@ -12,8 +12,8 @@ WORKDIR /app
 
 RUN corepack enable
 
-# So os manifestos primeiro: a camada de dependencias so invalida quando um
-# package.json muda, e nao a cada alteracao de codigo.
+# Manifests only, first: the dependency layer is invalidated when a package.json
+# changes, not on every code change.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/auth/package.json          packages/auth/
 COPY packages/contracts/package.json     packages/contracts/
@@ -40,12 +40,12 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY packages/ packages/
 COPY apps/${SERVICE}/ apps/${SERVICE}/
 
-# `tsconfig.build.json`, e nao `tsconfig.json`: o de build exclui testes e
-# arquivos de configuracao, que nao devem ir para a imagem.
+# `tsconfig.build.json`, not `tsconfig.json`: the build one excludes tests and
+# config files, which must not go into the image.
 RUN pnpm exec tsc --build apps/${SERVICE}/tsconfig.build.json
 
-# `--prod` remove devDependencies; `deploy` achata os links do workspace em uma
-# arvore autocontida, que e o que a imagem distroless consegue carregar.
+# `--prod` drops devDependencies; `deploy` flattens the workspace links into a
+# self-contained tree, which is what the distroless image can load.
 RUN pnpm --filter "@aia/${SERVICE}" deploy --prod --legacy /output
 
 # ----------------------------------------------------------------------------
@@ -63,5 +63,5 @@ COPY --from=build --chown=nonroot:nonroot /app/packages ./packages
 USER nonroot
 EXPOSE 3000
 
-# Sem shell na imagem: o healthcheck do compose usa o proprio Node.
+# No shell in the image: the compose healthcheck uses Node itself.
 CMD ["dist/main.js"]

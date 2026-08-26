@@ -2,7 +2,7 @@
   "name": "@aia/contracts",
   "version": "0.1.0",
   "private": true,
-  "description": "Tipos gerados a partir de contracts/openapi e contracts/asyncapi",
+  "description": "Types generated from contracts/openapi and contracts/asyncapi",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

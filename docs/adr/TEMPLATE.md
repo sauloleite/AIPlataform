@@ -1,26 +1,26 @@
-# ADR-NNN: titulo curto no imperativo
+# ADR-NNN: short title in the imperative
 
-- **Status**: proposto | aceito | substituido por ADR-NNN | descontinuado
-- **Data**: AAAA-MM-DD
-- **Decisores**:
+- **Status**: proposed | accepted | superseded by ADR-NNN | deprecated
+- **Date**: YYYY-MM-DD
+- **Deciders**:
 
-## Contexto
+## Context
 
-O problema, as forcas em jogo e o que ja e verdade no sistema hoje.
+The problem, the forces at play and what is already true in the system today.
 
-## Decisao
+## Decision
 
-O que foi decidido, em uma frase, seguido dos detalhes que importam.
+What was decided, in one sentence, followed by the details that matter.
 
-## Alternativas consideradas
+## Alternatives considered
 
-| Alternativa | Por que nao |
-| ----------- | ----------- |
+| Alternative | Why not |
+| ----------- | ------- |
 
-## Consequencias
+## Consequences
 
-O que fica mais facil, o que fica mais dificil, e o que passa a exigir manutencao.
+What gets easier, what gets harder, and what now requires maintenance.
 
-## Revisao
+## Review
 
-Quando esta decisao deve ser reavaliada e sob qual gatilho.
+When this decision should be reassessed, and under which trigger.

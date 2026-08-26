@@ -1,40 +1,40 @@
-# ADR-011: Monorepo para o nucleo
+# ADR-011: A monorepo for the core
 
-- **Status**: aceito
-- **Data**: 2026-08-25
+- **Status**: accepted
+- **Date**: 2026-08-25
 
-## Contexto
+## Context
 
-A plataforma tem servicos em duas linguagens, contratos compartilhados entre
-elas, cinco bibliotecas transversais e infraestrutura versionada.
+The platform has services in two languages, contracts shared between them, five
+cross-cutting libraries and versioned infrastructure.
 
-O problema real de um polyrepo aqui: mudar um contrato exige uma PR no repositorio
-de contratos, esperar publicar, e depois PRs em cada consumidor. Durante esse
-intervalo o sistema esta inconsistente e ninguem sabe.
+The real problem with a polyrepo here: changing a contract requires a PR in the
+contracts repository, waiting for a release, and then PRs in each consumer.
+During that interval the system is inconsistent and nobody knows.
 
-## Decisao
+## Decision
 
-Um monorepo com pnpm workspaces (TypeScript), uv workspace (Python) e Nx para
-build por afetados. Contratos, bibliotecas, servicos, infraestrutura e
-documentacao no mesmo lugar. Produtos que apenas consomem a plataforma pelo SDK
-ficam em repositorios proprios.
+One monorepo with pnpm workspaces (TypeScript), a uv workspace (Python) and Nx
+for affected builds. Contracts, libraries, services, infrastructure and
+documentation in the same place. Products that only consume the platform through
+the SDK live in their own repositories.
 
-## Alternativas consideradas
+## Alternatives considered
 
-| Alternativa               | Por que nao                                                          |
-| ------------------------- | -------------------------------------------------------------------- |
-| Polyrepo                  | Mudanca de contrato deixa de ser atomica.                            |
-| Monorepo so de TypeScript | Deixaria os servicos Python fora dos mesmos contratos e do mesmo CI. |
+| Alternative                | Why not                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| Polyrepo                   | A contract change stops being atomic.                                         |
+| A TypeScript-only monorepo | It would leave the Python services out of the same contracts and the same CI. |
 
-## Consequencias
+## Consequences
 
-**Mais facil**: mudar um contrato e seus consumidores em UMA PR, com o CI
-verificando os dois lados juntos. A regra de dependencia da Clean Architecture e
-verificavel em todo o codigo de uma vez.
+**Easier**: changing a contract and its consumers in ONE PR, with CI checking
+both sides together. The Clean Architecture dependency rule is verifiable across
+the whole codebase at once.
 
-**Mais dificil**: o CI precisa de build seletivo, senao toda PR roda tudo.
-Resolvido com `nx affected` e `uv`.
+**Harder**: CI needs selective builds, or every PR runs everything. Solved with
+`nx affected` and `uv`.
 
-**Exige disciplina**: proximidade fisica nao autoriza acoplamento. O
-`dependency-cruiser` proibe explicitamente um servico importar dominio de outro,
-e o CI prova que a regra realmente reprova quando violada.
+**Requires discipline**: physical proximity does not authorise coupling.
+`dependency-cruiser` explicitly forbids one service importing another's domain,
+and CI proves the rule really fails when violated.

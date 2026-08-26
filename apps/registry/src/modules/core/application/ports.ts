@@ -1,9 +1,9 @@
 /**
- * Ports da camada de aplicacao.
+ * Application layer ports.
  *
- * Interfaces, nunca classes concretas: o caso de uso nao sabe o que ha do outro
- * lado. Os Symbol existem porque o NestJS precisa de um token em runtime, e
- * interface some na compilacao.
+ * Interfaces, never concrete classes: the use case does not know what is on the
+ * other side. The Symbols exist because NestJS needs a runtime token, and an
+ * interface disappears at compile time.
  */
 
 export interface Clock {

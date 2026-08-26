@@ -1,5 +1,5 @@
-# AIA 2.0 OSS - atalhos padronizados do monorepo (doc 03, secao 2).
-# Tudo aqui roda sem nenhuma conta de cloud.
+# AIA 2.0 OSS - the monorepo standard shortcuts (reference doc 03 §2).
+# Everything here runs with no cloud account at all.
 
 SHELL := /bin/bash
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -11,24 +11,24 @@ COMPOSE_PROD := docker compose -f deploy/compose/docker-compose.yml -f deploy/co
 .PHONY: help bootstrap dev dev-infra down clean logs lint lint-fix arch test test-unit test-integration \
         contracts typecheck e2e eval seed models build images helm-lint check
 
-help: ## Lista os alvos disponiveis
+help: ## Lists the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-bootstrap: ## Instala pnpm, uv e todas as dependencias
+bootstrap: ## Installs pnpm, uv and every dependency
 	@command -v pnpm >/dev/null 2>&1 || { mkdir -p $(HOME)/.local/bin && corepack enable --install-directory $(HOME)/.local/bin; }
 	@command -v uv >/dev/null 2>&1 || python3 -m pip install --user --quiet uv
-	@test -f .env || { cp .env.example .env && echo "criado .env a partir de .env.example"; }
+	@test -f .env || { cp .env.example .env && echo "created .env from .env.example"; }
 	pnpm install
 	uv sync --all-packages
 	@echo ""
-	@echo "Pronto. Rode 'make dev' (precisa do Docker em execucao)."
+	@echo "Done. Run 'make dev' (Docker has to be running)."
 
-dev-infra: ## Sobe so a infraestrutura (Mongo, Redis, MinIO, Qdrant, LGTM, Ollama)
+dev-infra: ## Brings up the infrastructure only (Mongo, Redis, MinIO, Qdrant, LGTM, Ollama)
 	$(COMPOSE) up -d mongo redis minio qdrant lgtm ollama
-	@echo "infraestrutura de pe. Grafana em http://localhost:3000"
+	@echo "infrastructure up. Grafana at http://localhost:3000"
 
-dev: ## Sobe a plataforma inteira em modo desenvolvimento
+dev: ## Brings the whole platform up in development mode
 	$(COMPOSE) up -d --build
 	@echo ""
 	@echo "  API        http://localhost:8080"
@@ -36,70 +36,70 @@ dev: ## Sobe a plataforma inteira em modo desenvolvimento
 	@echo "  MinIO      http://localhost:9001"
 	@echo "  Qdrant     http://localhost:6333/dashboard"
 
-down: ## Derruba os containers
+down: ## Stops the containers
 	$(COMPOSE) down
 
-clean: ## Derruba os containers e apaga os volumes (perde os dados locais)
+clean: ## Stops the containers and deletes the volumes (loses the local data)
 	$(COMPOSE) down -v
 	rm -rf node_modules dist .nx coverage .venv
 
-logs: ## Segue os logs (use SERVICE=inference-router para filtrar)
+logs: ## Follows the logs (use SERVICE=inference-router to filter)
 	$(COMPOSE) logs -f $(SERVICE)
 
-models: ## Baixa os modelos locais no Ollama (custo zero, sem chave de API)
+models: ## Pulls the local models into Ollama (zero cost, no API key)
 	bash tools/scripts/pull-ollama-models.sh
 
-seed: ## Cria usuario, projeto e orcamento de exemplo
+seed: ## Creates a sample user, project and budget
 	bash tools/scripts/seed.sh
 
-lint: ## Lint e formatacao (falha em warning, doc 03 secao 5)
+lint: ## Lint and formatting (fails on a warning, reference doc 03 §5)
 	pnpm exec prettier --check .
 	pnpm exec eslint . --max-warnings 0
 	uv run ruff check .
 	uv run ruff format --check .
 
-lint-fix: ## Corrige o que for automatico
+lint-fix: ## Fixes what can be fixed automatically
 	pnpm exec prettier --write .
 	pnpm exec eslint . --fix
 	uv run ruff check --fix .
 	uv run ruff format .
 
-typecheck: ## Verificacao de tipos nos dois ecossistemas
+typecheck: ## Type checking in both ecosystems
 	pnpm exec tsc --build tsconfig.build.json --pretty
 	pnpm exec nx run-many -t typecheck --all
 	uv run mypy .
 
-arch: ## Regra de dependencia da Clean Architecture (falha o build)
+arch: ## The Clean Architecture dependency rule (fails the build)
 	pnpm exec depcruise --config .dependency-cruiser.cjs --output-type err apps packages
 	uv run lint-imports
 
-test-unit: ## Testes unitarios (dominio e aplicacao, sem I/O)
+test-unit: ## Unit tests (domain and application, no I/O)
 	pnpm exec vitest run --project unit
 	uv run pytest -m "not integration and not contract"
 
-test-integration: ## Testes de integracao (exige Docker)
+test-integration: ## Integration tests (Docker required)
 	pnpm exec vitest run --project integration
 	uv run pytest -m integration
 
-test: test-unit test-integration ## Toda a suite de testes
+test: test-unit test-integration ## The whole test suite
 
-contracts: ## Regera tipos a partir de contracts/openapi e contracts/asyncapi
+contracts: ## Regenerates the types from contracts/openapi and contracts/asyncapi
 	node tools/scripts/generate-contracts.mjs
 
-e2e: ## Fluxo 7.1 ponta a ponta contra o ambiente local
+e2e: ## Flow 7.1 end to end against the local environment
 	bash tools/scripts/e2e.sh
 
-eval: ## Suites de avaliacao com gate por limiar
+eval: ## Evaluation suites, gated by threshold
 	uv run python -m evaluation.cli run --suite evals/suites
 
-build: ## Compila os pacotes e servicos TypeScript
+build: ## Compiles the TypeScript packages and services
 	pnpm exec nx run-many -t build --all
 
-images: ## Constroi as imagens de container
+images: ## Builds the container images
 	$(COMPOSE) build
 
-helm-lint: ## Valida o chart Helm
+helm-lint: ## Validates the Helm chart
 	helm lint deploy/helm/aia-platform
 	helm template aia deploy/helm/aia-platform >/dev/null && echo "helm template OK"
 
-check: lint typecheck arch test ## O que o CI roda em toda PR
+check: lint typecheck arch test ## What CI runs on every PR

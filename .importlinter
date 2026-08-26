@@ -1,5 +1,5 @@
-# Regra de dependencia da Clean Architecture para os servicos Python (doc 03, 3.1).
-# Espelha o .dependency-cruiser.cjs do lado TypeScript. Falha o build.
+# The Clean Architecture dependency rule for the Python services (reference doc
+# 03 §3.1). Mirrors .dependency-cruiser.cjs on the TypeScript side. Fails the build.
 
 [importlinter]
 root_packages =
@@ -13,11 +13,11 @@ root_packages =
     guardrails
     agent_runtime
     evaluation
-# Necessario porque os contratos proibem tambem pacotes externos (fastapi, redis).
+# Needed because the contracts also forbid external packages (fastapi, redis).
 include_external_packages = True
 
-[importlinter:contract:camadas-guardrails]
-name = guardrails respeita a regra de dependencia
+[importlinter:contract:guardrails-layers]
+name = guardrails honours the dependency rule
 type = layers
 layers =
     presentation
@@ -27,8 +27,8 @@ containers =
     guardrails
 exhaustive = False
 
-[importlinter:contract:camadas-agent-runtime]
-name = agent-runtime respeita a regra de dependencia
+[importlinter:contract:agent-runtime-layers]
+name = agent-runtime honours the dependency rule
 type = layers
 layers =
     presentation
@@ -38,8 +38,8 @@ containers =
     agent_runtime
 exhaustive = False
 
-[importlinter:contract:camadas-evaluation]
-name = evaluation respeita a regra de dependencia
+[importlinter:contract:evaluation-layers]
+name = evaluation honours the dependency rule
 type = layers
 layers =
     presentation
@@ -49,8 +49,8 @@ containers =
     evaluation
 exhaustive = False
 
-[importlinter:contract:dominio-guardrails-sem-framework]
-name = dominio do guardrails nao conhece framework nem I/O
+[importlinter:contract:guardrails-domain-without-frameworks]
+name = the guardrails domain knows no framework and no I/O
 type = forbidden
 source_modules =
     guardrails.domain
@@ -65,8 +65,8 @@ forbidden_modules =
     guardrails.infrastructure
     guardrails.presentation
 
-[importlinter:contract:dominio-agent-runtime-sem-framework]
-name = dominio do agent-runtime nao conhece framework nem I/O
+[importlinter:contract:agent-runtime-domain-without-frameworks]
+name = the agent-runtime domain knows no framework and no I/O
 type = forbidden
 source_modules =
     agent_runtime.domain
@@ -79,8 +79,8 @@ forbidden_modules =
     agent_runtime.infrastructure
     agent_runtime.presentation
 
-[importlinter:contract:aplicacao-sem-adapters]
-name = casos de uso dependem de ports, nunca de adapters
+[importlinter:contract:application-without-adapters]
+name = use cases depend on ports, never on adapters
 type = forbidden
 source_modules =
     guardrails.application
@@ -93,8 +93,8 @@ forbidden_modules =
     fastapi
     starlette
 
-[importlinter:contract:bibliotecas-nao-conhecem-servicos]
-name = bibliotecas compartilhadas nao conhecem servicos
+[importlinter:contract:libraries-do-not-know-services]
+name = shared libraries know no service
 type = forbidden
 source_modules =
     aia_auth

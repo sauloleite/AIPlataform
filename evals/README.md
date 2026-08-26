@@ -1,43 +1,43 @@
-# Avaliacao (evals)
+# Evaluation (evals)
 
-Qualidade medida, nao presumida (doc 02, principio 10).
+Quality measured, not assumed (reference doc 02, principle 10).
 
-Um prompt que "parece melhor" nao e melhor: e uma opiniao. Estas suites existem
-para transformar isso em numero, e para que uma regressao apareca no CI em vez
-de aparecer no usuario.
+A prompt that "looks better" is not better: it is an opinion. These suites exist
+to turn that into a number, and to make a regression show up in CI rather than in
+front of a user.
 
-## Estrutura
+## Structure
 
 ```
 evals/
-├── datasets/   perguntas com resposta de referencia, versionadas
-├── suites/     o que medir e qual o limiar de reprovacao
-└── redteam/    casos adversariais (injecao, jailbreak, exfiltracao)
+├── datasets/   questions with a reference answer, versioned
+├── suites/     what to measure and where the failing threshold sits
+└── redteam/    adversarial cases (injection, jailbreak, exfiltration)
 ```
 
-## Quando roda
+## When it runs
 
-| Momento                                  | O que roda                   | Bloqueia?                        |
-| ---------------------------------------- | ---------------------------- | -------------------------------- |
-| Mudanca de prompt, alias ou chunking     | Suite do caso de uso afetado | Sim, abaixo do limiar            |
-| Antes de trocar o deployment de um alias | Suite de regressao de modelo | Sim                              |
-| Semanal e antes de release               | Red team                     | Sim, se um caso conhecido passar |
-| Producao                                 | Amostra de 1 a 5% do trafego | Nao, alerta                      |
+| Moment                                | What runs                     | Blocking?                         |
+| ------------------------------------- | ----------------------------- | --------------------------------- |
+| A prompt, alias or chunking change    | The affected use case's suite | Yes, below the threshold          |
+| Before swapping an alias's deployment | The model regression suite    | Yes                               |
+| Weekly and before a release           | Red team                      | Yes, if a known case gets through |
+| Production                            | A 1 to 5% traffic sample      | No, it alerts                     |
 
-## Por que o limiar nao e 100%
+## Why the threshold is not 100%
 
-Um limiar impossivel e desligado na primeira semana. Os limiares aqui sao o
-**piso do que ja foi medido**, e sobem quando o sistema melhora — nunca o
-contrario.
+An impossible threshold gets switched off in the first week. The thresholds here
+are the **floor of what has already been measured**, and they rise as the system
+improves — never the other way round.
 
-## Custo
+## Cost
 
-Avaliacao consome inferencia de verdade. Rode contra o projeto `platform-ci`,
-que tem orcamento proprio, e prefira o alias local (`chat-local`) para as suites
-que nao dependem da qualidade de um provedor especifico.
+Evaluation consumes real inference. Run it against the `platform-ci` project,
+which has its own budget, and prefer the local alias (`chat-local`) for suites
+that do not depend on a specific provider's quality.
 
-## Estado atual
+## Current state
 
-A estrutura e os datasets estao aqui; o executor (`aia-evaluation`) e um
-esqueleto gerado e entra na Fase 2 do roadmap. Os datasets ja sao uteis para
-teste manual e para o red team.
+The structure and the datasets are here; the runner (`aia-evaluation`) is a
+generated skeleton and arrives in roadmap phase 2. The datasets are already
+useful for manual testing and for red teaming.

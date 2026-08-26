@@ -2,7 +2,7 @@
   "name": "@aia/governance",
   "version": "0.1.0",
   "private": true,
-  "description": "Projeto como tenant: orcamento em moeda, classificacao e politicas",
+  "description": "Project as tenant: budget in currency, classification and policies",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {

@@ -2,7 +2,7 @@
   "name": "@aia/identity",
   "version": "0.1.0",
   "private": true,
-  "description": "Emissor de identidade: JWT RS256, JWKS, PAT, papeis",
+  "description": "Identity issuer: RS256 JWT, JWKS, PATs, roles",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {

@@ -7,5 +7,5 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.spec.ts", "src/**/*.test.ts"],
-  "//": "Config de BUILD: emite para dist/. Testes ficam de fora para nao irem para a imagem."
+  "//": "BUILD config: emits to dist/. Tests are excluded so they stay out of the image."
 }

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { startTelemetry } from '@aia/telemetry';
-// Import de TIPO: some na compilacao, entao nao antecipa nenhum modulo com I/O.
+// A TYPE import: it disappears at compile time, so it pulls in no I/O module early.
 import type { ProjectRepository } from './modules/projects/application/ports.js';
 
 startTelemetry({ serviceName: 'aia-governance' });
@@ -41,4 +41,4 @@ relay.start();
 app.enableShutdownHooks();
 
 await app.listen(config.PORT, '0.0.0.0');
-logger.log(`aia-governance ouvindo na porta ${config.PORT.toString()}`);
+logger.log(`aia-governance listening on port ${config.PORT.toString()}`);

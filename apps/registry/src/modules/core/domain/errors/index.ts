@@ -1,16 +1,16 @@
 import { DomainError, ERROR_CODES, type ErrorCode } from '@aia/errors';
 
 /**
- * Erros de dominio deste servico.
+ * Domain errors for this service.
  *
- * Cada um carrega um codigo ESTAVEL do catalogo: e por ele que o cliente decide
- * comportamento, entao mudar o valor e breaking change.
+ * Each carries a STABLE code from the catalogue: it is what the client keys its
+ * behaviour off, so changing the value is a breaking change.
  */
-export class ExemploError extends DomainError {
+export class ExampleError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.VALIDATION_FAILED;
   readonly status = 400;
 
-  constructor(detalhe: string) {
-    super(detalhe);
+  constructor(detail: string) {
+    super(detail);
   }
 }

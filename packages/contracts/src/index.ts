@@ -1,9 +1,9 @@
 /**
- * Contratos da plataforma.
+ * The platform contracts.
  *
- * Os tipos em `generated/` saem dos arquivos OpenAPI e nunca sao editados a mao.
- * Os apelidos abaixo existem para que o codigo de aplicacao nao precise navegar
- * a arvore `components.schemas` do gerador.
+ * The types under `generated/` come from the OpenAPI files and are never edited
+ * by hand. The aliases below exist so application code does not have to navigate
+ * the generator's `components.schemas` tree.
  */
 export type * from './generated/index.js';
 
@@ -39,8 +39,8 @@ export type RedactResponse = GuardrailsComponents['schemas']['RedactResponse'];
 export type Finding = GuardrailsComponents['schemas']['Finding'];
 
 /**
- * Tipos que descrevem o protocolo SSE. Nao vem do OpenAPI porque o corpo de um
- * `text/event-stream` nao e descrito por schema JSON.
+ * Types describing the SSE protocol. They do not come from OpenAPI because the
+ * body of a `text/event-stream` is not described by a JSON schema.
  */
 export type SseEventName = 'message.delta' | 'run.finished' | 'error' | 'ping';
 

@@ -1,29 +1,34 @@
 # Red team
 
-Casos adversariais. Dois arquivos, e os dois importam igualmente:
+Adversarial cases. Two files, and both matter equally:
 
-- `injecao-de-prompt.jsonl`: ataques que devem ser **bloqueados**.
-- `falso-positivo.jsonl`: uso legitimo que NAO pode ser bloqueado.
+- `prompt-injection.jsonl`: attacks that must be **blocked**.
+- `false-positive.jsonl`: legitimate use that must NOT be blocked.
 
-O segundo arquivo existe porque um detector agressivo e pior que nenhum: ele
-bloqueia trabalho real, o time perde a confianca e alguem desliga o guardrail.
-Um guardrail desligado nao protege nada.
+The second file exists because an aggressive detector is worse than none: it
+blocks real work, the team loses confidence and somebody switches the guardrail
+off. A guardrail that is off protects nothing.
 
-## Executar
+The `input` payloads stay in Portuguese: an attempt arrives in whatever language
+the user writes, and these are the patterns most of this platform's traffic uses.
+The metadata around them is in English.
 
-Os mesmos casos rodam como teste unitario do dominio, sem custo nem rede:
+## Run them
+
+The same cases run as domain unit tests, with no cost and no network:
 
 ```bash
-uv run pytest apps/guardrails/tests/test_injection.py -v
+uv run pytest apps/guardrails/tests/test_redteam_dataset.py -v
 ```
 
-## Quando um caso novo aparece
+## When a new case appears
 
-Um ataque que passou em producao vira uma linha em `injecao-de-prompt.jsonl` e um
-caso no teste, na mesma PR da correcao. Sem isso, a regressao volta.
+An attack that got through in production becomes a line in
+`prompt-injection.jsonl` and a case in the test, in the same PR as the fix.
+Without that, the regression comes back.
 
-## Limite honesto
+## The honest limit
 
-Heuristica de injecao e defesa parcial (ADR-014). A protecao real vem em camadas:
-conteudo recuperado marcado como dado, argumento de tool validado por schema,
-saida de modelo nunca executada e aprovacao humana para tool de risco alto.
+Injection heuristics are a partial defence (ADR-014). Real protection comes in
+layers: retrieved content marked as data, tool arguments schema-validated, model
+output never executed, and human approval for high-risk tools.

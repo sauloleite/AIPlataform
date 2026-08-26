@@ -1,18 +1,18 @@
 # Runbooks
 
-Procedimentos para quando algo dá errado. Cada um tem gatilho, diagnostico e
-acao, na ordem em que voce vai precisar deles as 3 da manha.
+Procedures for when something goes wrong. Each has a trigger, a diagnosis and an
+action, in the order you will need them at 3 in the morning.
 
-Regra: um runbook que nunca foi executado nao e um runbook, e uma esperanca.
-Teste em game day antes de precisar.
+Rule: a runbook that has never been executed is not a runbook, it is a hope. Test
+it in a game day before you need it.
 
-| Runbook                                                      | Gatilho                                           |
-| ------------------------------------------------------------ | ------------------------------------------------- |
-| [Provedor de modelo degradado](provedor-degradado.md)        | Circuito aberto por mais de 5 min                 |
-| [Redis indisponivel](redis-indisponivel.md)                  | Alerta de saude ou `budget_unverified` no trafego |
-| [Fila acima do limite](fila-acima-do-limite.md)              | Comprimento da fila crescendo                     |
-| [Descontinuacao de modelo](descontinuacao-de-modelo.md)      | Alerta 60 dias antes                              |
-| [Suspeita de injecao ou exfiltracao](suspeita-de-injecao.md) | Alerta do guardrails                              |
-| [Rotacao de segredo](rotacao-de-segredo.md)                  | Vazamento detectado ou rotina                     |
-| [Pedido de titular (LGPD)](pedido-de-titular-lgpd.md)        | Solicitacao do DPO                                |
-| [Restauracao e teste de DR](restauracao-e-dr.md)             | Trimestral, ou perda de dados                     |
+| Runbook                                                       | Trigger                                          |
+| ------------------------------------------------------------- | ------------------------------------------------ |
+| [Degraded model provider](degraded-provider.md)               | A circuit open for more than 5 min               |
+| [Redis unavailable](redis-unavailable.md)                     | A health alert or `budget_unverified` in traffic |
+| [Queue above its limit](queue-above-limit.md)                 | Queue length growing                             |
+| [Model deprecation](model-deprecation.md)                     | Alert 60 days ahead                              |
+| [Suspected injection or exfiltration](suspected-injection.md) | A guardrails alert                               |
+| [Secret rotation](secret-rotation.md)                         | A detected leak, or routine                      |
+| [Data subject request (LGPD)](lgpd-data-subject-request.md)   | A request from the DPO                           |
+| [Restore and DR test](restore-and-dr.md)                      | Quarterly, or on data loss                       |

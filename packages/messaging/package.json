@@ -2,7 +2,7 @@
   "name": "@aia/messaging",
   "version": "0.1.0",
   "private": true,
-  "description": "CloudEvents, outbox sobre MongoDB, publisher em Redis Streams e filas BullMQ",
+  "description": "CloudEvents, an outbox over MongoDB, a Redis Streams publisher and BullMQ queues",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -6,8 +6,8 @@ import { InfrastructureModule } from './shared/infrastructure.module.js';
 
 @Module({
   imports: [InfrastructureModule, RegistryModule],
-  // Guard global: a rota precisa se declarar publica para escapar dele.
-  // Esquecer o decorator falha fechado.
+  // Global guard: a route has to declare itself public to escape it.
+  // Forgetting the decorator fails closed.
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule implements NestModule {

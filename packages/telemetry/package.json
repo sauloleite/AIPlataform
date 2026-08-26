@@ -2,7 +2,7 @@
   "name": "@aia/telemetry",
   "version": "0.1.0",
   "private": true,
-  "description": "Bootstrap OpenTelemetry com convencoes gen_ai.* e atributos aia.*",
+  "description": "OpenTelemetry bootstrap with gen_ai.* conventions and aia.* attributes",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

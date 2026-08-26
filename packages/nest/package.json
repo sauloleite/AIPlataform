@@ -2,7 +2,7 @@
   "name": "@aia/nest",
   "version": "0.1.0",
   "private": true,
-  "description": "Cola HTTP compartilhada dos servicos NestJS: Problem Details, auth, tenant, health",
+  "description": "Shared HTTP glue for the NestJS services: Problem Details, auth, tenant, health",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

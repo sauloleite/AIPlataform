@@ -8,7 +8,7 @@ packages/contracts/src/generated
 python/aia_contracts/src/aia_contracts/generated
 docs/reference
 
-# Templates Go do Helm nao sao YAML valido; o Prettier os corromperia.
+# Helm Go templates are not valid YAML; Prettier would corrupt them.
 deploy/helm/**/templates
 deploy/helm/**/charts
 

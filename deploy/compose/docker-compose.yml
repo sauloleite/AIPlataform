@@ -1,10 +1,10 @@
-# AIA 2.0 OSS - ambiente de desenvolvimento.
+# AIA 2.0 OSS - development environment.
 #
-# Tudo aqui e open source e roda sem nenhuma conta de cloud. Sem chave de API,
-# a plataforma funciona inteira pelo Ollama.
+# Everything here is open source and runs with no cloud account. With no API key,
+# the whole platform works through Ollama.
 #
-#   make dev-infra   sobe so a infraestrutura
-#   make dev         sobe a plataforma inteira
+#   make dev-infra   brings up the infrastructure only
+#   make dev         brings up the whole platform
 
 name: aia
 
@@ -26,14 +26,14 @@ x-platform-env: &platform-env
 
 services:
   # ==========================================================================
-  # Infraestrutura
+  # Infrastructure
   # ==========================================================================
 
   mongo:
     <<: *service-defaults
     image: mongo:8.0
-    # Replica set de um no: transacao e change stream exigem replica set, e sao
-    # o que sustenta o padrao outbox (estado e evento na mesma transacao).
+    # A single-node replica set: transactions and change streams require one, and
+    # they are what underpins the outbox pattern (state and event in one transaction).
     command: ['--replSet', 'rs0', '--bind_ip_all', '--quiet']
     ports: ['27017:27017']
     volumes: [mongo-data:/data/db]
@@ -51,7 +51,7 @@ services:
   redis:
     <<: *service-defaults
     image: redis:7.4-alpine
-    # appendonly: o contador de orcamento sobrevive a um restart do container.
+    # appendonly: the budget counter survives a container restart.
     command: ['redis-server', '--appendonly', 'yes', '--save', '60', '1']
     ports: ['6379:6379']
     volumes: [redis-data:/data]
@@ -82,7 +82,7 @@ services:
     ports: ['6333:6333', '6334:6334']
     volumes: [qdrant-data:/qdrant/storage]
     healthcheck:
-      # A imagem nao tem curl nem wget: o proprio binario responde pelo healthcheck.
+      # The image has neither curl nor wget: the binary itself answers the healthcheck.
       test: ['CMD', '/qdrant/qdrant', '--version']
       interval: 10s
       timeout: 5s
@@ -90,8 +90,8 @@ services:
 
   lgtm:
     <<: *service-defaults
-    # Loki, Grafana, Tempo e Prometheus em uma imagem. Traces com gen_ai.* e
-    # aia.* ficam visiveis em http://localhost:3000 sem nenhuma configuracao.
+    # Loki, Grafana, Tempo and Prometheus in one image. Traces with gen_ai.* and
+    # aia.* are visible at http://localhost:3000 with no configuration at all.
     image: grafana/otel-lgtm:0.8.4
     ports:
       - '3000:3000' # Grafana
@@ -117,14 +117,14 @@ services:
 
   traefik:
     <<: *service-defaults
-    # Ponto de entrada unico da plataforma: TLS, roteamento e rate limit.
+    # The platform's single entry point: TLS, routing and rate limiting.
     image: traefik:v3.3
     command:
       - '--providers.docker=true'
       - '--providers.docker.exposedbydefault=false'
       - '--entrypoints.web.address=:8080'
-      # O dashboard usa a porta 8080 por padrao, que aqui e a entrada da
-      # plataforma: sem este entrypoint proprio, os dois colidem no bind.
+      # The dashboard uses port 8080 by default, which here is the platform's
+      # entry point: without this dedicated entrypoint the two collide on bind.
       - '--entrypoints.traefik.address=:8090'
       - '--accesslog=true'
       - '--api.dashboard=true'
@@ -138,7 +138,7 @@ services:
       inference-router: { condition: service_started }
 
   # ==========================================================================
-  # Plataforma
+  # Platform
   # ==========================================================================
 
   identity:
@@ -155,8 +155,8 @@ services:
       IDENTITY_ACCESS_TOKEN_TTL: ${IDENTITY_ACCESS_TOKEN_TTL:-3600}
       IDENTITY_BOOTSTRAP_ADMIN_EMAIL: ${IDENTITY_BOOTSTRAP_ADMIN_EMAIL:-admin@aia.local}
       IDENTITY_BOOTSTRAP_ADMIN_PASSWORD: ${IDENTITY_BOOTSTRAP_ADMIN_PASSWORD:-change-me-now}
-      # Credenciais dos servicos internos. Substituem a identidade gerenciada
-      # que uma nuvem forneceria (ADR-012).
+      # Credentials for the internal services. They replace the managed identity
+      # a cloud would provide (ADR-012).
       IDENTITY_BOOTSTRAP_SERVICE_CLIENTS: >-
         [{"clientId":"aia-inference-router",
           "displayName":"Inference Router",
@@ -227,8 +227,8 @@ services:
       dockerfile: deploy/docker/python.Dockerfile
       args:
         SERVICE: guardrails
-        # `true` baixa o modelo do spaCy e habilita deteccao de nome de pessoa,
-        # ao custo de uma imagem maior e um build mais lento.
+        # `true` downloads the spaCy model and enables person-name detection, at
+        # the cost of a larger image and a slower build.
         WITH_SPACY_MODEL: ${GUARDRAILS_WITH_SPACY:-false}
     environment:
       PORT: 8001
@@ -272,11 +272,11 @@ services:
       DEFAULT_CURRENCY: ${DEFAULT_CURRENCY:-BRL}
       SEMANTIC_CACHE_ENABLED: ${SEMANTIC_CACHE_ENABLED:-false}
       AIA_CONTENT_CAPTURE: ${AIA_CONTENT_CAPTURE:-false}
-      # Ollama nao precisa de chave: e o provedor padrao de custo zero.
+      # Ollama needs no key: it is the default zero-cost provider.
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:1b}
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
-      # Provedores externos entram sozinhos quando a chave existe.
+      # External providers join on their own once the key exists.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}

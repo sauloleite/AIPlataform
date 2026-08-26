@@ -1,8 +1,8 @@
 {{/*
-Entrada e isolamento de rede.
+Ingress and network isolation.
 
-O Ingress mapeia cada prefixo para o servico dono daquele contrato — o mesmo
-roteamento que o Traefik faz no compose.
+The Ingress maps each prefix to the service that owns that contract — the same
+routing Traefik performs under compose.
 */}}
 
 {{- if .Values.ingress.enabled }}
@@ -116,7 +116,7 @@ spec:
         - podSelector:
             matchLabels:
               {{- include "aia.selectorLabels" . | nindent 14 }}
-    # DNS: sem isto nada resolve nome de servico.
+    # DNS: without this nothing resolves a service name.
     - to:
         - namespaceSelector: {}
           podSelector:
@@ -127,14 +127,14 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Saida para a internet: e por onde o router alcanca OpenAI, Gemini e
-    # Anthropic. Restrinja por FQDN se o seu CNI suportar.
+    # Egress to the internet: this is how the router reaches OpenAI, Gemini and
+    # Anthropic. Restrict it by FQDN if your CNI supports it.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              # Bloqueia acesso a rede interna e ao metadata da nuvem, que e um
-              # alvo classico de SSRF.
+              # Blocks access to the internal network and to the cloud metadata
+              # endpoint, a classic SSRF target.
               - 10.0.0.0/8
               - 172.16.0.0/12
               - 192.168.0.0/16

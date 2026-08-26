@@ -2,7 +2,7 @@
   "name": "@aia/auth",
   "version": "0.1.0",
   "private": true,
-  "description": "Validacao local de JWT com JWKS, Principal, RBAC e ABAC",
+  "description": "Local JWT validation with JWKS, Principal, RBAC and ABAC",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

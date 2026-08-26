@@ -1,15 +1,15 @@
 # Datasets
 
-Um arquivo JSONL por caso de uso. Cada linha:
+One JSONL file per use case. Each line:
 
 ```json
-{ "id": "credito-001", "input": "...", "expected": "...", "context": [], "tags": ["credito"] }
+{ "id": "credit-001", "input": "...", "expected": "...", "context": [], "tags": ["credit"] }
 ```
 
-Regras:
+Rules:
 
-- **Versionado no Git**, para que uma mudanca de dataset apareca em PR. Melhorar
-  o numero mudando o dataset e o jeito mais facil de enganar a si mesmo.
-- **Sem PII real**, nunca. Use dados sinteticos; para CPF, use valores validos
-  pelo digito verificador mas nao atribuidos.
-- Amostra de producao so entra **anonimizada** e com aprovacao do DPO.
+- **Versioned in Git**, so a dataset change shows up in a PR. Improving the
+  number by changing the dataset is the easiest way to fool yourself.
+- **No real PII**, ever. Use synthetic data; for a CPF, use values that pass the
+  check digit but were never assigned.
+- A production sample only goes in **anonymised** and with DPO approval.

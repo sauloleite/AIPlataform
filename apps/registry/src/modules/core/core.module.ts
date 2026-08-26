@@ -3,11 +3,11 @@ import { Module, type Provider } from '@nestjs/common';
 import { Db } from 'mongodb';
 import { Redis } from 'ioredis';
 import { HEALTH_CHECKS, HealthController, type DependencyCheck } from '@aia/nest';
-import { Exemplo } from './application/use-cases/exemplo.js';
+import { Example } from './application/use-cases/example.js';
 import { CLOCK, ID_GENERATOR, type Clock, type IdGenerator } from './application/ports.js';
 import { RegistryController } from './presentation/http/core.controller.js';
 
-/** Wiring: o unico lugar que conhece as tres camadas ao mesmo tempo. */
+/** Wiring: the only place that knows all three layers at once. */
 const adapters: Provider[] = [
   { provide: CLOCK, useValue: { now: (): Date => new Date() } satisfies Clock },
   { provide: ID_GENERATOR, useValue: { next: (): string => randomUUID() } satisfies IdGenerator },
@@ -37,6 +37,6 @@ const adapters: Provider[] = [
 
 @Module({
   controllers: [RegistryController, HealthController],
-  providers: [Exemplo, ...adapters],
+  providers: [Example, ...adapters],
 })
 export class RegistryModule {}

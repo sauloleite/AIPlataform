@@ -3,9 +3,9 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['src/**/*.spec.ts'],
-    // Este pacote so contem tipos gerados a partir dos contratos. O que o
-    // valida e o job `contracts` do CI, que regera e falha se o resultado
-    // divergir do commitado.
+    // This package holds nothing but types generated from the contracts. What
+    // validates it is the `contracts` CI job, which regenerates them and fails if
+    // the result differs from what was committed.
     passWithNoTests: true,
   },
 });

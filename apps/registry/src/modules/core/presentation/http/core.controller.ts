@@ -1,17 +1,17 @@
 import { Controller, Get, Req } from '@nestjs/common';
 import { POLICY, authorize } from '@aia/auth';
 import { principalOf, projectIdOf, type AuthenticatedRequest } from '@aia/nest';
-import { Exemplo } from '../../application/use-cases/exemplo.js';
+import { Example } from '../../application/use-cases/example.js';
 
-/** Adapta HTTP para os casos de uso. Nenhuma regra de negocio aqui. */
+/** Adapts HTTP to the use cases. No business rule here. */
 @Controller('v1/registry')
 export class RegistryController {
-  constructor(private readonly exemplo: Exemplo) {}
+  constructor(private readonly example: Example) {}
 
   @Get()
   async list(@Req() request: AuthenticatedRequest): Promise<{ id: string }> {
     const projectId = projectIdOf(request);
     authorize(POLICY.READ_PROJECT, { principal: principalOf(request), projectId });
-    return this.exemplo.execute({ projectId });
+    return this.example.execute({ projectId });
   }
 }

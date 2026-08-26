@@ -1,12 +1,12 @@
 {{/*
-MongoDB, Redis e Ollama como StatefulSet proprio.
+MongoDB, Redis and Ollama as our own StatefulSets.
 
-Autocontido de proposito: o chart nao depende de repositorio de terceiros, cuja
-politica de imagens pode mudar sem aviso (ADR-012).
+Self-contained on purpose: the chart does not depend on a third-party repository
+whose image policy can change without notice (ADR-012).
 
-Estes manifestos servem para COMECAR. Para producao com alta disponibilidade,
-desligue (`mongodb.enabled=false`) e aponte para um operador dedicado ou um
-servico gerenciado — o `externalUri` existe exatamente para isso.
+These manifests are for GETTING STARTED. For production with high availability,
+switch them off (`mongodb.enabled=false`) and point at a dedicated operator or a
+managed service — `externalUri` exists for exactly that.
 */}}
 
 {{- if .Values.mongodb.enabled }}
@@ -38,8 +38,8 @@ spec:
       containers:
         - name: mongodb
           image: mongo:8.0
-          # Replica set mesmo com um no: transacao multi-documento exige, e e
-          # ela que sustenta o padrao outbox (ADR-007).
+          # A replica set even with one node: multi-document transactions need
+          # one, and they are what underpins the outbox pattern (ADR-007).
           args: ['--replSet', 'rs0', '--bind_ip_all']
           ports:
             - name: mongodb
@@ -83,7 +83,7 @@ metadata:
     {{- include "aia.labels" . | nindent 4 }}
     app.kubernetes.io/component: mongodb
 spec:
-  # Headless: o replica set precisa de DNS estavel por pod.
+  # Headless: the replica set needs stable per-pod DNS.
   clusterIP: None
   ports:
     - port: 27017
@@ -125,13 +125,13 @@ spec:
           image: redis:7.4-alpine
           args:
             - redis-server
-            # appendonly: o contador de orcamento sobrevive a um restart.
+            # appendonly: the budget counter survives a restart.
             - --appendonly
             - 'yes'
             - --maxmemory
             - {{ .Values.redis.maxmemory | default "512mb" | quote }}
-            # noeviction de proposito: despejar um contador de orcamento
-            # silenciosamente seria pior do que falhar de forma visivel.
+            # noeviction on purpose: silently evicting a budget counter would
+            # be worse than failing visibly.
             - --maxmemory-policy
             - noeviction
           ports:
@@ -201,9 +201,9 @@ spec:
         {{- include "aia.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: ollama
     spec:
-      # A imagem do Ollama grava em /root/.ollama por padrao, o que exigiria
-      # root. `OLLAMA_MODELS` e `HOME` movem o estado para o volume, e assim o
-      # pod roda sem privilegio como todos os outros.
+      # The Ollama image writes to /root/.ollama by default, which would require
+      # root. `OLLAMA_MODELS` and `HOME` move the state onto the volume, so this
+      # pod runs unprivileged like every other one.
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

@@ -1,9 +1,9 @@
-/** Comandos e resultados. Sem `Request`, sem header, sem decorator de HTTP. */
+/** Commands and results. No `Request`, no headers, no HTTP decorators. */
 
-export interface ExemploCommand {
+export interface ExampleCommand {
   projectId: string;
 }
 
-export interface ExemploResult {
+export interface ExampleResult {
   id: string;
 }

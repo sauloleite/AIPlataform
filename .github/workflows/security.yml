@@ -1,4 +1,4 @@
-name: Seguranca
+name: Security
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Dependencia nova com CVE nao espera a proxima PR.
+    # A new dependency with a CVE does not wait for the next PR.
     - cron: '0 6 * * 1'
 
 permissions:
@@ -21,8 +21,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: returntocorp/semgrep-action@v1
         with:
-          # Regras da comunidade, open source. Cobrem OWASP Top 10, secrets em
-          # codigo e antipadroes de seguranca em TypeScript e Python.
+          # Community rules, open source. They cover the OWASP Top 10, secrets in
+          # code and security anti-patterns in TypeScript and Python.
           config: >-
             p/default
             p/typescript
@@ -32,24 +32,24 @@ jobs:
             p/dockerfile
 
   secrets:
-    name: Segredos no historico
+    name: Secrets in history
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          # gitleaks precisa do historico para varrer commits antigos.
+          # gitleaks needs the history to scan old commits.
           fetch-depth: 0
-      - name: Instalar gitleaks
+      - name: Install gitleaks
         run: |
           VERSION=8.24.3
           curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
             | tar -xz -C /usr/local/bin gitleaks
 
-      - name: Varrer o historico completo
+      - name: Scan the whole history
         run: gitleaks detect --source . --redact --verbose --exit-code 1
 
   dependencies:
-    name: Vulnerabilidades em dependencias
+    name: Dependency vulnerabilities
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +71,7 @@ jobs:
             --format=table
 
   containers:
-    name: Vulnerabilidades nas imagens
+    name: Image vulnerabilities
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -88,28 +88,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Construir a imagem
+      - name: Build the image
         run: |
           docker build --pull -f ${{ matrix.dockerfile }} \
             --build-arg SERVICE=${{ matrix.service }} \
             -t aia-${{ matrix.service }}:scan .
 
-      - name: Instalar Trivy
-        # Binario baixado direto, sem action de terceiro: a versao fica visivel
-        # e o passo nao quebra quando o wrapper muda de tag.
+      - name: Install Trivy
+        # The binary is downloaded directly, with no third-party action: the
+        # version stays visible and the step does not break when a wrapper
+        # changes its tag.
         run: |
           VERSION=0.74.0
           curl -sSL "https://github.com/aquasecurity/trivy/releases/download/v${VERSION}/trivy_${VERSION}_Linux-64bit.tar.gz" \
             | sudo tar -xz -C /usr/local/bin trivy
           trivy --version
 
-      # O binario e chamado direto, e nao pelo wrapper da action, por dois
-      # motivos concretos: o input `trivyignores` concatena os arquivos como
-      # texto puro e destroi o formato YAML (que e o que carrega o prazo de
-      # validade de cada excecao), e o wrapper resolve caminhos relativos a
-      # partir de um diretorio proprio, entao o arquivo simplesmente nao era
-      # encontrado.
-      - name: Trivy (relatorio para o code scanning)
+      # The binary is invoked directly rather than through the action wrapper for
+      # two concrete reasons: the `trivyignores` input concatenates the files as
+      # plain text and destroys the YAML format (which is what carries each
+      # exception's expiry date), and the wrapper resolves relative paths from a
+      # directory of its own, so the file was simply never found.
+      - name: Trivy (report for code scanning)
         run: |
           trivy image \
             --scanners vuln \
@@ -121,8 +121,8 @@ jobs:
             "aia-${{ matrix.service }}:scan"
 
       - name: Trivy (gate)
-        # Vulnerabilidade sem correcao disponivel nao bloqueia o build; o que
-        # bloqueia e a que tem patch publicado e ninguem aplicou.
+        # A vulnerability with no fix available does not block the build; what
+        # blocks is one with a published patch nobody applied.
         run: |
           trivy image \
             --scanners vuln \
@@ -132,7 +132,7 @@ jobs:
             --exit-code 1 \
             "aia-${{ matrix.service }}:scan"
 
-      - name: Publicar no code scanning
+      - name: Publish to code scanning
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:

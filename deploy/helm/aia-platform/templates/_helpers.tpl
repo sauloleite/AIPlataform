@@ -26,23 +26,23 @@ app.kubernetes.io/name: {{ include "aia.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
-{{/* Imagem de um servico. */}}
+{{/* A service's image. */}}
 {{- define "aia.image" -}}
 {{- $tag := default .root.Chart.AppVersion .root.Values.global.imageTag -}}
 {{- printf "%s/%s/%s:%s" .root.Values.global.imageRegistry .root.Values.global.imageRepository .service $tag -}}
 {{- end }}
 
 {{/*
-URI do MongoDB.
+The MongoDB URI.
 
-Usa o subchart quando habilitado, senao a URI externa. Trocar de um para o
-outro nao toca em nenhum servico (ADR-012).
+Uses the in-chart StatefulSet when enabled, otherwise the external URI. Swapping
+one for the other touches no service (ADR-012).
 */}}
 {{- define "aia.mongoUri" -}}
 {{- if .Values.mongodb.enabled -}}
 mongodb://{{ .Release.Name }}-mongodb-headless:27017/?replicaSet=rs0
 {{- else -}}
-{{ required "Com mongodb.enabled=false, informe mongodb.externalUri" .Values.mongodb.externalUri }}
+{{ required "With mongodb.enabled=false, set mongodb.externalUri" .Values.mongodb.externalUri }}
 {{- end -}}
 {{- end }}
 
@@ -78,7 +78,7 @@ http://{{ include "aia.fullname" . }}-ollama:11434
 {{- end -}}
 {{- end }}
 
-{{/* Ambiente comum a todo servico da plataforma. */}}
+{{/* Environment shared by every platform service. */}}
 {{- define "aia.commonEnv" -}}
 - name: NODE_ENV
   value: production

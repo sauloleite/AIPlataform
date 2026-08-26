@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { startTelemetry } from '@aia/telemetry';
 
-// A telemetria sobe ANTES de qualquer import que faca I/O: a auto-instrumentacao
-// precisa envolver os modulos no momento da carga.
+// Telemetry starts BEFORE any import that does I/O: auto-instrumentation has to
+// wrap the modules at load time.
 startTelemetry({ serviceName: 'aia-registry' });
 
 const { NestFactory } = await import('@nestjs/core');
@@ -22,4 +22,4 @@ app.useGlobalFilters(new ProblemDetailsFilter());
 app.enableShutdownHooks();
 
 await app.listen(config.PORT, '0.0.0.0');
-logger.log(`aia-registry ouvindo na porta ${config.PORT.toString()}`);
+logger.log(`aia-registry listening on port ${config.PORT.toString()}`);

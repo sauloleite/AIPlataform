@@ -1,133 +1,145 @@
-# Convenções deste repositório
+# Conventions of this repository
 
-Plataforma de IA open source e agnóstica de cloud. Monorepo poliglota: NestJS e
-FastAPI, com bibliotecas compartilhadas espelhadas nas duas linguagens.
+An open source, cloud-agnostic AI platform. A polyglot monorepo: NestJS and
+FastAPI, with shared libraries mirrored across both languages.
 
-## Comandos
+## Commands
 
 ```bash
-make bootstrap    # instala pnpm, uv e dependências
-make dev          # sobe tudo em containers
-make check        # o que o CI roda: lint, tipos, arquitetura, testes
-make arch         # só a regra de dependência
-make e2e          # fluxo 7.1 contra o ambiente local
-make contracts    # regera tipos a partir de contracts/openapi
+make bootstrap    # installs pnpm, uv and the dependencies
+make dev          # brings everything up in containers
+make check        # what CI runs: lint, types, architecture, tests
+make arch         # just the dependency rule
+make e2e          # flow 7.1 against the local environment
+make contracts    # regenerates the types from contracts/openapi
 ```
 
-`pnpm` e `uv` ficam em `~/.local/bin` — o Makefile já ajusta o PATH.
+`pnpm` and `uv` live in `~/.local/bin` — the Makefile already fixes the PATH.
 
-## Regra de dependência — não negociável
+## The dependency rule — non-negotiable
 
-Dependências apontam **para dentro**:
+Dependencies point **inwards**:
 
 ```
 presentation  →  application  →  domain
-infrastructure ─implementa→ ports (em application/)
+infrastructure ─implements→ ports (in application/)
 ```
 
-- `domain/` é código puro: sem framework, sem I/O, sem relógio, sem `@nestjs`,
-  sem `fastapi`, sem cliente de banco.
-- `application/` fala só com **ports** (interfaces / `Protocol`), nunca com
+- `domain/` is pure code: no framework, no I/O, no clock, no `@nestjs`, no
+  `fastapi`, no database client.
+- `application/` talks only to **ports** (interfaces / `Protocol`), never to
   adapters.
-- O wiring (`*.module.ts`, `container.py`) é o único lugar que conhece as três
-  camadas.
-- Nenhum serviço importa domínio de outro. Use contratos.
+- The wiring (`*.module.ts`, `container.py`) is the only place that knows all
+  three layers.
+- No service imports another service's domain. Use contracts.
 
-`make arch` reprova. O CI vai além: introduz uma violação de propósito e falha se
-a regra não pegar.
+`make arch` fails on a violation. CI goes further: it introduces a violation on
+purpose and fails if the rule does not catch it.
 
-## Onde colocar o quê
+## Where things go
 
-| Você está escrevendo                    | Vai em                               |
-| --------------------------------------- | ------------------------------------ |
-| Regra de negócio pura                   | `domain/`                            |
-| Orquestração de um caso de uso          | `application/use-cases/`             |
-| Interface de dependência externa        | `application/ports.ts` ou `ports.py` |
-| Cliente de banco, HTTP, provedor        | `infrastructure/`                    |
-| Controller, SSE, consumer de fila       | `presentation/`                      |
-| Comportamento usado por vários serviços | `packages/` ou `python/`             |
+| You are writing                        | It goes in                           |
+| -------------------------------------- | ------------------------------------ |
+| A pure business rule                   | `domain/`                            |
+| Orchestration of a use case            | `application/use-cases/`             |
+| An interface to an external dependency | `application/ports.ts` or `ports.py` |
+| A database, HTTP or provider client    | `infrastructure/`                    |
+| A controller, SSE, queue consumer      | `presentation/`                      |
+| Behaviour used by several services     | `packages/` or `python/`             |
 
-Se algo é útil para dois serviços, é biblioteca compartilhada — não copie.
+If something is useful to two services, it is a shared library — do not copy it.
 
-## Bibliotecas compartilhadas
+## Shared libraries
 
-| TypeScript        | Python           | O quê                                           |
-| ----------------- | ---------------- | ----------------------------------------------- |
-| `@aia/errors`     | `aia_errors`     | Problem Details (RFC 9457), catálogo de códigos |
-| `@aia/auth`       | `aia_auth`       | JWT local com JWKS, Principal, RBAC/ABAC        |
-| `@aia/resilience` | `aia_resilience` | Timeout, retry, circuit breaker, bulkhead       |
-| `@aia/telemetry`  | `aia_telemetry`  | OTel com `gen_ai.*` e `aia.*`                   |
-| `@aia/messaging`  | `aia_messaging`  | CloudEvents, outbox, Redis Streams              |
-| `@aia/nest`       | —                | Cola HTTP: filtro, guard, health                |
+| TypeScript        | Python           | What                                                 |
+| ----------------- | ---------------- | ---------------------------------------------------- |
+| `@aia/errors`     | `aia_errors`     | Problem Details (RFC 9457), the error code catalogue |
+| `@aia/auth`       | `aia_auth`       | Local JWT with JWKS, Principal, RBAC/ABAC            |
+| `@aia/resilience` | `aia_resilience` | Timeout, retry, circuit breaker, bulkhead            |
+| `@aia/telemetry`  | `aia_telemetry`  | OTel with `gen_ai.*` and `aia.*`                     |
+| `@aia/messaging`  | `aia_messaging`  | CloudEvents, outbox, Redis Streams                   |
+| `@aia/nest`       | —                | HTTP glue: filter, guard, health                     |
 
-**Nunca reinvente retry, timeout ou circuit breaker.** Use `POLICIES` do
-`@aia/resilience`; os valores vêm da tabela do doc 02 §8.
+**Never reinvent retry, timeout or circuit breaker.** Use `POLICIES` from
+`@aia/resilience`; the values come from the table in reference doc 02 §8.
 
-## Padrões que valem em todo lugar
+## Patterns that hold everywhere
 
-**Erros**: exceção de domínio tipada, com código estável do catálogo. Nunca
-retorne `null` para indicar erro, nunca engula exceção. Erro desconhecido vira
-500 sem detalhe — a mensagem interna vai só para o log.
+**Errors**: a typed domain exception, with a stable code from the catalogue.
+Never return `null` to signal an error, never swallow an exception. An unknown
+error becomes a 500 with no detail — the internal message goes to the log only.
 
-**Tenant**: `project_id` é obrigatório em todo contrato, evento, trace e chave de
-partição. Uma rota que não opera sobre projeto declara `@NoProject()`.
+**Tenant**: `project_id` is required on every contract, event, trace and
+partition key. A route that does not operate on a project declares `@NoProject()`.
 
-**Configuração**: validada no boot com zod ou pydantic-settings. A aplicação
-**não sobe** com configuração inválida.
+**Configuration**: validated at boot with zod or pydantic-settings. The
+application **does not start** on invalid configuration.
 
-**Segredos**: nunca em código, nunca em variável commitada. Chave de provedor
-ausente desabilita aquele provedor, não derruba o serviço.
+**Secrets**: never in code, never in a committed variable. A missing provider key
+disables that provider; it does not bring the service down.
 
-**Telemetria**: todo span carrega `aia.project_id`. Chamada de modelo carrega
-`gen_ai.*`. Conteúdo de prompt só com opt-in do projeto, e depois da redação.
+**Telemetry**: every span carries `aia.project_id`. A model call carries
+`gen_ai.*`. Prompt content only with project opt-in, and only after redaction.
 
-**Testes**: fakes, não mocks. O teste verifica comportamento, não sequência de
-chamadas. **Todo caminho de erro tem teste** — o caminho feliz é o mais fácil e o
-menos informativo.
+**Tests**: fakes, not mocks. A test verifies behaviour, not a sequence of calls.
+**Every error path has a test** — the happy path is the easiest and the least
+informative.
 
-## Comentários
+## Language
 
-Explique **por quê**, nunca **o quê**. O código já diz o quê.
+Code, comments, documentation and commit messages are in **English**. The
+exceptions are deliberate and few: the prompt-injection patterns in
+`apps/guardrails` and the adversarial payloads in `evals/redteam/` stay in
+Portuguese, because an attempt arrives in whatever language the user writes; and
+`docs/reference/` holds the original architecture documents, kept unaltered as
+the source this work started from.
+
+## Comments
+
+Explain **why**, never **what**. The code already says what.
 
 ```ts
-// Ruim: incrementa o contador de reservas
-// Bom:  script Lua porque entre ler e gravar outra réplica leria o mesmo saldo
+// Bad:  increments the reservation counter
+// Good: a Lua script, because between the read and the write another replica
+//       would read the same balance
 ```
 
-Comente decisão não óbvia, trade-off assumido, e o motivo de um jeito estranho
-ser o certo. Se a decisão é estrutural, o lugar dela é um ADR.
+Comment a non-obvious decision, an accepted trade-off, and the reason a strange
+approach is the right one. If the decision is structural, its place is an ADR.
 
-## Convenções de nome
+## Naming conventions
 
-- Serviço: `aia-<nome>` em kebab-case. Pacote TS: `@aia/<nome>`. Python: `aia_<nome>`.
-- Caso de uso: verbo (`CreateChatCompletion`). Entidade: substantivo (`BudgetReservation`).
-- Evento: `aia.<domínio>.<fato>.v<N>` — mudança incompatível cria novo tipo.
-- Código de erro: `snake_case` estável, no catálogo de `@aia/errors`.
+- Service: `aia-<name>` in kebab-case. TS package: `@aia/<name>`. Python:
+  `aia_<name>`.
+- Use case: a verb (`CreateChatCompletion`). Entity: a noun
+  (`BudgetReservation`).
+- Event: `aia.<domain>.<fact>.v<N>` — a breaking change creates a new type.
+- Error code: stable `snake_case`, in the `@aia/errors` catalogue.
 
-## Contratos
+## Contracts
 
-Contract-first. O YAML em `contracts/openapi/` é a fonte; os tipos são gerados. O
-CI falha se divergirem. Mudou a API? Mude o contrato primeiro.
+Contract-first. The YAML under `contracts/openapi/` is the source; the types are
+generated. CI fails if they diverge. Changed the API? Change the contract first.
 
-## Serviço novo
+## A new service
 
 ```bash
-node tools/generators/new-service.mjs --name meu-servico --runtime node --port 3010
+node tools/generators/new-service.mjs --name my-service --runtime node --port 3010
 ```
 
-Produz o esqueleto correto por construção. Não copie um serviço existente.
+It produces the right skeleton by construction. Do not copy an existing service.
 
-## Antes de abrir PR
+## Before opening a PR
 
-- `make check` passa
-- Contrato atualizado se a API mudou
-- Caminhos de erro cobertos
-- ADR criado ou atualizado se a decisão é estrutural
+- `make check` passes
+- The contract is updated if the API changed
+- Error paths are covered
+- An ADR is created or updated if the decision is structural
 - Conventional Commits
 
-## Contexto
+## Context
 
-`docs/reference/` traz os documentos de arquitetura originais, que assumem Azure.
-Esta implementação é agnóstica de cloud — onde divergimos, o ADR correspondente
-explica o quê e o porquê. Leia `docs/adr/README.md` antes de propor mudança
-estrutural.
+`docs/reference/` holds the original architecture documents, which assume Azure.
+This implementation is cloud-agnostic — wherever we diverge, the corresponding
+ADR explains what and why. Read `docs/adr/README.md` before proposing a
+structural change.

@@ -1,15 +1,15 @@
-# Sobreposicao de producao para self-host (VPS, servidor on-premise, homelab).
+# Production overlay for self-hosting (VPS, on-premise server, homelab).
 #
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# O que muda em relacao ao desenvolvimento:
-#   - nenhuma porta exposta alem do Traefik;
-#   - segredos por arquivo, nunca por variavel de ambiente;
-#   - limites de CPU e memoria em todo servico;
-#   - TLS automatico via Let's Encrypt.
+# What changes relative to development:
+#   - no port exposed other than Traefik's;
+#   - secrets from files, never from environment variables;
+#   - CPU and memory limits on every service;
+#   - automatic TLS through Let's Encrypt.
 
 services:
-  # Bancos e ferramentas param de escutar no host: so a rede interna alcanca.
+  # Databases and tools stop listening on the host: only the internal network reaches them.
   mongo:
     ports: !override []
     deploy:
@@ -46,7 +46,7 @@ services:
   lgtm:
     ports: !override []
     environment:
-      # Grafana anonimo e aceitavel em dev, nao em producao.
+      # Anonymous Grafana is acceptable in dev, not in production.
       GF_AUTH_ANONYMOUS_ENABLED: 'false'
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
     secrets: [grafana_password]
@@ -73,7 +73,7 @@ services:
       - '--certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json'
       - '--certificatesresolvers.letsencrypt.acme.tlschallenge=true'
       - '--accesslog=true'
-      # Dashboard fechado: em producao ele expoe a topologia inteira.
+      # Dashboard closed: in production it exposes the entire topology.
       - '--api.dashboard=false'
     ports: !override ['80:80', '443:443']
     volumes:
@@ -84,7 +84,7 @@ services:
     ports: !override []
     environment:
       NODE_ENV: production
-      # Sem chave persistida, reiniciar invalidaria todos os tokens emitidos.
+      # Without a persisted key, restarting would invalidate every issued token.
       IDENTITY_SIGNING_PRIVATE_KEY_FILE: /run/secrets/identity_signing_key
       IDENTITY_TOKEN_PEPPER_FILE: /run/secrets/identity_pepper
     secrets: [identity_signing_key, identity_pepper]

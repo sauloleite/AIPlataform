@@ -1,12 +1,13 @@
 /**
- * Regra de dependencia da Clean Architecture (doc 03, secao 3.1).
- * Dependencias apontam para dentro: presentation -> application -> domain.
- * Infraestrutura implementa ports e so e referenciada pelo wiring (*.module.ts, container.ts).
+ * The Clean Architecture dependency rule (reference doc 03 §3.1).
+ * Dependencies point inwards: presentation -> application -> domain.
+ * Infrastructure implements ports and is referenced only by the wiring
+ * (*.module.ts, container.ts).
  *
- * Este arquivo falha o build. Nao relaxe uma regra sem um ADR.
+ * This file fails the build. Do not relax a rule without an ADR.
  */
 
-/** Pacotes que caracterizam framework, I/O ou provedor externo. */
+/** Packages that mark a framework, I/O or an external provider. */
 const FRAMEWORK_PACKAGES = [
   '^@nestjs',
   '^express',
@@ -31,7 +32,7 @@ const FRAMEWORK_PACKAGES = [
   '^class-transformer',
 ];
 
-/** Modulos nativos do Node que sinalizam I/O dentro do dominio. */
+/** Node built-ins that signal I/O inside the domain. */
 const NODE_IO_BUILTINS = [
   '^fs$',
   '^node:fs',
@@ -50,25 +51,25 @@ const NODE_IO_BUILTINS = [
 module.exports = {
   forbidden: [
     {
-      name: 'dominio-nao-conhece-infraestrutura',
+      name: 'domain-does-not-know-infrastructure',
       severity: 'error',
       comment:
-        'domain/ e TypeScript puro. Persistencia, HTTP e provedores ficam atras de ports em application/ports.',
+        'domain/ is plain TypeScript. Persistence, HTTP and providers sit behind ports in application/ports.',
       from: { path: '(^|/)domain/' },
       to: { path: '(^|/)(infrastructure|presentation)/' },
     },
     {
-      name: 'dominio-nao-conhece-aplicacao',
+      name: 'domain-does-not-know-application',
       severity: 'error',
-      comment: 'A dependencia aponta para dentro: application conhece domain, nunca o contrario.',
+      comment:
+        'The dependency points inwards: application knows domain, never the other way round.',
       from: { path: '(^|/)domain/' },
       to: { path: '(^|/)application/' },
     },
     {
-      name: 'dominio-nao-conhece-framework',
+      name: 'domain-does-not-know-frameworks',
       severity: 'error',
-      comment:
-        'Nenhum decorator de framework, cliente de banco ou SDK de provedor dentro de domain/.',
+      comment: 'No framework decorator, database client or provider SDK inside domain/.',
       from: { path: '(^|/)domain/' },
       to: {
         dependencyTypes: ['npm', 'npm-dev', 'npm-optional', 'npm-peer'],
@@ -76,40 +77,40 @@ module.exports = {
       },
     },
     {
-      name: 'dominio-nao-faz-io',
+      name: 'domain-does-no-io',
       severity: 'error',
-      comment: 'domain/ nao le arquivo, nao abre socket e nao chama processo.',
+      comment: 'domain/ reads no file, opens no socket and spawns no process.',
       from: { path: '(^|/)domain/' },
       to: { dependencyTypes: ['core'], path: NODE_IO_BUILTINS },
     },
     {
-      name: 'aplicacao-nao-conhece-infraestrutura',
+      name: 'application-does-not-know-infrastructure',
       severity: 'error',
       comment:
-        'Casos de uso dependem de ports (interfaces), nunca de adapters. O wiring resolve isso.',
+        'Use cases depend on ports (interfaces), never on adapters. The wiring resolves that.',
       from: { path: '(^|/)application/' },
       to: { path: '(^|/)(infrastructure|presentation)/' },
     },
     {
-      name: 'aplicacao-nao-conhece-http',
+      name: 'application-does-not-know-http',
       severity: 'error',
-      comment: 'Casos de uso recebem comandos, nunca Request do Express (doc 03, secao 3.2).',
+      comment: 'Use cases take commands, never an Express Request (reference doc 03 §3.2).',
       from: { path: '(^|/)application/' },
       to: { dependencyTypes: ['npm'], path: ['^express', '^fastify', '^@nestjs/platform'] },
     },
     {
-      name: 'apresentacao-nao-instancia-adapter',
+      name: 'presentation-does-not-instantiate-adapters',
       severity: 'error',
       comment:
-        'Controllers falam com casos de uso. Adapters chegam por injecao; o wiring vive em *.module.ts.',
+        'Controllers talk to use cases. Adapters arrive by injection; the wiring lives in *.module.ts.',
       from: { path: '(^|/)presentation/', pathNot: '\\.module\\.ts$' },
       to: { path: '(^|/)infrastructure/' },
     },
     {
-      name: 'servico-nao-importa-dominio-de-outro',
+      name: 'no-service-imports-another-services-domain',
       severity: 'error',
       comment:
-        'Nenhum servico importa codigo de dominio de outro (doc 02, secao 5). Use contratos.',
+        "No service imports another service's domain code (reference doc 02 §5). Use contracts.",
       from: { path: '^apps/([^/]+)/' },
       to: {
         path: '^apps/(?!$1)[^/]+/',
@@ -117,23 +118,23 @@ module.exports = {
       },
     },
     {
-      name: 'pacote-compartilhado-nao-depende-de-servico',
+      name: 'shared-package-does-not-depend-on-a-service',
       severity: 'error',
-      comment: 'packages/ e reutilizavel: nao conhece nenhum apps/.',
+      comment: 'packages/ is reusable: it knows no apps/.',
       from: { path: '^packages/' },
       to: { path: '^apps/' },
     },
     {
-      name: 'sem-dependencia-circular',
+      name: 'no-circular-dependency',
       severity: 'error',
-      comment: 'Ciclo de import indica fronteira errada entre modulos.',
+      comment: 'An import cycle indicates a wrong boundary between modules.',
       from: {},
       to: { circular: true },
     },
     {
-      name: 'sem-orfaos',
+      name: 'no-orphans',
       severity: 'warn',
-      comment: 'Arquivo que ninguem importa costuma ser codigo morto.',
+      comment: 'A file nobody imports is usually dead code.',
       from: {
         orphan: true,
         pathNot: [
@@ -142,7 +143,7 @@ module.exports = {
           '(^|/)(index|main)\\.ts$',
           '\\.(spec|test)\\.ts$',
           '(^|/)tsconfig[^/]*\\.json$',
-          // Arquivos de configuracao sao carregados pela ferramenta, nao importados.
+          // Config files are loaded by the tool, not imported.
           '\\.config\\.(ts|mts|cts|js|mjs|cjs)$',
         ],
       },

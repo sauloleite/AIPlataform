@@ -1,5 +1,5 @@
 {
-  "//": "Config de EDITOR e LINT da raiz. O build usa tsconfig.build.json.",
+  "//": "Root EDITOR and LINT config. The build uses tsconfig.build.json.",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,

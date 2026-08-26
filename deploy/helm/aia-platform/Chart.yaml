@@ -1,8 +1,8 @@
 apiVersion: v2
 name: aia-platform
 description: |
-  AIA 2.0 OSS - plataforma corporativa de IA, agnostica de cloud.
-  Roda em qualquer Kubernetes: k3s, kind, EKS, GKE, AKS ou on-premise.
+  AIA 2.0 OSS - an enterprise AI platform, cloud-agnostic.
+  Runs on any Kubernetes: k3s, kind, EKS, GKE, AKS or on-premise.
 type: application
 version: 0.1.0
 appVersion: '0.1.0'
@@ -11,12 +11,12 @@ home: https://github.com/sauloleite/AIPlataform
 sources:
   - https://github.com/sauloleite/AIPlataform
 
-# Sem dependencias externas de chart.
+# No external chart dependencies.
 #
-# MongoDB e Redis vem como StatefulSet proprio, simples, para que o chart seja
-# autocontido e nao dependa de um repositorio de terceiros cuja politica de
-# imagens pode mudar (ADR-012 - independencia de fornecedor vale tambem aqui).
+# MongoDB and Redis come as our own simple StatefulSets, so the chart is
+# self-contained and does not depend on a third-party repository whose image
+# policy can change (ADR-012 - vendor independence applies here too).
 #
-# Para PRODUCAO, prefira `mongodb.enabled=false` / `redis.enabled=false` com um
-# operador dedicado ou um servico gerenciado: os StatefulSets aqui servem para
-# comecar, nao para operar um cluster com alta disponibilidade.
+# For PRODUCTION, prefer `mongodb.enabled=false` / `redis.enabled=false` with a
+# dedicated operator or a managed service: the StatefulSets here are for getting
+# started, not for operating a highly available cluster.
