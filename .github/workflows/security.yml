@@ -85,6 +85,8 @@ jobs:
             dockerfile: deploy/docker/node.Dockerfile
           - service: guardrails
             dockerfile: deploy/docker/python.Dockerfile
+          - service: web
+            dockerfile: deploy/docker/web.Dockerfile
     steps:
       - uses: actions/checkout@v4
 

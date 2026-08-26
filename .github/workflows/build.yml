@@ -34,6 +34,10 @@ jobs:
             dockerfile: deploy/docker/python.Dockerfile
           - service: agent-runtime
             dockerfile: deploy/docker/python.Dockerfile
+          # The console has its own Dockerfile: Next builds itself, so there is
+          # no `tsc --build` step and no `pnpm deploy`.
+          - service: web
+            dockerfile: deploy/docker/web.Dockerfile
     steps:
       - uses: actions/checkout@v4
 

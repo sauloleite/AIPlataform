@@ -107,6 +107,14 @@ module.exports = {
       to: { path: '(^|/)infrastructure/' },
     },
     {
+      name: 'next-app-router-does-not-instantiate-adapters',
+      severity: 'error',
+      comment:
+        "Next's App Router IS the presentation layer, but it cannot be renamed to presentation/ -- the framework requires src/app. Pages and route handlers reach an adapter through container.ts, never directly.",
+      from: { path: '^apps/web/src/app/', pathNot: '^apps/web/src/container\\.ts$' },
+      to: { path: '(^|/)infrastructure/' },
+    },
+    {
       name: 'no-service-imports-another-services-domain',
       severity: 'error',
       comment:
@@ -145,6 +153,10 @@ module.exports = {
           '(^|/)tsconfig[^/]*\\.json$',
           // Config files are loaded by the tool, not imported.
           '\\.config\\.(ts|mts|cts|js|mjs|cjs)$',
+          // Next loads these by path, not by import. A page nobody imports is
+          // how the App Router works, not dead code.
+          '^apps/web/src/app/.*/(page|layout|route|loading|error|not-found)\\.tsx?$',
+          '^apps/web/src/app/(page|layout|route|loading|error|not-found)\\.tsx?$',
         ],
       },
       to: {},
@@ -152,7 +164,7 @@ module.exports = {
   ],
   options: {
     doNotFollow: { path: 'node_modules' },
-    exclude: { path: '(^|/)(node_modules|dist|coverage|\\.nx)/' },
+    exclude: { path: '(^|/)(node_modules|dist|coverage|\\.nx|\\.next)/' },
     tsPreCompilationDeps: true,
     tsConfig: { fileName: 'tsconfig.base.json' },
     enhancedResolveOptions: {

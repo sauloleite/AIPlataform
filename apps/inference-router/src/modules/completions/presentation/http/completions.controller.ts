@@ -122,7 +122,7 @@ export class CompletionsController {
 
       writer.send('error', {
         code: isDomainError(error) ? error.code : 'internal_error',
-        message: isDomainError(error) ? error.message : 'Erro interno',
+        message: isDomainError(error) ? error.message : 'Internal error',
       });
       writer.close();
     }

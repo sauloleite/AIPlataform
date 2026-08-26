@@ -14,8 +14,17 @@ allowBuilds:
   msgpackr-extract: true
   nx: true
   protobufjs: true
+  # Next pulls sharp for `next/image`, which the console does not use. Saying so
+  # explicitly keeps `pnpm install` from failing over a build script nothing runs.
+  sharp: false
 
 overrides:
   # Transitive, with no direct release from the packages that pull it in.
   # GHSA-rgw5-rvv9-x895.
   brace-expansion: '>=5.0.9'
+  # Both are pinned by Next and both ship in the console image, so the scan sees
+  # them even though nothing in the console loads sharp (no `next/image`) and
+  # postcss only runs at build time. CVE-2026-45623, CVE-2026-73646.
+  postcss: '>=8.5.18'
+  # GHSA-f88m-g3jw-g9cj: libvips vulnerabilities inherited by sharp.
+  sharp: '>=0.35.0'

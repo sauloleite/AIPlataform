@@ -46,6 +46,7 @@ purpose and fails if the rule does not catch it.
 | A database, HTTP or provider client    | `infrastructure/`                    |
 | A controller, SSE, queue consumer      | `presentation/`                      |
 | Behaviour used by several services     | `packages/` or `python/`             |
+| A console screen or a BFF route        | `apps/web/src/app/`                  |
 
 If something is useful to two services, it is a shared library — do not copy it.
 
@@ -120,6 +121,22 @@ approach is the right one. If the decision is structural, its place is an ADR.
 
 Contract-first. The YAML under `contracts/openapi/` is the source; the types are
 generated. CI fails if they diverge. Changed the API? Change the contract first.
+
+## The console
+
+`apps/web` is Next.js and follows the same layering, with one difference the
+framework forces: its presentation layer is `src/app/`, because the App Router
+requires that path. A dedicated dependency-cruiser rule keeps pages and route
+handlers from reaching an adapter directly — they go through `container.ts` like
+everything else.
+
+Reads are Server Components calling use cases. Writes are Server Actions.
+Streaming is the one thing that needs a route handler, because an action returns
+once. The platform token lives in an httpOnly cookie and is attached
+server-side; nothing in the browser ever holds it.
+
+Imports inside `apps/web` carry no `.js` suffix, unlike the services: Next
+resolves with `Bundler`, where the suffix is not rewritten.
 
 ## A new service
 

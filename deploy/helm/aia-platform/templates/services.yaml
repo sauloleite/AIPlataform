@@ -1,9 +1,9 @@
 {{/*
 Platform Deployments and Services.
 
-One template for all four services: they share the same shape (stateless, health
+One template for every service: they share the same shape (stateless, health
 checks, no secret in a variable, optional HPA). Duplicating the manifest per
-service would only create four places to forget to update.
+service would only create as many places to forget to update.
 */}}
 
 {{- $services := list
@@ -12,6 +12,7 @@ service would only create four places to forget to update.
   (dict "key" "guardrails"       "name" "guardrails"       "values" .Values.guardrails       "runtime" "python")
   (dict "key" "inferenceRouter"  "name" "inference-router" "values" .Values.inferenceRouter  "runtime" "node")
   (dict "key" "agentRuntime"     "name" "agent-runtime"    "values" .Values.agentRuntime     "runtime" "python")
+  (dict "key" "web"              "name" "web"              "values" .Values.web              "runtime" "node")
 -}}
 
 {{- range $service := $services }}
@@ -167,6 +168,21 @@ spec:
             {{- end }}
 
             {{- if eq $service.key "agentRuntime" }}
+            - name: INFERENCE_ROUTER_URL
+              value: {{ include "aia.routerUrl" $ | quote }}
+            {{- end }}
+
+            {{- if eq $service.key "web" }}
+            {{/*
+              Every address the console needs is server-side. None is prefixed
+              NEXT_PUBLIC_, because that would inline it into the browser bundle,
+              and the browser has no business knowing the platform's internal
+              addresses -- it talks only to the console.
+            */}}
+            - name: IDENTITY_URL
+              value: {{ include "aia.identityUrl" $ | quote }}
+            - name: GOVERNANCE_URL
+              value: {{ include "aia.governanceUrl" $ | quote }}
             - name: INFERENCE_ROUTER_URL
               value: {{ include "aia.routerUrl" $ | quote }}
             {{- end }}

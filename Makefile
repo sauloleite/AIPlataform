@@ -31,7 +31,8 @@ dev-infra: ## Brings up the infrastructure only (Mongo, Redis, MinIO, Qdrant, LG
 dev: ## Brings the whole platform up in development mode
 	$(COMPOSE) up -d --build
 	@echo ""
-	@echo "  API        http://localhost:8080"
+	@echo "  Console    http://localhost:8080"
+	@echo "  API        http://localhost:8080/v1"
 	@echo "  Grafana    http://localhost:3000"
 	@echo "  MinIO      http://localhost:9001"
 	@echo "  Qdrant     http://localhost:6333/dashboard"

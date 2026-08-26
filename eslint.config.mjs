@@ -16,6 +16,10 @@ export default tseslint.config(
       // The Python virtualenv brings in third-party libraries' JS.
       '.venv/**',
       '**/__pycache__/**',
+      // Next writes these on every build; linting generated code only produces
+      // errors nobody can fix.
+      '**/.next/**',
+      '**/next-env.d.ts',
     ],
   },
   eslint.configs.recommended,

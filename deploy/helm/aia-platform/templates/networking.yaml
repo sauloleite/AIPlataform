@@ -65,16 +65,29 @@ spec:
                 name: {{ include "aia.fullname" . }}-agent-runtime
                 port: { number: {{ .Values.agentRuntime.port }} }
           {{- end }}
+          {{- if .Values.web.enabled }}
+          {{/*
+            The catch-all, and it stays LAST: an Ingress matches by longest
+            prefix, so every API path above still wins over "/". Anything the
+            services do not claim is the console.
+          */}}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "aia.fullname" . }}-web
+                port: { number: {{ .Values.web.port }} }
+          {{- end }}
 {{- end }}
 
 {{- if .Values.networkPolicy.enabled }}
 ---
 {{/*
-Nega tudo por padrao.
+Deny everything by default.
 
-Sem isto, qualquer pod comprometido no namespace alcanca o MongoDB e o Redis
-diretamente, contornando toda a governanca da plataforma. As regras abaixo
-liberam apenas o que precisa existir.
+Without this, any compromised pod in the namespace reaches MongoDB and Redis
+directly, bypassing every platform control. The rules below allow only what has
+to exist.
 */}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

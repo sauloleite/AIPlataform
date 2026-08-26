@@ -372,6 +372,74 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+step "13. The console (aia-web) against the live platform"
+
+WEB_URL="${WEB_BASE_URL:-http://localhost:3005}"
+
+if ! curl -sf "${WEB_URL}/login" >/dev/null 2>&1; then
+  skip "console not answering at ${WEB_URL}"
+else
+  ok "console answering"
+
+  # An unauthenticated visitor is sent to the login page rather than shown an
+  # empty console.
+  ROOT_CODE=$(curl -sS -o /dev/null -w '%{http_code}' "${WEB_URL}/")
+  assert_eq "$ROOT_CODE" "307" "an unauthenticated visitor is redirected"
+
+  # The console holds no credential of its own; the browser posts to it with a
+  # session cookie only. Without one, the BFF refuses in Problem Details.
+  NO_SESSION=$(curl -sS -X POST "${WEB_URL}/api/chat" -H 'Content-Type: application/json' \
+    -d '{"projectId":"x","alias":"chat-local","message":"hi"}')
+  assert_contains "$NO_SESSION" 'unauthenticated' "the BFF refuses a request with no session"
+
+  # The session cookies are built here exactly as CookieSessionStore builds
+  # them, which is what makes this a faithful test of the BFF boundary rather
+  # than of a test-only backdoor.
+  PRINCIPAL=$(curl -sS "http://localhost:3001/v1/me" -H "Authorization: Bearer ${TOKEN}")
+  SESSION_COOKIE=$(printf '%s' "$PRINCIPAL" | python3 -c '
+import base64, json, sys, time
+p = json.load(sys.stdin)
+session = {
+  "principal": {
+    "id": p["id"], "type": p["type"], "email": p.get("email"),
+    "displayName": p.get("display_name"),
+    "globalRoles": p.get("global_roles", []),
+    "memberships": [{"projectId": m["project_id"], "roles": m.get("roles", [])}
+                    for m in p.get("memberships", [])],
+  },
+  "expiresAt": int(time.time()) + 3600,
+}
+print(base64.urlsafe_b64encode(json.dumps(session).encode()).decode().rstrip("="))')
+  COOKIES="aia_token=${TOKEN}; aia_session=${SESSION_COOKIE}"
+
+  PROJECTS_HTML=$(curl -sS "${WEB_URL}/" -H "Cookie: ${COOKIES}")
+  assert_contains "$PROJECTS_HTML" 'E2E restricted' "the projects list renders live data"
+  assert_contains "$PROJECTS_HTML" 'local model only' "a restricted project is flagged in the list"
+
+  DETAIL_HTML=$(curl -sS "${WEB_URL}/projects/${PROJECT_RESTRICTED}" -H "Cookie: ${COOKIES}")
+  assert_contains "$DETAIL_HTML" 'Allowed zones' "the project page shows the effective policy"
+  assert_contains "$DETAIL_HTML" 'chat-local' "the alias catalogue is filtered by classification"
+
+  # Streaming through the BFF. This is the path a Server Action cannot take, and
+  # the only route handler the console has.
+  STREAM_OUT=$(curl -sS -N --max-time "$CHAT_TIMEOUT" -X POST "${WEB_URL}/api/chat" \
+    -H "Cookie: ${COOKIES}" -H 'Content-Type: application/json' \
+    -d "{\"projectId\":\"${PROJECT_RESTRICTED}\",\"alias\":\"chat-local\",\"message\":\"ok\",\"history\":[],\"maxTokens\":16}")
+
+  assert_contains "$STREAM_OUT" 'event: delta' "the console streams deltas"
+  assert_contains "$STREAM_OUT" 'event: finished' "the console closes with a finished event"
+  assert_contains "$STREAM_OUT" '"dataZone":"local"' "the served-by panel receives the data zone"
+
+  # The point of the BFF: a platform JWT must never exist in a browser. If the
+  # token ever appeared in the served HTML, an XSS would carry it away.
+  if printf '%s' "$PROJECTS_HTML" | grep -qF "${TOKEN:0:40}"; then
+    fail "the platform token leaked into the served HTML"
+  else
+    ok "the platform token never reaches the browser"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 printf '\n\033[1m─────────────────────────────────────────\033[0m\n'
 printf 'Result: '
 green "${PASSED} passed"

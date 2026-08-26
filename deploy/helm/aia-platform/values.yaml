@@ -102,7 +102,7 @@ guardrails:
   enabled: true
   replicaCount: 2
   port: 8001
-  # `regex` sobe instantaneo; `presidio` detecta tambem nome de pessoa.
+  # `regex` starts instantly; `presidio` also detects person names.
   detector: regex
   resources:
     requests: { cpu: 200m, memory: 256Mi }
@@ -157,6 +157,22 @@ agentRuntime:
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 512Mi }
+
+# The console. The only service a browser talks to: it reads the httpOnly
+# session cookie and attaches the platform token server-side, so a platform JWT
+# never exists in a browser.
+web:
+  enabled: true
+  replicaCount: 2
+  port: 3005
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { memory: 512Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
 
 # ---------------------------------------------------------------------------
 # Networking

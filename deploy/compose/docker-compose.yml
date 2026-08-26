@@ -151,7 +151,7 @@ services:
       <<: *platform-env
       PORT: 3001
       MONGO_DATABASE: aia_identity
-      IDENTITY_TOKEN_PEPPER: ${IDENTITY_TOKEN_PEPPER:-dev-pepper-troque-em-producao}
+      IDENTITY_TOKEN_PEPPER: ${IDENTITY_TOKEN_PEPPER:-dev-pepper-change-in-production}
       IDENTITY_ACCESS_TOKEN_TTL: ${IDENTITY_ACCESS_TOKEN_TTL:-3600}
       IDENTITY_BOOTSTRAP_ADMIN_EMAIL: ${IDENTITY_BOOTSTRAP_ADMIN_EMAIL:-admin@aia.local}
       IDENTITY_BOOTSTRAP_ADMIN_PASSWORD: ${IDENTITY_BOOTSTRAP_ADMIN_PASSWORD:-change-me-now}
@@ -160,11 +160,11 @@ services:
       IDENTITY_BOOTSTRAP_SERVICE_CLIENTS: >-
         [{"clientId":"aia-inference-router",
           "displayName":"Inference Router",
-          "secret":"${ROUTER_CLIENT_SECRET:-dev-router-secret-troque-em-producao}",
+          "secret":"${ROUTER_CLIENT_SECRET:-dev-router-secret-change-in-production}",
           "scopes":["projects:read","inference:write"]},
          {"clientId":"aia-agent-runtime",
           "displayName":"Agent Runtime",
-          "secret":"${AGENT_RUNTIME_CLIENT_SECRET:-dev-agent-secret-troque-em-producao}",
+          "secret":"${AGENT_RUNTIME_CLIENT_SECRET:-dev-agent-secret-change-in-production}",
           "scopes":["projects:read","inference:write"]}]
     ports: ['3001:3001']
     depends_on:
@@ -266,7 +266,7 @@ services:
       GOVERNANCE_URL: http://governance:3002
       GUARDRAILS_URL: http://guardrails:8001
       ROUTER_CLIENT_ID: aia-inference-router
-      ROUTER_CLIENT_SECRET: ${ROUTER_CLIENT_SECRET:-dev-router-secret-troque-em-producao}
+      ROUTER_CLIENT_SECRET: ${ROUTER_CLIENT_SECRET:-dev-router-secret-change-in-production}
       POLICY_CACHE_TTL_SECONDS: ${POLICY_CACHE_TTL_SECONDS:-30}
       BUDGET_UNVERIFIED_MAX_TOKENS: ${BUDGET_UNVERIFIED_MAX_TOKENS:-2000}
       DEFAULT_CURRENCY: ${DEFAULT_CURRENCY:-BRL}
@@ -322,7 +322,7 @@ services:
       IDENTITY_AUDIENCE: aia-platform
       INFERENCE_ROUTER_URL: http://inference-router:3000
       AGENT_RUNTIME_CLIENT_ID: aia-agent-runtime
-      AGENT_RUNTIME_CLIENT_SECRET: ${AGENT_RUNTIME_CLIENT_SECRET:-dev-agent-secret-troque-em-producao}
+      AGENT_RUNTIME_CLIENT_SECRET: ${AGENT_RUNTIME_CLIENT_SECRET:-dev-agent-secret-change-in-production}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
     ports: ['8002:8002']
     depends_on:
@@ -340,6 +340,49 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  # The console. It is the only service the browser talks to: it reads the
+  # httpOnly session cookie and attaches the platform token server-side, so a
+  # platform JWT never exists in a browser.
+  web:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/web.Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3005
+      IDENTITY_URL: http://identity:3001
+      GOVERNANCE_URL: http://governance:3002
+      INFERENCE_ROUTER_URL: http://inference-router:3000
+    ports: ['3005:3005']
+    depends_on:
+      identity: { condition: service_healthy }
+      governance: { condition: service_healthy }
+      inference-router: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          '/nodejs/bin/node',
+          '-e',
+          "fetch('http://localhost:3005/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    labels:
+      traefik.enable: 'true'
+      # The catch-all: everything the API prefixes do not claim is the console.
+      # A lower priority than the API routers keeps /v1 and /health with the
+      # services that own them.
+      traefik.http.routers.web.rule: 'PathPrefix(`/`)'
+      # Traefik ranks by rule length by default, so the API prefixes already win
+      # over `/`. Saying so explicitly means a shorter API rule added later
+      # cannot silently start losing to the catch-all.
+      traefik.http.routers.web.priority: '1'
+      traefik.http.services.web.loadbalancer.server.port: '3005'
 
 networks:
   aia:

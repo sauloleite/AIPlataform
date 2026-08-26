@@ -54,7 +54,8 @@ curl -N -X POST http://localhost:8080/v1/chat/completions \
 
 | Where                           | What                                                        |
 | ------------------------------- | ----------------------------------------------------------- |
-| http://localhost:8080           | The platform API                                            |
+| http://localhost:8080           | The console, and the platform API under `/v1`               |
+| http://localhost:3005           | The console on its own port                                 |
 | http://localhost:3000           | Grafana — traces with `gen_ai.*` live under Explore → Tempo |
 | http://localhost:9001           | MinIO                                                       |
 | http://localhost:6333/dashboard | Qdrant                                                      |
@@ -98,18 +99,34 @@ flowchart LR
 6. **A `UsageRecorded` event** through the outbox — written in the same
    transaction as the audit record, published afterwards.
 
+## The console
+
+`make dev` also brings up a web console at http://localhost:8080. It signs in,
+lists projects with their budget, shows each project's effective policy and the
+aliases it may use, and has a playground that streams answers.
+
+Every answer in the playground says **how it was served**: which provider, in
+which data zone, at what cost, and whether the platform was degraded
+(`policy_stale`, `budget_unverified`) when it answered. A restricted project
+shows `local` there, which is ADR-010 made visible rather than asserted.
+
+The console is a BFF: signing in stores the platform token in an httpOnly
+cookie, and every call to the platform is made by the console's own server. The
+browser never holds a platform credential — see [apps/web](apps/web/README.md).
+
 ## Services
 
-| Service                                                                                       | Stack   | State                                                     |
-| --------------------------------------------------------------------------------------------- | ------- | --------------------------------------------------------- |
-| `aia-inference-router`                                                                        | NestJS  | **complete** — 4 providers, budget, SSE, audit            |
-| `aia-identity`                                                                                | NestJS  | **complete** — RS256 JWT, JWKS, PAT, service credentials  |
-| `aia-governance`                                                                              | NestJS  | **complete** — projects, budget, classification, policies |
-| `aia-guardrails`                                                                              | FastAPI | **complete** — Brazilian PII, prompt injection            |
-| `aia-agent-runtime`                                                                           | FastAPI | skeleton — LangGraph in phase 3                           |
-| `aia-registry`                                                                                | NestJS  | skeleton — phase 2                                        |
-| `aia-evaluation`                                                                              | FastAPI | skeleton — phase 2                                        |
-| `aia-knowledge`, `aia-mcp-gateway`, `aia-document-processing`, `aia-data-platform`, `aia-web` | —       | phases 2 to 4                                             |
+| Service                                                                            | Stack   | State                                                     |
+| ---------------------------------------------------------------------------------- | ------- | --------------------------------------------------------- |
+| `aia-inference-router`                                                             | NestJS  | **complete** — 4 providers, budget, SSE, audit            |
+| `aia-identity`                                                                     | NestJS  | **complete** — RS256 JWT, JWKS, PAT, service credentials  |
+| `aia-governance`                                                                   | NestJS  | **complete** — projects, budget, classification, policies |
+| `aia-guardrails`                                                                   | FastAPI | **complete** — Brazilian PII, prompt injection            |
+| `aia-web`                                                                          | Next.js | **complete** — projects, budget, policies, playground     |
+| `aia-agent-runtime`                                                                | FastAPI | skeleton — LangGraph in phase 3                           |
+| `aia-registry`                                                                     | NestJS  | skeleton — phase 2                                        |
+| `aia-evaluation`                                                                   | FastAPI | skeleton — phase 2                                        |
+| `aia-knowledge`, `aia-mcp-gateway`, `aia-document-processing`, `aia-data-platform` | —       | phases 2 to 4                                             |
 
 A new service is born in the right shape through the generator:
 
