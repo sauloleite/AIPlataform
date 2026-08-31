@@ -16,7 +16,20 @@ export function toChatCompletionResponse(result: ChatCompletionResult): Record<s
     choices: [
       {
         index: 0,
-        message: { role: 'assistant', content: result.content },
+        message: {
+          role: 'assistant',
+          content: result.content,
+          ...(result.toolCalls !== undefined && {
+            tool_calls: result.toolCalls.map((call) => ({
+              id: call.id,
+              type: 'function',
+              function: { name: call.name, arguments: call.arguments },
+              // Handed straight back to the caller, who has to return it on
+              // the next turn or the provider refuses it.
+              ...(call.providerState !== undefined && { provider_state: call.providerState }),
+            })),
+          }),
+        },
         finish_reason: result.finishReason,
       },
     ],

@@ -26,6 +26,9 @@ COPY packages/telemetry/package.json     packages/telemetry/
 COPY apps/governance/package.json        apps/governance/
 COPY apps/identity/package.json          apps/identity/
 COPY apps/inference-router/package.json  apps/inference-router/
+COPY apps/registry/package.json          apps/registry/
+COPY apps/knowledge/package.json         apps/knowledge/
+COPY apps/mcp-gateway/package.json       apps/mcp-gateway/
 
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm config set store-dir /pnpm/store && \

@@ -95,6 +95,7 @@ services:
     image: grafana/otel-lgtm:0.8.4
     ports:
       - '3000:3000' # Grafana
+      - '3200:3200' # Tempo query API -- what the console's Traces screen reads
       - '4317:4317' # OTLP gRPC
       - '4318:4318' # OTLP HTTP
     volumes: [lgtm-data:/data]
@@ -172,7 +173,11 @@ services:
          {"clientId":"aia-agent-runtime",
           "displayName":"Agent Runtime",
           "secret":"${AGENT_RUNTIME_CLIENT_SECRET:-dev-agent-secret-change-in-production}",
-          "scopes":["projects:read","inference:write"]}]
+          "scopes":["projects:read","inference:write"]},
+         {"clientId":"aia-registry",
+          "displayName":"Registry",
+          "secret":"${REGISTRY_CLIENT_SECRET:-dev-registry-secret-change-in-production}",
+          "scopes":["projects:read"]}]
     ports: ['3001:3001']
     depends_on:
       mongo: { condition: service_healthy }
@@ -227,6 +232,143 @@ services:
       traefik.http.routers.governance.rule: 'PathPrefix(`/v1/projects`)'
       traefik.http.services.governance.loadbalancer.server.port: '3002'
 
+  registry:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/node.Dockerfile
+      args: { SERVICE: registry }
+    environment:
+      <<: *platform-env
+      PORT: 3004
+      MONGO_DATABASE: aia_registry
+      INFERENCE_ROUTER_URL: http://inference-router:3000
+      # aia-knowledge validates a store reference at publish time. Left empty,
+      # an agent attaching a vector store refuses to publish rather than
+      # publishing retrieval that does nothing.
+      KNOWLEDGE_URL: ${KNOWLEDGE_URL:-http://knowledge:3007}
+      REGISTRY_CLIENT_ID: aia-registry
+      REGISTRY_CLIENT_SECRET: ${REGISTRY_CLIENT_SECRET:-dev-registry-secret-change-in-production}
+    ports: ['3004:3004']
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      identity: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          '/nodejs/bin/node',
+          '-e',
+          "fetch('http://localhost:3004/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    labels:
+      traefik.enable: 'true'
+      traefik.http.routers.registry.rule: 'PathPrefix(`/v1/assets`)'
+      traefik.http.services.registry.loadbalancer.server.port: '3004'
+
+  knowledge: &knowledge-base
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/node.Dockerfile
+      args: { SERVICE: knowledge }
+    environment: &knowledge-env
+      <<: *platform-env
+      PORT: 3007
+      MONGO_DATABASE: aia_knowledge
+      QDRANT_URL: http://qdrant:6333
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aia}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aia-local-dev-only}
+      KNOWLEDGE_BUCKET: ${KNOWLEDGE_BUCKET:-aia-documents}
+      INFERENCE_ROUTER_URL: http://inference-router:3000
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+      # Empty until aia-document-processing exists: only text and markdown
+      # parse locally, and any other type fails that one job.
+      DOCUMENT_PROCESSING_URL: ${DOCUMENT_PROCESSING_URL:-}
+    ports: ['3007:3007']
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      qdrant: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      identity: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          '/nodejs/bin/node',
+          '-e',
+          "fetch('http://localhost:3007/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    labels:
+      traefik.enable: 'true'
+      traefik.http.routers.knowledge.rule: 'PathPrefix(`/v1/stores`)'
+      traefik.http.services.knowledge.loadbalancer.server.port: '3007'
+
+  mcp-gateway:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/node.Dockerfile
+      args: { SERVICE: mcp-gateway }
+    environment:
+      <<: *platform-env
+      PORT: 3006
+      MONGO_DATABASE: aia_mcp_gateway
+      REGISTRY_URL: http://registry:3004
+      KNOWLEDGE_URL: http://knowledge:3007
+      AUDIT_RETENTION_DAYS: ${TOOL_AUDIT_RETENTION_DAYS:-365}
+      # Where a connection's secret is read from (ADR-015 level 2). A file with
+      # mode 600 does not leak through `docker inspect` the way a variable does.
+      SECRETS_DIR: /run/secrets
+    ports: ['3006:3006']
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      identity: { condition: service_healthy }
+      registry: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          '/nodejs/bin/node',
+          '-e',
+          "fetch('http://localhost:3006/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    labels:
+      traefik.enable: 'true'
+      traefik.http.routers.mcp-gateway.rule: 'PathPrefix(`/v1/tools`) || PathPrefix(`/v1/bindings`)'
+      traefik.http.services.mcp-gateway.loadbalancer.server.port: '3006'
+
+  # The same image, a second entrypoint. One dependency tree, one SBOM to sign.
+  knowledge-worker:
+    <<: *knowledge-base
+    command: ['dist/worker.js']
+    environment:
+      <<: *knowledge-env
+    ports: []
+    # No HTTP listener, so nothing to probe and nothing for Traefik to route.
+    healthcheck:
+      disable: true
+    labels:
+      traefik.enable: 'false'
+    depends_on:
+      knowledge: { condition: service_healthy }
+
   guardrails:
     <<: *service-defaults
     build:
@@ -280,7 +422,11 @@ services:
       SEMANTIC_CACHE_ENABLED: ${SEMANTIC_CACHE_ENABLED:-false}
       AIA_CONTENT_CAPTURE: ${AIA_CONTENT_CAPTURE:-false}
       # Ollama needs no key: it is the default zero-cost provider.
-      OLLAMA_BASE_URL: http://ollama:11434
+      # Overridable, and EMPTY disables Ollama -- the same lever every other
+      # provider has. On Apple Silicon the container gets no GPU and runs at
+      # about one token per second, so a fallback that "works" is worse than
+      # none: it answers where a hosted model failed, thirty times slower.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL-http://ollama:11434}
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:1b}
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
       # External providers join on their own once the key exists.
@@ -288,11 +434,17 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
       OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      # One key per slot; every filled one joins the rotation.
+      GEMINI_API_KEY_1: ${GEMINI_API_KEY_1:-}
+      GEMINI_API_KEY_2: ${GEMINI_API_KEY_2:-}
+      GEMINI_API_KEY_3: ${GEMINI_API_KEY_3:-}
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com}
       GEMINI_API_VERSION: ${GEMINI_API_VERSION:-v1beta}
       GEMINI_PROTOCOL: ${GEMINI_PROTOCOL:-generate-content}
       GEMINI_CHAT_MODEL: ${GEMINI_CHAT_MODEL:-gemini-flash-latest}
+      GEMINI_ADVANCED_MODEL: ${GEMINI_ADVANCED_MODEL:-gemini-3-flash-preview}
       GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_CHAT_MODEL: ${ANTHROPIC_CHAT_MODEL:-claude-sonnet-4-5}
@@ -331,13 +483,25 @@ services:
       IDENTITY_ISSUER: http://identity:3001
       IDENTITY_AUDIENCE: aia-platform
       INFERENCE_ROUTER_URL: http://inference-router:3000
-      AGENT_RUNTIME_CLIENT_ID: aia-agent-runtime
-      AGENT_RUNTIME_CLIENT_SECRET: ${AGENT_RUNTIME_CLIENT_SECRET:-dev-agent-secret-change-in-production}
+      REGISTRY_URL: http://registry:3004
+      MCP_GATEWAY_URL: http://mcp-gateway:3006
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: aia_agent_runtime
+      REDIS_URL: redis://redis:6379
+      # The ceiling on tool calls in one run. A runaway loop spends real money.
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-12}
+      # The gap allowed between two chunks of a model stream. Generous because
+      # a local model on a cold start is slow to its first token.
+      MODEL_READ_TIMEOUT_SECONDS: ${MODEL_READ_TIMEOUT_SECONDS:-180}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
     ports: ['8002:8002']
     depends_on:
       identity: { condition: service_healthy }
       inference-router: { condition: service_healthy }
+      registry: { condition: service_healthy }
+      mcp-gateway: { condition: service_healthy }
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
     healthcheck:
       test:
         [
@@ -345,6 +509,54 @@ services:
           'python',
           '-c',
           "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8002/health/live').status==200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # Quality measured, not assumed. It runs the suites in `evals/suites` against
+  # this platform, spending real inference against the caller's project.
+  evaluation:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/python.Dockerfile
+      args: { SERVICE: evaluation }
+    environment:
+      PORT: 8003
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      IDENTITY_ISSUER: http://identity:3001
+      IDENTITY_AUDIENCE: aia-platform
+      INFERENCE_ROUTER_URL: http://inference-router:3000
+      GUARDRAILS_URL: http://guardrails:8001
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: aia_evaluation
+      REDIS_URL: redis://redis:6379
+      SUITES_PATH: /app/evals/suites
+      # The alias that GRADES. Empty by default and deliberately so: a suite
+      # naming a judged evaluator then REFUSES to run, rather than scoring
+      # nothing and reporting a pass nobody measured. Point it at an alias
+      # other than the one under test -- a model grading itself agrees with
+      # itself.
+      JUDGE_ALIAS: ${JUDGE_ALIAS:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    volumes:
+      # The suites and datasets are versioned in Git, and read from there.
+      - ../../evals:/app/evals:ro
+    ports: ['8003:8003']
+    depends_on:
+      identity: { condition: service_healthy }
+      inference-router: { condition: service_healthy }
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8003/health/live').status==200 else 1)",
         ]
       interval: 10s
       timeout: 5s
@@ -365,11 +577,23 @@ services:
       IDENTITY_URL: http://identity:3001
       GOVERNANCE_URL: http://governance:3002
       INFERENCE_ROUTER_URL: http://inference-router:3000
+      REGISTRY_URL: http://registry:3004
+      KNOWLEDGE_URL: http://knowledge:3007
+      MCP_GATEWAY_URL: http://mcp-gateway:3006
+      AGENT_RUNTIME_URL: http://agent-runtime:8002
+      EVALUATION_URL: http://evaluation:8003
+      # Tempo, inside the LGTM image. Empty disables the Traces screen rather
+      # than breaking the console, the way a missing provider key disables one
+      # provider (ADR-015's rule, applied to a read-only dependency).
+      TEMPO_URL: ${TEMPO_URL:-http://lgtm:3200}
     ports: ['3005:3005']
     depends_on:
       identity: { condition: service_healthy }
       governance: { condition: service_healthy }
       inference-router: { condition: service_healthy }
+      registry: { condition: service_healthy }
+      knowledge: { condition: service_healthy }
+      mcp-gateway: { condition: service_healthy }
     healthcheck:
       test:
         [

@@ -1,0 +1,274 @@
+openapi: 3.1.0
+info:
+  title: AIA Agent Runtime
+  version: '1.0.0'
+  description: |
+    Runs an agent: model, tools and human approval, flow 7.2 of reference doc 02.
+
+    The runtime executes a definition it does not own. `aia-registry` holds it and
+    the run pins one PUBLISHED version for its whole length, so republishing
+    mid-run never changes what is executing. Tools are not called directly
+    either: every one of them goes through `aia-mcp-gateway`, with the identity
+    of whoever started the run, which is what keeps the allow-list, the risk
+    level and the rate limit in the path.
+
+    A high-risk tool stops the run and waits for a person (OWASP LLM06). That is
+    a state of the run, not an error: `waiting_approval` is resumable, and the
+    approval is bound to that specific call.
+  license: { name: MIT }
+
+servers:
+  - url: http://localhost:8080
+    description: Local environment (docker-compose)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: runs
+    description: Starting, reading and resuming a run
+
+paths:
+  /v1/agents/{agentId}/runs:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: agentId
+        in: path
+        required: true
+        description: The registry asset id of the agent.
+        schema: { type: string }
+    post:
+      operationId: startRun
+      tags: [runs]
+      summary: Starts a run
+      description: |
+        With `stream=true` the response is Server-Sent Events. The stream ends
+        either at `run.finished` or at `approval.requested` — in the second case
+        the run is alive and waiting, and `POST /v1/runs/{runId}/approve` picks
+        it back up.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+        - name: stream
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StartRunRequest' }
+      responses:
+        '201':
+          description: The run reached a terminal state, or is waiting for approval
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Run' }
+        '200':
+          description: The event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404':
+          description: No such agent, or it has no published version
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+        '429': { $ref: './_shared.yaml#/components/responses/TooManyRequests' }
+
+  /v1/runs/{runId}:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getRun
+      tags: [runs]
+      summary: Reads a run
+      description: |
+        A run belonging to another project answers 404, never 403: confirming it
+        exists would hand over information about the neighbouring tenant.
+      responses:
+        '200':
+          description: The run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunDetail' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /v1/runs/{runId}/approve:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: approveToolCall
+      tags: [runs]
+      summary: Approves or refuses the call the run is waiting on
+      description: |
+        The approval names the call it is for. A run that has moved on, or one
+        waiting on a different call, answers 409 rather than running something
+        nobody looked at.
+
+        Refusing is not an error: the refusal goes back to the model as the
+        result of that call, and the run carries on and says why it could not do
+        what was asked.
+      parameters:
+        - name: stream
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApprovalRequest' }
+      responses:
+        '200':
+          description: The run resumed and reached a new state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Run' }
+            text/event-stream:
+              schema: { type: string }
+        '403':
+          description: The caller's role does not allow approving at this risk level
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+        '409':
+          description: The run is not waiting on that call
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+
+  /health/live:
+    get:
+      operationId: agentRuntimeLive
+      tags: [runs]
+      summary: Liveness
+      security: []
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+
+  /health/ready:
+    get:
+      operationId: agentRuntimeReady
+      tags: [runs]
+      summary: Readiness
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+        '503': { $ref: './_shared.yaml#/components/responses/ServiceUnavailable' }
+
+components:
+  securitySchemes:
+    bearerAuth: { $ref: './_shared.yaml#/components/securitySchemes/bearerAuth' }
+
+  schemas:
+    RunStatus:
+      type: string
+      description: |
+        `waiting_approval` is a live state, not a failure: the run holds its
+        checkpoint until somebody decides.
+      enum: [pending, running, waiting_approval, completed, failed, cancelled]
+
+    StartRunRequest:
+      type: object
+      required: [input]
+      properties:
+        input: { type: string, minLength: 1, maxLength: 100000 }
+        thread_id:
+          type: string
+          description: |
+            Continues an existing conversation. Omitted, the run opens a new one.
+        metadata:
+          type: object
+          additionalProperties: true
+
+    ApprovalRequest:
+      type: object
+      required: [tool_call_id]
+      properties:
+        tool_call_id: { type: string }
+        approved:
+          type: boolean
+          default: true
+          description: False refuses the call and lets the run continue without it.
+        reason: { type: string, maxLength: 2000 }
+
+    ToolCall:
+      type: object
+      required: [id, tool_name, arguments, risk_level]
+      properties:
+        id: { type: string }
+        tool_name: { type: string }
+        tool_id:
+          type: [string, 'null']
+          description: |
+            The registry asset behind the name. Null when the model invented a
+            name no tool answers to.
+        arguments:
+          type: object
+          additionalProperties: true
+        risk_level: { type: string, enum: [low, medium, high] }
+
+    Run:
+      type: object
+      required: [id, agent_id, agent_version, project_id, status, step]
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        agent_version: { type: integer, minimum: 1 }
+        thread_id: { type: string }
+        project_id: { type: string }
+        principal_id: { type: string }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        step: { type: integer, minimum: 0 }
+        output:
+          type: [string, 'null']
+          description: The final answer. Null while the run has not finished.
+        pending_call:
+          description: The call the run is waiting on, when `waiting_approval`.
+          oneOf:
+            - { $ref: '#/components/schemas/ToolCall' }
+            - { type: 'null' }
+        error_code: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+
+    RunDetail:
+      allOf:
+        - $ref: '#/components/schemas/Run'
+        - type: object
+          properties:
+            messages:
+              type: array
+              description: The transcript, in order, tool results included.
+              items: { $ref: '#/components/schemas/Message' }
+
+    Message:
+      type: object
+      required: [role]
+      properties:
+        role: { type: string, enum: [system, user, assistant, tool] }
+        content: { type: [string, 'null'] }
+        name: { type: string }
+        tool_call_id: { type: string }
+        tool_calls:
+          type: array
+          items: { $ref: '#/components/schemas/ToolCall' }

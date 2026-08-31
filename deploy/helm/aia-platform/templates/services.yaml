@@ -132,6 +132,8 @@ spec:
               value: {{ $service.values.providers.gemini.protocol | quote }}
             - name: GEMINI_CHAT_MODEL
               value: {{ $service.values.providers.gemini.chatModel | quote }}
+            - name: GEMINI_ADVANCED_MODEL
+              value: {{ $service.values.providers.gemini.advancedModel | quote }}
             - name: GEMINI_EMBEDDING_MODEL
               value: {{ $service.values.providers.gemini.embeddingModel | quote }}
             - name: ANTHROPIC_BASE_URL
@@ -152,11 +154,37 @@ spec:
                   name: {{ $service.values.providersSecret }}
                   key: openai-api-key
                   optional: true
+            {{/*
+              Gemini keys, one per Secret entry. A quota is per key, so several
+              of them multiply the ceiling AND give failover: the retry the
+              router already performs after a 429 lands on the next key.
+
+              Every slot present is used, together, deduplicated. A cluster
+              with one key fills only `gemini-api-key` and nothing changes.
+            */}}
             - name: GEMINI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ $service.values.providersSecret }}
                   key: gemini-api-key
+                  optional: true
+            - name: GEMINI_API_KEY_1
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $service.values.providersSecret }}
+                  key: gemini-api-key-1
+                  optional: true
+            - name: GEMINI_API_KEY_2
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $service.values.providersSecret }}
+                  key: gemini-api-key-2
+                  optional: true
+            - name: GEMINI_API_KEY_3
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $service.values.providersSecret }}
+                  key: gemini-api-key-3
                   optional: true
             - name: ANTHROPIC_API_KEY
               valueFrom:

@@ -9,11 +9,44 @@ import type { Cost, ProviderName } from '../domain/value-objects/index.js';
 /* Model provider                                                      */
 /* ------------------------------------------------------------------ */
 
+/** A call the model asked for. `arguments` is a JSON document the model wrote. */
+export interface ToolCallOutput {
+  id: string;
+  name: string;
+  arguments: string;
+  /**
+   * Opaque provider state that must travel back UNCHANGED on the next turn.
+   *
+   * Gemini returns a `thoughtSignature` beside every function call and rejects
+   * the following turn with a 400 if it is missing. It is the model's own
+   * reasoning state: the platform neither reads it nor invents it, it only
+   * carries it. Dropping the assistant turn instead "works" — the API answers
+   * 200 and the model ignores the tool result entirely, which is the worst of
+   * the three outcomes.
+   *
+   * Absent for providers that need nothing echoed, and never sent to one.
+   */
+  providerState?: string;
+}
+
 export interface ChatMessageInput {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | null;
   name?: string;
+  /** Which call a `tool` message answers. */
+  toolCallId?: string;
+  /** Echoed back on the assistant turn that requested them. */
+  toolCalls?: ToolCallOutput[];
 }
+
+/** What the caller declares the model may ask for. The router runs nothing. */
+export interface ToolDefinitionInput {
+  name: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
+}
+
+export type ToolChoiceInput = 'auto' | 'none' | 'required' | { name: string };
 
 export interface ChatRequestInput {
   messages: ChatMessageInput[];
@@ -21,6 +54,8 @@ export interface ChatRequestInput {
   temperature?: number;
   topP?: number;
   stop?: string[];
+  tools?: ToolDefinitionInput[];
+  toolChoice?: ToolChoiceInput;
 }
 
 export interface TokenUsage {
@@ -33,6 +68,7 @@ export interface ChatResult {
   finishReason: 'stop' | 'length' | 'content_filter' | 'tool_calls' | null;
   usage: TokenUsage;
   providerResponseId?: string;
+  toolCalls?: ToolCallOutput[];
 }
 
 export interface ChatChunk {
@@ -41,6 +77,14 @@ export interface ChatChunk {
   finishReason?: 'stop' | 'length' | 'content_filter' | 'tool_calls' | null;
   /** Present on the last chunk, when the provider reports usage. */
   usage?: TokenUsage;
+  /**
+   * Whole tool calls, never fragments.
+   *
+   * Providers stream the arguments a few characters at a time; each adapter
+   * reassembles them and emits the complete calls once, so no consumer has to
+   * know how a given provider chops them up.
+   */
+  toolCalls?: ToolCallOutput[];
 }
 
 export interface EmbeddingsResult {

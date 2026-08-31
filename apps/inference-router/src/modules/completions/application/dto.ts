@@ -1,4 +1,9 @@
-import type { ChatMessageInput } from './ports.js';
+import type {
+  ChatMessageInput,
+  ToolCallOutput,
+  ToolChoiceInput,
+  ToolDefinitionInput,
+} from './ports.js';
 import type { Cost, DataZone, ProviderName } from '../domain/value-objects/index.js';
 
 /** A use case command. No `Request`, no header, no decorator. */
@@ -13,6 +18,8 @@ export interface CreateChatCompletionCommand {
   temperature?: number;
   topP?: number;
   stop?: string[];
+  tools?: ToolDefinitionInput[];
+  toolChoice?: ToolChoiceInput;
 }
 
 export interface CreateEmbeddingsCommand {
@@ -43,6 +50,8 @@ export interface ChatCompletionResult {
   finishReason: string | null;
   usage: { promptTokens: number; completionTokens: number; totalTokens: number };
   routing: RoutingInfo;
+  /** What the model asked to run. The platform executes none of it. */
+  toolCalls?: ToolCallOutput[];
 }
 
 export type StreamEvent =

@@ -21,6 +21,7 @@ export function aDeployment(
     outputCostPerMillion: bigint;
     currency: string;
     maxOutputTokens: number;
+    dimensions: number;
     enabled: boolean;
     deprecatedAt: Date;
   }> = {},
@@ -31,6 +32,7 @@ export function aDeployment(
     model: overrides.model ?? 'llama3.2:3b',
     dataZone: overrides.dataZone ?? 'local',
     priority: overrides.priority ?? 0,
+    ...(overrides.dimensions !== undefined && { dimensions: overrides.dimensions }),
     inputCostPerMillion: overrides.inputCostPerMillion ?? 0n,
     outputCostPerMillion: overrides.outputCostPerMillion ?? 0n,
     currency: overrides.currency ?? 'BRL',

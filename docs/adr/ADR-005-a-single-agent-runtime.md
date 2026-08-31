@@ -3,6 +3,12 @@
 - **Status**: accepted
 - **Date**: 2026-08-25
 
+> **Revised in part by [ADR-018](ADR-018-the-agent-loop-is-written-out.md).**
+> The decision that stands is _one_ runtime for every agent. The choice of
+> LangGraph as the loop inside it did not: the platform already owns the state,
+> the checkpointer port and the branch, and the framework would have been
+> adapted to the architecture rather than doing work for it.
+
 ## Context
 
 Finding 3.5 of reference doc 01: the previous platform ran agents on three

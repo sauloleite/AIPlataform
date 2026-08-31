@@ -15,6 +15,15 @@ export interface DeploymentProps {
   outputCostPerMillion: bigint;
   currency: string;
   maxOutputTokens: number;
+  /**
+   * The width of the vectors this deployment produces. Embeddings only.
+   *
+   * It is here because it is the one property that makes two embedding
+   * deployments NOT interchangeable: a vector index is built for one width,
+   * and a failover that quietly changed it would write vectors nothing can
+   * search against.
+   */
+  dimensions?: number;
   enabled: boolean;
   /** Announced retirement. The alert fires 60 days ahead (reference doc 02 §8). */
   deprecatedAt?: Date;
@@ -30,6 +39,10 @@ export class Deployment {
   constructor(private readonly props: DeploymentProps) {
     if (props.priority < 0) throw new ValidationError('Priority cannot be negative');
     if (props.maxOutputTokens < 1) throw new ValidationError('maxOutputTokens must be positive');
+  }
+
+  get dimensions(): number | undefined {
+    return this.props.dimensions;
   }
 
   get id(): string {

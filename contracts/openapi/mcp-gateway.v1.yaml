@@ -1,0 +1,410 @@
+openapi: 3.1.0
+info:
+  title: AIA MCP Gateway
+  version: '1.0.0'
+  description: |
+    Governed execution of tools. Every invocation passes an allow-list for the
+    project, a risk classification, a per-tool rate limit and an audit record
+    that names the caller.
+
+    The gateway holds no tool DEFINITIONS: those live in `aia-registry`, and
+    this service reads them. What it owns is the BINDING -- whether a project
+    may use a tool, at what rate, and whether a human has to approve first.
+
+    A high-risk tool does not run without approval (OWASP LLM06, reference
+    doc 02 §10). The gateway answers `approval_required` and the caller resumes
+    once a human with the right role has approved.
+
+    Every call carries the USER's identity, not the gateway's: a tool reached
+    on behalf of somebody must act as them (ADR-017).
+  license: { name: MIT }
+
+servers:
+  - url: http://localhost:8080
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: connections
+    description: Credentials for endpoints the platform does not own
+  - name: tools
+  - name: bindings
+
+paths:
+  /v1/tools:
+    get:
+      operationId: listEffectiveTools
+      tags: [tools]
+      summary: The tools this project may actually invoke
+      description: |
+        The registry's published tool assets, intersected with this project's
+        bindings. A tool that exists but is not bound does not appear.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+        - $ref: './_shared.yaml#/components/parameters/Cursor'
+        - $ref: './_shared.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of tools
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './_shared.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/EffectiveTool' }
+
+  /v1/tools/{toolId}/invoke:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: toolId
+        in: path
+        required: true
+        description: The registry asset id of the tool.
+        schema: { type: string }
+    post:
+      operationId: invokeTool
+      tags: [tools]
+      summary: Invokes a tool as the caller
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvokeRequest' }
+      responses:
+        '200':
+          description: The tool ran
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvocationResult' }
+        '202':
+          description: |
+            A human has to approve first. The body carries the approval id the
+            caller resumes with.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequired' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403':
+          description: The tool is not bound to this project, or the caller may not run it at this risk level
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+        '429': { $ref: './_shared.yaml#/components/responses/TooManyRequests' }
+        '502':
+          description: The tool endpoint failed
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+
+  /v1/bindings:
+    get:
+      operationId: listBindings
+      tags: [bindings]
+      summary: Lists the project's tool bindings
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: The bindings
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ToolBinding' }
+
+  /v1/bindings/{toolId}:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: toolId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: bindTool
+      tags: [bindings]
+      summary: Allows a tool in this project, with its limits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BindToolRequest' }
+      responses:
+        '200':
+          description: The binding
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ToolBinding' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+    delete:
+      operationId: unbindTool
+      tags: [bindings]
+      summary: Withdraws a tool from this project
+      responses:
+        '204': { description: Withdrawn }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+
+  /v1/connections:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+    get:
+      operationId: listConnections
+      tags: [connections]
+      summary: Lists the project's connections
+      description: |
+        A connection names a credential for an endpoint the platform does not
+        own. It never carries the secret — only the reference the platform
+        resolves at invocation time, and whether that reference currently
+        resolves to anything.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/Cursor'
+        - $ref: './_shared.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The connections
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Connection' }
+                  next_cursor: { type: [string, 'null'] }
+    post:
+      operationId: createConnection
+      tags: [connections]
+      summary: Creates a connection
+      description: |
+        The request carries no secret either. Whoever operates the platform puts
+        the value in a file or an environment variable (ADR-015) and names it
+        here; a console that accepted the value would put it through a browser,
+        an HTTP log and a database on the way.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateConnectionRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Connection' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '409':
+          description: A connection with that slug already exists in this project
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+
+  /v1/connections/{connectionId}:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: connectionId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: deleteConnection
+      tags: [connections]
+      summary: Removes a connection
+      description: |
+        The secret itself is not touched: the platform never had it to delete.
+        A tool still pointing at the connection stops working, loudly.
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /health/live:
+    get:
+      operationId: mcpGatewayLive
+      security: []
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+  /health/ready:
+    get:
+      operationId: mcpGatewayReady
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+        '503': { $ref: './_shared.yaml#/components/responses/ServiceUnavailable' }
+
+components:
+  securitySchemes:
+    bearerAuth: { $ref: './_shared.yaml#/components/securitySchemes/bearerAuth' }
+
+  schemas:
+    RiskLevel:
+      type: string
+      description: |
+        A `high` risk tool does not run without human approval (OWASP LLM06).
+      enum: [low, medium, high]
+
+    ToolType:
+      type: string
+      enum: [mcp, openapi, function, builtin]
+
+    ToolBinding:
+      type: object
+      required: [project_id, tool_id, enabled]
+      properties:
+        project_id: { type: string }
+        tool_id: { type: string }
+        enabled: { type: boolean }
+        rate_limit_per_minute:
+          type: [integer, 'null']
+          minimum: 1
+          description: Null means the platform default applies.
+        require_approval:
+          type: [boolean, 'null']
+          description: |
+            Forces approval regardless of the tool's own risk level. It can
+            raise the bar, never lower it: a high-risk tool always needs one.
+        updated_at: { type: string, format: date-time }
+
+    EffectiveTool:
+      type: object
+      required: [tool_id, slug, name, tool_type, risk_level, requires_approval]
+      properties:
+        tool_id: { type: string }
+        slug:
+          type: string
+          description: |
+            The machine name. It is what a model is told to call, so it has to
+            survive a round trip through a provider intact -- unlike `name`,
+            which is a human label and may hold spaces.
+          pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$'
+        name: { type: string }
+        description: { type: string }
+        tool_type: { $ref: '#/components/schemas/ToolType' }
+        builtin_id:
+          type: string
+          description: |
+            Which built-in, when `tool_type` is `builtin`. A caller needs it to
+            supply what the built-in requires and the model should not choose --
+            `file_search` searches the store the AGENT was attached to, not one
+            the model names.
+          enum: [file_search, code_interpreter, web_search]
+        risk_level: { $ref: '#/components/schemas/RiskLevel' }
+        requires_approval:
+          type: boolean
+          description: The tool's risk and the binding taken together.
+        rate_limit_per_minute: { type: [integer, 'null'] }
+        parameters:
+          type: object
+          description: JSON Schema for the arguments.
+          additionalProperties: true
+
+    InvokeRequest:
+      type: object
+      required: [arguments]
+      properties:
+        arguments:
+          type: object
+          additionalProperties: true
+        approval_id:
+          type: string
+          description: |
+            Supplied on the second call, after a human approved. Without it a
+            tool that needs approval answers 202.
+
+    InvocationResult:
+      type: object
+      required: [tool_id, status]
+      properties:
+        tool_id: { type: string }
+        status: { type: string, enum: [ok, failed] }
+        result:
+          description: Whatever the tool returned.
+        duration_ms: { type: integer }
+
+    ApprovalRequired:
+      type: object
+      required: [approval_id, tool_id, risk_level]
+      properties:
+        approval_id: { type: string }
+        tool_id: { type: string }
+        risk_level: { $ref: '#/components/schemas/RiskLevel' }
+        reason: { type: string }
+
+    ConnectionKind:
+      type: string
+      description: |
+        How the credential is presented. `none` is the deliberate way to say the
+        endpoint needs none — it is not the absence of a decision.
+      enum: [bearer, api_key, basic, none]
+
+    Connection:
+      type: object
+      required: [id, project_id, slug, name, kind, secret_ref, resolved]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        kind: { $ref: '#/components/schemas/ConnectionKind' }
+        header:
+          type: string
+          description: Where the credential goes. `Authorization` unless said otherwise.
+        secret_ref:
+          type: string
+          description: |
+            The NAME of the secret, never its value. A name, not a path: the
+            file resolver reads it under a fixed directory.
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+        resolved:
+          type: boolean
+          description: |
+            Whether that reference currently resolves to a secret. False is what
+            an operator needs to see BEFORE a tool fails in front of a user.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CreateConnectionRequest:
+      type: object
+      required: [slug, name, kind]
+      properties:
+        slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        kind: { $ref: '#/components/schemas/ConnectionKind' }
+        header: { type: string, pattern: '^[A-Za-z0-9-]{1,64}$' }
+        secret_ref:
+          type: string
+          description: Required unless `kind` is `none`. A name, never a value.
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+
+    BindToolRequest:
+      type: object
+      properties:
+        enabled: { type: boolean, default: true }
+        rate_limit_per_minute: { type: [integer, 'null'], minimum: 1 }
+        require_approval: { type: [boolean, 'null'] }

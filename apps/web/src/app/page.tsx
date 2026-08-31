@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 
 import { getContainer } from '../container';
 import { canCreateProject } from '../modules/console/domain/session';
+import { percentFor, toneFor } from '../modules/console/domain/budget-meter';
 import { messageFor, requiresSignIn } from '../modules/console/domain/errors';
 import type { ProjectCard } from '../modules/console/application/use-cases/list-projects';
 import { CreateProjectForm } from './create-project-form';
@@ -29,6 +30,12 @@ export default async function ProjectsPage(): Promise<ReactElement> {
       <p className="lede">
         A project is the platform tenant. Its data classification decides which models may serve it,
         and its budget is spent in currency, not in tokens.
+      </p>
+      {/* Everything else in the console is project-scoped, and the only way in
+          is one of these cards. Saying so is cheaper than leaving somebody to
+          discover that the nav appears once they have picked one. */}
+      <p className="lede">
+        Open one to reach its agents, vector stores, tools, connections, evaluations and traces.
       </p>
 
       {failure !== undefined && (
@@ -77,18 +84,24 @@ function ProjectTile({ project }: { project: ProjectCard }): ReactElement {
           <span className="badge warn">alerts, does not block</span>
         )}
       </div>
+
+      {/* A card that navigates should look like it does. The hover border alone
+          is invisible until somebody already suspects it is clickable. */}
+      <span className="card-open" aria-hidden="true">
+        Open →
+      </span>
     </a>
   );
 }
 
 function BudgetMeter({ budget }: { budget: NonNullable<ProjectCard['budget']> }): ReactElement {
-  const percent = Math.min(100, Math.round(budget.ratio * 100));
-  const tone = budget.ratio >= 1 ? 'danger' : budget.ratio >= 0.8 ? 'warn' : '';
+  const percent = percentFor(budget.ratio);
+  const tone = toneFor(budget.ratio);
 
   return (
     <>
       <div className="meter">
-        <i className={tone} style={{ width: `${percent.toString()}%` }} />
+        <i className={tone === 'ok' ? '' : tone} style={{ width: `${percent.toString()}%` }} />
       </div>
       <div className="meter-caption">
         <span>

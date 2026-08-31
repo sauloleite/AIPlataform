@@ -52,8 +52,32 @@ export class CompletionsController {
         role: message.role,
         content: message.content,
         ...(message.name !== undefined && { name: message.name }),
+        ...(message.tool_call_id !== undefined && { toolCallId: message.tool_call_id }),
+        ...(message.tool_calls !== undefined && {
+          toolCalls: message.tool_calls.map((call) => ({
+            id: call.id,
+            name: call.function.name,
+            arguments: call.function.arguments,
+            ...(call.provider_state !== undefined && { providerState: call.provider_state }),
+          })),
+        }),
       })),
       stream: parsed.data.stream,
+      ...(parsed.data.tools !== undefined && {
+        tools: parsed.data.tools.map((tool) => ({
+          name: tool.function.name,
+          ...(tool.function.description !== undefined && {
+            description: tool.function.description,
+          }),
+          ...(tool.function.parameters !== undefined && { parameters: tool.function.parameters }),
+        })),
+      }),
+      ...(parsed.data.tool_choice !== undefined && {
+        toolChoice:
+          typeof parsed.data.tool_choice === 'string'
+            ? parsed.data.tool_choice
+            : { name: parsed.data.tool_choice.function.name },
+      }),
       // `max_completion_tokens` is the current name; `max_tokens` is still accepted.
       ...(pickMaxTokens(parsed.data) !== undefined && { maxTokens: pickMaxTokens(parsed.data) }),
       ...(parsed.data.temperature !== undefined && { temperature: parsed.data.temperature }),

@@ -118,5 +118,33 @@ export default tseslint.config(
     files: ['**/*.module.ts'],
     rules: { '@typescript-eslint/no-extraneous-class': 'off' },
   },
+  {
+    // A route file IS a Server Component. Importing Fluent there would pull the
+    // whole page across the client boundary, and the console's BFF property --
+    // that no platform token ever reaches the browser -- rests on pages staying
+    // on the server. Visual code belongs in src/app/_ui/, behind 'use client'.
+    // dependency-cruiser cannot express this: the constraint is about a
+    // directive, not a path.
+    files: ['apps/web/src/app/**/{page,layout,route,not-found,error,loading}.tsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@fluentui/react-components',
+              message:
+                "A route file is a Server Component. Put Fluent UI in apps/web/src/app/_ui/ behind 'use client'.",
+            },
+            {
+              name: '@fluentui/react-icons',
+              message:
+                "A route file is a Server Component. Put Fluent UI in apps/web/src/app/_ui/ behind 'use client'.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   prettier,
 );

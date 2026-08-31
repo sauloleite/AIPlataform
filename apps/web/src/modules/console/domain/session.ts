@@ -29,6 +29,7 @@ export interface Session {
 
 export const PLATFORM_ADMIN = 'platform_admin';
 export const PROJECT_OWNER = 'project_owner';
+export const PROJECT_EDITOR = 'project_editor';
 
 export function isExpired(session: Session, nowSeconds: number): boolean {
   return session.expiresAt <= nowSeconds;
@@ -51,6 +52,21 @@ export function rolesIn(principal: Principal, projectId: string): string[] {
 export function canAdministerProject(principal: Principal, projectId: string): boolean {
   const roles = rolesIn(principal, projectId);
   return roles.includes(PLATFORM_ADMIN) || roles.includes(PROJECT_OWNER);
+}
+
+/**
+ * Whether the console should OFFER the asset editing controls.
+ *
+ * Mirrors POLICY.EDIT_ASSETS in @aia/auth. Like the others here, it only hides
+ * a control -- the registry authorises every write itself.
+ */
+export function canEditAssets(principal: Principal, projectId: string): boolean {
+  const roles = rolesIn(principal, projectId);
+  return (
+    roles.includes(PLATFORM_ADMIN) ||
+    roles.includes(PROJECT_OWNER) ||
+    roles.includes(PROJECT_EDITOR)
+  );
 }
 
 export function canCreateProject(principal: Principal): boolean {

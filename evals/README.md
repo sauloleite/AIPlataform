@@ -38,6 +38,12 @@ that do not depend on a specific provider's quality.
 
 ## Current state
 
-The structure and the datasets are here; the runner (`aia-evaluation`) is a
-generated skeleton and arrives in roadmap phase 2. The datasets are already
-useful for manual testing and for red teaming.
+The runner is real. `aia-evaluation` loads the suites, answers every case
+through `aia-inference-router` with the caller's token, scores them and gates on
+the thresholds — `make eval` locally, the same use case behind
+`POST /v1/evaluations`.
+
+What is NOT here yet: online evaluation of a production traffic sample, and the
+agent-specific evaluators (correct tool use, task completion). The offline gate
+is the half that stops a regression from merging, and it is the half that is
+built.

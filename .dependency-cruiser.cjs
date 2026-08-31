@@ -30,6 +30,10 @@ const FRAMEWORK_PACKAGES = [
   '^jose',
   '^class-validator',
   '^class-transformer',
+  '^@fluentui',
+  '^@griffel',
+  '^react$',
+  '^react-dom',
 ];
 
 /** Node built-ins that signal I/O inside the domain. */
@@ -170,7 +174,10 @@ module.exports = {
     enhancedResolveOptions: {
       exportsFields: ['exports'],
       conditionNames: ['import', 'require', 'node', 'default', 'types'],
-      extensions: ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts'],
+      // .tsx and .jsx belong here: without them every extensionless import of a
+      // React component dead-ends, and the graph silently stops at the App
+      // Router's client components instead of following through them.
+      extensions: ['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts'],
     },
     reporterOptions: {
       text: { highlightFocused: true },

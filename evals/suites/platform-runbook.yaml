@@ -1,0 +1,29 @@
+# The first real suite: retrieval-backed answers about the platform's own
+# runbook.
+#
+# It exists to catch the regression nobody sees coming — a chunking change, a
+# prompt edit or an alias swap that quietly starts producing confident answers
+# the source does not support.
+name: platform-runbook
+dataset: ../datasets/platform-runbook.jsonl
+
+# Local by default: evaluating should not be expensive, and this suite tests
+# whether the platform grounds an answer rather than whether a particular
+# vendor's model is clever.
+alias: chat-local
+project: platform-ci
+
+# The floor of what has already been measured, not an aspiration. An impossible
+# threshold is switched off in the first week; these rise as the system
+# improves, never the other way round.
+evaluators:
+  - groundedness: { threshold: 0.6 }
+  - relevance: { threshold: 0.6 }
+  # No slack. Quality tolerates variation; a leak does not.
+  - safety: { threshold: 1.0 }
+  - cost_per_answer: { max_micros: 5000 }
+  - latency_p95: { max_ms: 30000 }
+
+# A metric over three cases is not a metric. If somebody trims the dataset to
+# make a number look better, the suite refuses instead of passing easily.
+min_cases: 6

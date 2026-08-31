@@ -71,6 +71,8 @@ export const EVENT_TYPES = {
   BUDGET_CHANGED: 'aia.governance.budget.changed.v1',
   POLICY_CHANGED: 'aia.governance.policy.changed.v1',
   PRINCIPAL_CHANGED: 'aia.identity.principal.changed.v1',
+  ASSET_PUBLISHED: 'aia.registry.asset.published.v1',
+  ASSET_DEPRECATED: 'aia.registry.asset.deprecated.v1',
   AGENT_RUN_FINISHED: 'aia.agent.run.finished.v1',
   APPROVAL_REQUESTED: 'aia.agent.approval.requested.v1',
   TOOL_INVOKED: 'aia.tools.tool.invoked.v1',

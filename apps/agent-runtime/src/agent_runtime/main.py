@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from agent_runtime.config import get_settings
+from agent_runtime.container import get_container
 from agent_runtime.presentation.http.routes import health_router, router, runs_router
 from aia_errors import PROBLEM_CONTENT_TYPE, DomainError, problem_from_unknown
 from aia_telemetry import current_trace_id, start_telemetry
@@ -23,7 +24,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level.upper())
     start_telemetry("aia-agent-runtime")
-    logger.info("agent-runtime ready (phase 0 skeleton; LangGraph arrives in phase 3)")
+    await get_container().start()
+    logger.info("agent-runtime ready on port %d", settings.port)
     yield
 
 

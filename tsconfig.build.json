@@ -37,6 +37,12 @@
     },
     {
       "path": "./apps/registry/tsconfig.build.json"
+    },
+    {
+      "path": "./apps/knowledge/tsconfig.build.json"
+    },
+    {
+      "path": "./apps/mcp-gateway/tsconfig.build.json"
     }
   ]
 }

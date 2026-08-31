@@ -23,6 +23,10 @@ export interface paths {
          *
          *     With `stream: true` the response is Server-Sent Events with typed events,
          *     an incrementing `id` for reconnection and a heartbeat every 15 s.
+         *
+         *     A request carrying `tools` never reads or writes the semantic cache: the
+         *     same prompt with a different toolset is a different question, and a
+         *     cached text answer would silently replace a tool call.
          */
         post: operations["createChatCompletion"];
         delete?: never;
@@ -112,7 +116,49 @@ export interface components {
             role: "system" | "user" | "assistant" | "tool";
             content: string | null;
             name?: string;
+            /** @description Which call this message answers. Required on a `tool` message. */
             tool_call_id?: string;
+            /**
+             * @description Present on an assistant message the model ended with
+             *     `finish_reason: tool_calls`. Sent back unchanged on the next turn so
+             *     the model can match each result to the call that produced it.
+             */
+            tool_calls?: components["schemas"]["ToolCall"][];
+        };
+        ToolCall: {
+            id: string;
+            /** @constant */
+            type: "function";
+            function: {
+                name: string;
+                /**
+                 * @description A JSON document, as a string. It is the model that produced it,
+                 *     so it may not parse; the caller validates before executing.
+                 */
+                arguments: string;
+            };
+            /**
+             * @description Opaque state the provider requires back UNCHANGED on the next turn.
+             *
+             *     Gemini returns a `thoughtSignature` beside every function call and
+             *     rejects the following request with a 400 when it is missing. Send
+             *     back whatever arrived here, verbatim; do not read it, store it
+             *     longer than the conversation, or invent one. Absent for providers
+             *     that need nothing echoed.
+             */
+            provider_state?: string;
+        };
+        ToolDefinition: {
+            /** @constant */
+            type: "function";
+            function: {
+                name: string;
+                description?: string;
+                /** @description JSON Schema for the arguments. */
+                parameters?: {
+                    [key: string]: unknown;
+                };
+            };
         };
         ChatCompletionRequest: {
             /**
@@ -131,6 +177,23 @@ export interface components {
             stop?: string[];
             /** @description An opaque identifier for the end user. */
             user?: string;
+            /**
+             * @description What the model may call. The platform does not run any of them: it
+             *     reports the call and the caller executes it, which is what keeps
+             *     aia-mcp-gateway's allow-list, risk and approval in the path.
+             */
+            tools?: components["schemas"]["ToolDefinition"][];
+            /**
+             * @description `auto` (the default when tools are present), `none`, `required`, or
+             *     a specific function.
+             */
+            tool_choice?: ("auto" | "none" | "required") | {
+                /** @constant */
+                type: "function";
+                function: {
+                    name: string;
+                };
+            };
         };
         Usage: {
             prompt_tokens: number;
@@ -245,7 +308,7 @@ export interface components {
             detail?: string;
             instance?: string;
             /** @enum {string} */
-            code: "budget_exhausted" | "quota_exceeded" | "concurrency_limit" | "no_compatible_deployment" | "alias_not_found" | "provider_unavailable" | "all_deployments_failed" | "stream_interrupted" | "guardrail_blocked" | "prompt_injection_suspected" | "unauthenticated" | "forbidden" | "token_expired" | "invalid_token" | "project_required" | "project_not_found" | "validation_failed" | "idempotency_conflict" | "not_found" | "conflict" | "upstream_timeout" | "circuit_open" | "internal_error";
+            code: "budget_exhausted" | "quota_exceeded" | "concurrency_limit" | "no_compatible_deployment" | "alias_not_found" | "provider_unavailable" | "all_deployments_failed" | "stream_interrupted" | "guardrail_blocked" | "prompt_injection_suspected" | "unauthenticated" | "forbidden" | "token_expired" | "invalid_token" | "project_required" | "project_not_found" | "validation_failed" | "idempotency_conflict" | "not_found" | "conflict" | "asset_not_found" | "asset_not_published" | "asset_version_conflict" | "store_not_found" | "document_not_found" | "unsupported_media_type" | "embedding_dimension_mismatch" | "ingestion_failed" | "tool_not_found" | "tool_not_allowed" | "tool_rate_limited" | "approval_required" | "tool_execution_failed" | "agent_step_limit" | "upstream_timeout" | "circuit_open" | "internal_error";
             trace_id?: string;
             /** @description Seconds until a retry is worth attempting. */
             retry_after?: number;
@@ -321,6 +384,8 @@ export interface components {
     pathItems: never;
 }
 export type SchemaChatMessage = components['schemas']['ChatMessage'];
+export type SchemaToolCall = components['schemas']['ToolCall'];
+export type SchemaToolDefinition = components['schemas']['ToolDefinition'];
 export type SchemaChatCompletionRequest = components['schemas']['ChatCompletionRequest'];
 export type SchemaUsage = components['schemas']['Usage'];
 export type SchemaChatCompletion = components['schemas']['ChatCompletion'];

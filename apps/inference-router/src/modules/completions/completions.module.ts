@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { Module, type Provider } from '@nestjs/common';
 import { Db } from 'mongodb';
 import { Redis } from 'ioredis';
-import { HEALTH_CHECKS, HealthController, type DependencyCheck } from '@aia/nest';
+import {
+  HEALTH_CHECKS,
+  HealthController,
+  ServiceTokenProvider,
+  type DependencyCheck,
+} from '@aia/nest';
 import { CreateChatCompletion } from './application/use-cases/create-chat-completion.js';
 import { CreateEmbeddings } from './application/use-cases/create-embeddings.js';
 import { ListModels } from './application/use-cases/list-models.js';
@@ -39,8 +44,7 @@ import {
 } from './infrastructure/registry/alias-catalog.js';
 import { GptTokenEstimator } from './infrastructure/tokens/token-estimator.js';
 import { CompletionsController } from './presentation/http/completions.controller.js';
-import { CONFIG, type RouterConfig } from '../../config/index.js';
-import { ServiceTokenProvider } from '../../shared/service-token.js';
+import { CONFIG, geminiKeys, type RouterConfig } from '../../config/index.js';
 
 /**
  * Wiring. The only place that knows domain, application and infrastructure
@@ -60,7 +64,7 @@ const adapters: Provider[] = [
         baseUrl: config.OPENAI_BASE_URL,
       }),
       new GeminiProvider({
-        apiKey: config.GEMINI_API_KEY,
+        apiKeys: geminiKeys(config),
         baseUrl: config.GEMINI_BASE_URL,
         apiVersion: config.GEMINI_API_VERSION,
         protocol: config.GEMINI_PROTOCOL,
@@ -83,6 +87,7 @@ const adapters: Provider[] = [
           openaiChat: config.OPENAI_CHAT_MODEL,
           openaiEmbedding: config.OPENAI_EMBEDDING_MODEL,
           geminiChat: config.GEMINI_CHAT_MODEL,
+          geminiAdvanced: config.GEMINI_ADVANCED_MODEL,
           geminiEmbedding: config.GEMINI_EMBEDDING_MODEL,
           anthropicChat: config.ANTHROPIC_CHAT_MODEL,
         }),
@@ -98,7 +103,7 @@ const adapters: Provider[] = [
     provide: ServiceTokenProvider,
     useFactory: (config: RouterConfig) =>
       new ServiceTokenProvider({
-        identityUrl: config.IDENTITY_ISSUER,
+        identityUrl: config.IDENTITY_URL ?? config.IDENTITY_ISSUER,
         clientId: config.ROUTER_CLIENT_ID,
         clientSecret: config.ROUTER_CLIENT_SECRET,
         scope: 'projects:read',

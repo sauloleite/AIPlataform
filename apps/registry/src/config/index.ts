@@ -15,6 +15,15 @@ const schema = z.object({
   IDENTITY_AUDIENCE: z.string().default('aia-platform'),
   IDENTITY_JWKS_URL: z.string().url().optional(),
 
+  // Where a definition's references are resolved at publish time.
+  INFERENCE_ROUTER_URL: z.string().url().default('http://inference-router:3000'),
+  // Empty until aia-knowledge exists. A definition attaching a vector store
+  // then refuses to publish rather than publishing retrieval that does nothing.
+  KNOWLEDGE_URL: z.string().default(''),
+
+  REGISTRY_CLIENT_ID: z.string().default('aia-registry'),
+  REGISTRY_CLIENT_SECRET: z.string().default(''),
+
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
 });
 

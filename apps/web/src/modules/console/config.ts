@@ -19,6 +19,15 @@ const schema = z.object({
   IDENTITY_URL: z.string().url().default('http://identity:3001'),
   GOVERNANCE_URL: z.string().url().default('http://governance:3002'),
   INFERENCE_ROUTER_URL: z.string().url().default('http://inference-router:3000'),
+  REGISTRY_URL: z.string().url().default('http://registry:3004'),
+  KNOWLEDGE_URL: z.string().url().default('http://knowledge:3007'),
+  MCP_GATEWAY_URL: z.string().url().default('http://mcp-gateway:3006'),
+  AGENT_RUNTIME_URL: z.string().url().default('http://agent-runtime:8002'),
+  EVALUATION_URL: z.string().url().default('http://evaluation:8003'),
+  // Tempo's query API, inside the LGTM image. Empty is allowed and disables
+  // the Traces screen: an observability backend that is down should not take
+  // the console with it.
+  TEMPO_URL: z.string().default('http://lgtm:3200'),
 
   PLATFORM_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
 });

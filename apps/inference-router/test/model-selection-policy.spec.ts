@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ModelSelectionPolicy } from '../src/modules/completions/domain/services/model-selection-policy.js';
+import {
+  ModelSelectionPolicy,
+  sameWidth,
+} from '../src/modules/completions/domain/services/model-selection-policy.js';
 import {
   AliasNotAllowedError,
   CapabilityNotSupportedError,
@@ -170,5 +173,61 @@ describe('Deployment.costOf', () => {
 
   it('a local model costs zero, which is why the platform runs without an API key', () => {
     expect(aDeployment({ provider: 'ollama' }).costOf(10_000, 10_000).micros).toBe(0n);
+  });
+});
+
+/**
+ * Embeddings do not fail over across vector widths.
+ *
+ * Every other capability may: a chat answer from another model is still an
+ * answer. An embedding is not. A vector index is built for ONE width, and the
+ * widths differ by provider — 1536, 3072, 768. A failover that changed it
+ * writes vectors nothing can search against, and the damage is silent until
+ * search quality degrades.
+ */
+describe('sameWidth', () => {
+  const embedder = (id: string, dimensions: number, priority: number) =>
+    aDeployment({ id, provider: 'gemini', dataZone: 'global', priority, dimensions });
+
+  it('keeps only the deployments matching the leading width', () => {
+    const chain = sameWidth([embedder('gemini-embed', 3072, 0), embedder('ollama-embed', 768, 1)]);
+
+    expect(chain.map((deployment) => deployment.id)).toEqual(['gemini-embed']);
+  });
+
+  it('keeps a second deployment of the SAME width', () => {
+    // Two providers at 3072 are genuinely interchangeable, and that failover
+    // is the one worth having.
+    const chain = sameWidth([
+      embedder('gemini-embed', 3072, 0),
+      embedder('gemini-embed-alt', 3072, 1),
+    ]);
+
+    expect(chain.map((deployment) => deployment.id)).toEqual(['gemini-embed', 'gemini-embed-alt']);
+  });
+
+  it('leaves an unannotated deployment in rather than disabling the alias', () => {
+    // Not every catalogue entry declares a width. Dropping one on a missing
+    // field would take an embedding alias down over bookkeeping.
+    const chain = sameWidth([
+      embedder('gemini-embed', 3072, 0),
+      aDeployment({ id: 'legacy', provider: 'openai', dataZone: 'us', priority: 1 }),
+    ]);
+
+    expect(chain.map((deployment) => deployment.id)).toEqual(['gemini-embed', 'legacy']);
+  });
+
+  it('anchors on the FIRST candidate, which is the one that can run', () => {
+    // The trap: anchoring on a deployment the executor is about to drop for
+    // having no credential leaves nothing at all. The executor passes only
+    // usable deployments, so the anchor is always something that can serve.
+    const chain = sameWidth([embedder('gemini-embed', 3072, 1), embedder('ollama-embed', 768, 2)]);
+
+    expect(chain).toHaveLength(1);
+    expect(chain[0]?.dimensions).toBe(3072);
+  });
+
+  it('passes an empty list through instead of throwing', () => {
+    expect(sameWidth([])).toEqual([]);
   });
 });

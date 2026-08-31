@@ -42,3 +42,6 @@ Thumbs.db
 
 # Cache do import-linter
 .import_linter_cache/
+
+# Claude Code scratch space (worktrees, local launch config).
+.claude/

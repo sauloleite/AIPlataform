@@ -74,13 +74,19 @@ arch: ## The Clean Architecture dependency rule (fails the build)
 	pnpm exec depcruise --config .dependency-cruiser.cjs --output-type err apps packages
 	uv run lint-imports
 
+# `--project unit` used to be here and matched nothing: there is no vitest
+# projects config, each package owns its own vitest.config.ts. `nx run-many` is
+# what CI actually runs, so this target now runs the same thing -- a `make check`
+# that fails on its own tooling teaches people to stop running it.
 test-unit: ## Unit tests (domain and application, no I/O)
-	pnpm exec vitest run --project unit
+	pnpm exec nx run-many -t test --all
 	uv run pytest -m "not integration and not contract"
 
+# Exit code 5 is pytest's "nothing collected". There are no Python integration
+# tests yet, and that is not a failure -- it becomes one the day somebody writes
+# one and it breaks.
 test-integration: ## Integration tests (Docker required)
-	pnpm exec vitest run --project integration
-	uv run pytest -m integration
+	uv run pytest -m integration || [ $$? -eq 5 ]
 
 test: test-unit test-integration ## The whole test suite
 

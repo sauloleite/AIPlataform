@@ -1,40 +1,31 @@
 /*
- * One stylesheet, plain CSS custom properties.
+ * Document-level styles, and the bridge from the console's own token names to
+ * Fluent's.
  *
- * No UI framework: the console has five screens, and a design system would be
- * more code than the thing it styles. Tokens keep the values in one place, and
- * the dark theme is a media query rather than a toggle with state to persist.
+ * The values come from the Fluent theme the ROOT LAYOUT resolves on the server
+ * and emits at `:root`. There is deliberately no `prefers-color-scheme` block
+ * here any more: Fluent's theme is a JavaScript object chosen per request, so a
+ * media query flipping these behind its back produced a page that was half
+ * light and half dark. One source of truth, decided server-side.
+ *
+ * The aliases below exist so the rules further down did not all have to change
+ * at once. New styling belongs in a `makeStyles` beside its component, using
+ * `tokens.*` directly.
  */
 :root {
-  --bg: #fbfbfa;
-  --surface: #ffffff;
-  --surface-alt: #f4f4f2;
-  --border: #e2e2dd;
-  --text: #1c1c1a;
-  --text-muted: #6b6b64;
-  --accent: #b04a2f;
-  --accent-soft: #f6ebe6;
-  --ok: #2f6f4a;
-  --warn: #8a6414;
-  --danger: #a3312a;
-  --radius: 8px;
-  --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16161a;
-    --surface: #1e1e23;
-    --surface-alt: #26262c;
-    --border: #34343c;
-    --text: #ececee;
-    --text-muted: #9a9aa4;
-    --accent: #e08161;
-    --accent-soft: #33251f;
-    --ok: #6fbf8e;
-    --warn: #d6a94a;
-    --danger: #e28078;
-  }
+  --bg: var(--colorNeutralBackground3);
+  --surface: var(--colorNeutralBackground1);
+  --surface-alt: var(--colorNeutralBackground2);
+  --border: var(--colorNeutralStroke2);
+  --text: var(--colorNeutralForeground1);
+  --text-muted: var(--colorNeutralForeground2);
+  --accent: var(--colorBrandForeground1);
+  --accent-soft: var(--colorBrandBackground2);
+  --ok: var(--colorPaletteGreenForeground1);
+  --warn: var(--colorPaletteDarkOrangeForeground1);
+  --danger: var(--colorPaletteRedForeground1);
+  --radius: var(--borderRadiusMedium);
+  --mono: var(--fontFamilyMonospace);
 }
 
 * {
@@ -146,8 +137,25 @@ h2 {
   display: block;
 }
 
-.card-link:hover {
+.card-link {
+  position: relative;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.card-link:hover,
+.card-link:focus-visible {
   border-color: var(--accent);
+  box-shadow: 0 1px 8px rgb(0 0 0 / 8%);
+}
+
+.card-open {
+  display: block;
+  margin-top: 12px;
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .card-head {

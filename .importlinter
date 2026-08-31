@@ -79,6 +79,21 @@ forbidden_modules =
     agent_runtime.infrastructure
     agent_runtime.presentation
 
+[importlinter:contract:evaluation-domain-without-frameworks]
+name = the evaluation domain knows no framework and no I/O
+type = forbidden
+source_modules =
+    evaluation.domain
+forbidden_modules =
+    fastapi
+    starlette
+    pymongo
+    redis
+    httpx
+    yaml
+    evaluation.infrastructure
+    evaluation.presentation
+
 [importlinter:contract:application-without-adapters]
 name = use cases depend on ports, never on adapters
 type = forbidden

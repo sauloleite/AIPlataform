@@ -18,6 +18,7 @@ import {
   type AliasRegistry,
   type AuditRepository,
   type BudgetLedger,
+  type ChatChunk,
   type ChatRequestInput,
   type Clock,
   type Guardrail,
@@ -26,6 +27,7 @@ import {
   type SemanticCache,
   type TokenEstimator,
   type TokenUsage,
+  type ToolCallOutput,
   type UsagePublisher,
 } from '../ports.js';
 import { DeploymentExecutor } from '../services/deployment-executor.js';
@@ -94,11 +96,13 @@ export class CreateChatCompletion {
       );
 
       await this.ledger.commit(reservation, cost);
-      await this.cache.store(command.projectId, command.alias, plan.promptForCache, {
-        content: attempt.result.content,
-        usage: attempt.result.usage,
-        deploymentId: attempt.deployment.id,
-      });
+      if (plan.cacheable) {
+        await this.cache.store(command.projectId, command.alias, plan.promptForCache, {
+          content: attempt.result.content,
+          usage: attempt.result.usage,
+          deploymentId: attempt.deployment.id,
+        });
+      }
 
       const routing = this.routingOf({
         deployment: attempt.deployment,
@@ -123,6 +127,7 @@ export class CreateChatCompletion {
         finishReason: attempt.result.finishReason,
         usage: totals(attempt.result.usage),
         routing,
+        ...(attempt.result.toolCalls !== undefined && { toolCalls: attempt.result.toolCalls }),
       };
     } catch (error) {
       // Saga compensation: whatever was reserved must not stay locked.
@@ -158,6 +163,7 @@ export class CreateChatCompletion {
     let deployment: Deployment | undefined;
     let attempts = 0;
     let finishReason: string | null = null;
+    let toolCalls: ToolCallOutput[] = [];
 
     try {
       const opened = await this.executor.openStream(plan.request, plan.deployments);
@@ -170,10 +176,7 @@ export class CreateChatCompletion {
           emitted += chunk.delta;
           yield { kind: 'delta', content: chunk.delta };
         }
-        if (chunk.usage !== undefined) usage = chunk.usage;
-        if (chunk.finishReason !== undefined && chunk.finishReason !== null) {
-          finishReason = chunk.finishReason;
-        }
+        ({ usage, toolCalls, finishReason } = fold(chunk, { usage, toolCalls, finishReason }));
       }
 
       // A provider that reports no usage: estimate from what was actually
@@ -190,9 +193,11 @@ export class CreateChatCompletion {
         id: command.requestId,
         model: command.alias,
         content: emitted,
-        finishReason,
+        // A provider can report the calls without ever setting the reason.
+        finishReason: toolCalls.length > 0 ? 'tool_calls' : finishReason,
         usage: totals(usage),
         routing,
+        ...(toolCalls.length > 0 && { toolCalls }),
       };
 
       await this.settle({
@@ -274,15 +279,25 @@ export class CreateChatCompletion {
       ...(command.temperature !== undefined && { temperature: command.temperature }),
       ...(command.topP !== undefined && { topP: command.topP }),
       ...(command.stop !== undefined && { stop: command.stop }),
+      ...(command.tools !== undefined && command.tools.length > 0 && { tools: command.tools }),
+      ...(command.toolChoice !== undefined && { toolChoice: command.toolChoice }),
     };
 
-    const cached = await this.cache.lookup(command.projectId, command.alias, promptForCache);
+    // A tool-using turn never touches the cache. The cache stores text keyed by
+    // the prompt, so the same question asked with a different toolset would come
+    // back as a stale answer where the model wanted to call something -- the
+    // agent would silently skip the call it was about to make.
+    const cacheable = request.tools === undefined;
+    const cached = cacheable
+      ? await this.cache.lookup(command.projectId, command.alias, promptForCache)
+      : null;
 
     return {
       policyResult,
       deployments,
       request,
       promptForCache,
+      cacheable,
       cached,
       estimatedPromptTokens: this.estimator.countMessages(messages),
       maxOutputTokens,
@@ -497,11 +512,31 @@ export class CreateChatCompletion {
   }
 }
 
+/** The metadata a chunk may carry. Kept out of the loop so the streaming path
+ *  stays under the complexity the lint rule allows — and so what is remembered
+ *  across chunks is stated in one place. */
+interface StreamTotals {
+  usage: TokenUsage;
+  toolCalls: ToolCallOutput[];
+  finishReason: string | null;
+}
+
+function fold(chunk: ChatChunk, totals: StreamTotals): StreamTotals {
+  return {
+    usage: chunk.usage ?? totals.usage,
+    toolCalls: chunk.toolCalls ?? totals.toolCalls,
+    // `?? ` covers both: a chunk with no reason and one that reports null are
+    // the same thing -- the answer has not ended yet.
+    finishReason: chunk.finishReason ?? totals.finishReason,
+  };
+}
+
 interface Plan {
   policyResult: PolicyResult;
   deployments: Deployment[];
   request: ChatRequestInput;
   promptForCache: string;
+  cacheable: boolean;
   cached: Awaited<ReturnType<SemanticCache['lookup']>>;
   estimatedPromptTokens: number;
   maxOutputTokens: number;

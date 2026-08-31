@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from aia_errors import PROBLEM_CONTENT_TYPE, DomainError, problem_from_unknown
 from aia_telemetry import current_trace_id, start_telemetry
 from evaluation.config import get_settings
+from evaluation.container import get_container
 from evaluation.presentation.http.routes import health_router, router
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level.upper())
     start_telemetry("aia-evaluation")
+    await get_container().start()
+    logger.info("evaluation ready on port %d", settings.port)
     yield
 
 

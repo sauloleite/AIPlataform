@@ -39,6 +39,28 @@ export const ERROR_CODES = {
   NOT_FOUND: 'not_found',
   CONFLICT: 'conflict',
 
+  // AI assets (aia-registry)
+  ASSET_NOT_FOUND: 'asset_not_found',
+  ASSET_NOT_PUBLISHED: 'asset_not_published',
+  ASSET_VERSION_CONFLICT: 'asset_version_conflict',
+
+  // Knowledge (aia-knowledge)
+  STORE_NOT_FOUND: 'store_not_found',
+  DOCUMENT_NOT_FOUND: 'document_not_found',
+  UNSUPPORTED_MEDIA_TYPE: 'unsupported_media_type',
+  EMBEDDING_DIMENSION_MISMATCH: 'embedding_dimension_mismatch',
+  INGESTION_FAILED: 'ingestion_failed',
+
+  // Tools (aia-mcp-gateway)
+  TOOL_NOT_FOUND: 'tool_not_found',
+  TOOL_NOT_ALLOWED: 'tool_not_allowed',
+  TOOL_RATE_LIMITED: 'tool_rate_limited',
+  APPROVAL_REQUIRED: 'approval_required',
+  TOOL_EXECUTION_FAILED: 'tool_execution_failed',
+
+  // Agents
+  AGENT_STEP_LIMIT: 'agent_step_limit',
+
   // Dependencies
   UPSTREAM_TIMEOUT: 'upstream_timeout',
   CIRCUIT_OPEN: 'circuit_open',

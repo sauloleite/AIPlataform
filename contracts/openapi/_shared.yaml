@@ -80,6 +80,20 @@ components:
             - idempotency_conflict
             - not_found
             - conflict
+            - asset_not_found
+            - asset_not_published
+            - asset_version_conflict
+            - store_not_found
+            - document_not_found
+            - unsupported_media_type
+            - embedding_dimension_mismatch
+            - ingestion_failed
+            - tool_not_found
+            - tool_not_allowed
+            - tool_rate_limited
+            - approval_required
+            - tool_execution_failed
+            - agent_step_limit
             - upstream_timeout
             - circuit_open
             - internal_error

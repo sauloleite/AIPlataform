@@ -26,7 +26,13 @@ class ApprovalPolicy:
 
     @staticmethod
     def requires_approval(call: ToolCall) -> bool:
-        return call.risk_level == RiskLevel.HIGH
+        """High risk always, plus whatever the project's binding raised.
+
+        A binding can RAISE the bar and never lower it: `requires_approval`
+        arrives from aia-mcp-gateway already combining the two, and the runtime
+        must not talk itself out of a control the gateway will enforce anyway.
+        """
+        return call.risk_level == RiskLevel.HIGH or call.requires_approval
 
     @classmethod
     def can_approve(cls, roles: frozenset[str] | set[str], call: ToolCall) -> bool:
@@ -43,3 +49,26 @@ class ApprovalPolicy:
         small team it can stall the operation.
         """
         return principal_id == run_principal_id
+
+
+class LoopPolicy:
+    """When the loop has to stop.
+
+    An agent that keeps answering itself spends real money in silence. The
+    ceiling is on TOOL steps, not on messages: an ordinary answer ends the run
+    on its own, and it is the call-result-call cycle that can run away.
+    """
+
+    @staticmethod
+    def exhausted(tool_calls_made: int, max_steps: int) -> bool:
+        return tool_calls_made >= max_steps
+
+    @staticmethod
+    def last_chance(tool_calls_made: int, max_steps: int) -> bool:
+        """One step short of the ceiling.
+
+        On this turn the model is told to answer with what it has instead of
+        calling again, so the run ends with an answer rather than with the step
+        limit -- a limit reached is a failure the user sees.
+        """
+        return tool_calls_made == max_steps - 1

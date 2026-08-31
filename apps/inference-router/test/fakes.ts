@@ -23,6 +23,7 @@ import type {
   ReserveInput,
   SemanticCache,
   TokenEstimator,
+  ToolCallOutput,
   UsagePublisher,
 } from '../src/modules/completions/application/ports.js';
 import type { ModelAlias } from '../src/modules/completions/domain/entities/model-alias.js';
@@ -161,6 +162,7 @@ export class FakeModelProvider implements ModelProvider {
   private failure: Error | null = null;
   private failuresRemaining = 0;
   private failMidStreamAfter: number | null = null;
+  private toolCalls: ToolCallOutput[] | null = null;
 
   constructor(
     readonly provider: 'openai' | 'gemini' | 'anthropic' | 'ollama',
@@ -172,6 +174,11 @@ export class FakeModelProvider implements ModelProvider {
   failNext(error: Error, times = 1): void {
     this.failure = error;
     this.failuresRemaining = times;
+  }
+
+  /** Makes the model ask for tools instead of answering. */
+  answerWithToolCalls(calls: ToolCallOutput[]): void {
+    this.toolCalls = calls;
   }
 
   /** Drops the stream after N chunks, to exercise the partial commit. */
@@ -189,12 +196,25 @@ export class FakeModelProvider implements ModelProvider {
   async chat(request: ChatRequestInput, deployment: Deployment): Promise<ChatResult> {
     this.calls.push({ deploymentId: deployment.id, request });
     this.maybeFail();
+    if (this.toolCalls !== null) {
+      return {
+        content: '',
+        finishReason: 'tool_calls',
+        usage: this.usage,
+        toolCalls: this.toolCalls,
+      };
+    }
     return { content: this.reply, finishReason: 'stop', usage: this.usage };
   }
 
   async *chatStream(request: ChatRequestInput, deployment: Deployment): AsyncGenerator<ChatChunk> {
     this.calls.push({ deploymentId: deployment.id, request });
     this.maybeFail();
+
+    if (this.toolCalls !== null) {
+      yield { delta: '', finishReason: 'tool_calls', usage: this.usage, toolCalls: this.toolCalls };
+      return;
+    }
 
     const words = this.reply.split(' ');
     for (const [index, word] of words.entries()) {
@@ -267,6 +287,7 @@ export class FakeGuardrail implements Guardrail {
 export class FakeSemanticCache implements SemanticCache {
   enabled = false;
   readonly stored: CachedCompletion[] = [];
+  lookups = 0;
   private hit: CachedCompletion | null = null;
 
   primeWith(completion: CachedCompletion): void {
@@ -275,6 +296,7 @@ export class FakeSemanticCache implements SemanticCache {
   }
 
   async lookup(): Promise<CachedCompletion | null> {
+    this.lookups += 1;
     return this.enabled ? this.hit : null;
   }
 

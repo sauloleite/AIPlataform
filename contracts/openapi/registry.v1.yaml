@@ -1,0 +1,401 @@
+openapi: 3.1.0
+info:
+  title: AIA Registry
+  version: '1.0.0'
+  description: |
+    The single owner of AI ASSET DEFINITIONS: agents, tools and prompts. The
+    runtimes hold execution state only (reference doc 01, finding 3.4 -- a
+    definition with two owners is the drift this service exists to remove).
+
+    An asset is edited as a DRAFT and then PUBLISHED as an immutable version.
+    `aia-agent-runtime` resolves a pinned published version for every run
+    (flow 7.2), so editing an agent can never change a run already in flight.
+
+    A vector store is NOT an asset here: `aia-knowledge` owns it outright,
+    definition and index together (ADR-016). An agent references one by id and
+    the reference is validated at publish time.
+  license: { name: MIT }
+
+servers:
+  - url: http://localhost:8080
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: assets
+  - name: versions
+
+paths:
+  /v1/assets:
+    post:
+      operationId: createAsset
+      tags: [assets]
+      summary: Creates an asset with its first draft version
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAssetRequest' }
+      responses:
+        '201':
+          description: Asset created, with version 1 in draft
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetVersion' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '409':
+          description: An asset of this kind already uses this slug in the project
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+    get:
+      operationId: listAssets
+      tags: [assets]
+      summary: Lists the assets of a project
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+        - $ref: './_shared.yaml#/components/parameters/Cursor'
+        - $ref: './_shared.yaml#/components/parameters/Limit'
+        - name: kind
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/AssetKind' }
+      responses:
+        '200':
+          description: A page of assets
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './_shared.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Asset' } }
+
+  /v1/assets/{assetId}:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: assetId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getAsset
+      tags: [assets]
+      summary: Details an asset and its versions
+      responses:
+        '200':
+          description: The asset
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetDetail' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /v1/assets/{assetId}/draft:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: assetId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: updateDraft
+      tags: [versions]
+      summary: Replaces the draft definition
+      description: |
+        Only a draft may be edited. `expected_version` guards against two
+        editors overwriting each other and answers `asset_version_conflict`
+        when the draft moved since it was read.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateDraftRequest' }
+      responses:
+        '200':
+          description: Draft updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetVersion' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+        '409':
+          description: The draft changed since it was read, or there is no draft
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+
+  /v1/assets/{assetId}/versions:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: assetId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: publishVersion
+      tags: [versions]
+      summary: Publishes the draft, and opens the next draft
+      description: |
+        Publishing freezes the definition and validates every reference it
+        makes: an unknown tool or vector store fails here rather than at the
+        first run.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Version published
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetVersion' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+        '409':
+          description: There is no draft to publish
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+
+  /v1/assets/{assetId}/published:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: assetId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getPublishedVersion
+      tags: [versions]
+      summary: Resolves the version a runtime should execute
+      description: |
+        What `aia-agent-runtime` calls at the start of a run. Answers
+        `asset_not_published` rather than falling back to a draft: running a
+        definition nobody published is exactly the drift this service prevents.
+      responses:
+        '200':
+          description: The published version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetVersion' }
+        '404':
+          description: No such asset, or it has no published version
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+
+  /v1/assets/{assetId}/versions/{version}/deprecate:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: assetId
+        in: path
+        required: true
+        schema: { type: string }
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    post:
+      operationId: deprecateVersion
+      tags: [versions]
+      summary: Deprecates a published version
+      responses:
+        '200':
+          description: Version deprecated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetVersion' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /health/live:
+    get:
+      operationId: registryLive
+      security: []
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+  /health/ready:
+    get:
+      operationId: registryReady
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+        '503': { $ref: './_shared.yaml#/components/responses/ServiceUnavailable' }
+
+components:
+  securitySchemes:
+    bearerAuth: { $ref: './_shared.yaml#/components/securitySchemes/bearerAuth' }
+
+  schemas:
+    AssetKind:
+      type: string
+      description: |
+        `model_alias` is deliberately absent: the alias catalogue moves here in
+        a later step (ADR-017) and is not edited as a draft.
+      enum: [agent, tool, prompt]
+
+    VersionStatus:
+      type: string
+      enum: [draft, published, deprecated]
+
+    RiskLevel:
+      type: string
+      description: |
+        A `high` risk tool does not run without human approval (OWASP LLM06).
+      enum: [low, medium, high]
+
+    Asset:
+      type: object
+      required: [id, project_id, kind, slug, name, created_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        kind: { $ref: '#/components/schemas/AssetKind' }
+        slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        owner_principal_id: { type: string }
+        published_version:
+          type: [integer, 'null']
+          description: Null until something is published.
+        draft_version:
+          type: [integer, 'null']
+          description: Null when there is no open draft.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AssetDetail:
+      allOf:
+        - $ref: '#/components/schemas/Asset'
+        - type: object
+          properties:
+            versions:
+              type: array
+              items: { $ref: '#/components/schemas/AssetVersion' }
+
+    AssetVersion:
+      type: object
+      required: [asset_id, version, status, definition]
+      properties:
+        asset_id: { type: string }
+        version: { type: integer, minimum: 1 }
+        status: { $ref: '#/components/schemas/VersionStatus' }
+        definition: { $ref: '#/components/schemas/AssetDefinition' }
+        published_at: { type: [string, 'null'], format: date-time }
+        published_by: { type: [string, 'null'] }
+        updated_at: { type: string, format: date-time }
+
+    AssetDefinition:
+      description: Discriminated by the asset's kind.
+      oneOf:
+        - $ref: '#/components/schemas/AgentDefinition'
+        - $ref: '#/components/schemas/ToolDefinition'
+        - $ref: '#/components/schemas/PromptDefinition'
+
+    AgentDefinition:
+      type: object
+      required: [kind, instructions, model_alias]
+      properties:
+        kind: { type: string, const: agent }
+        instructions: { type: string, minLength: 1, maxLength: 100000 }
+        model_alias: { type: string, minLength: 1 }
+        tools:
+          type: array
+          items: { $ref: '#/components/schemas/ToolRef' }
+        knowledge:
+          type: array
+          description: Vector stores owned by aia-knowledge, referenced by id.
+          items: { $ref: '#/components/schemas/StoreRef' }
+        temperature: { type: number, minimum: 0, maximum: 2 }
+        top_p: { type: number, minimum: 0, maximum: 1 }
+        max_output_tokens: { type: integer, minimum: 1 }
+
+    ToolDefinition:
+      type: object
+      required: [kind, tool_type, risk_level]
+      properties:
+        kind: { type: string, const: tool }
+        tool_type:
+          type: string
+          description: |
+            Built-in tools are executed by the platform; the rest reach an
+            endpoint you configure.
+          enum: [mcp, openapi, function, builtin]
+        risk_level: { $ref: '#/components/schemas/RiskLevel' }
+        endpoint:
+          type: string
+          description: MCP server URL, or the OpenAPI document URL.
+        builtin_id:
+          type: string
+          description: Which built-in, when `tool_type` is `builtin`.
+          enum: [file_search, code_interpreter, web_search]
+        parameters:
+          type: object
+          description: JSON Schema for the arguments, for a `function` tool.
+          additionalProperties: true
+        connection_id:
+          type: string
+          description: |
+            Credentials live in a connection, never in this definition
+            (ADR-015).
+
+    PromptDefinition:
+      type: object
+      required: [kind, template]
+      properties:
+        kind: { type: string, const: prompt }
+        template: { type: string, minLength: 1, maxLength: 100000 }
+        variables:
+          type: array
+          items: { type: string }
+
+    ToolRef:
+      type: object
+      required: [asset_id]
+      properties:
+        asset_id: { type: string }
+        version:
+          type: [integer, 'null']
+          description: Null pins to whatever is published at run time.
+
+    StoreRef:
+      type: object
+      required: [store_id]
+      properties:
+        store_id: { type: string }
+
+    CreateAssetRequest:
+      type: object
+      required: [kind, slug, name, definition]
+      properties:
+        kind: { $ref: '#/components/schemas/AssetKind' }
+        slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        definition: { $ref: '#/components/schemas/AssetDefinition' }
+
+    UpdateDraftRequest:
+      type: object
+      required: [definition, expected_version]
+      properties:
+        definition: { $ref: '#/components/schemas/AssetDefinition' }
+        expected_version:
+          type: integer
+          minimum: 1
+          description: The draft version the editor last read.
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }

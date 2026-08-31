@@ -95,7 +95,19 @@ class EventPublisher(Protocol):
 
 
 class RedisLike(Protocol):
-    async def xadd(self, name: str, fields: dict[str, str], **kwargs: Any) -> Any: ...
+    """The one Redis call the publisher makes, named precisely.
+
+    Precisely, because the loose version did not match the real client: `**kwargs`
+    demands an implementation that takes arbitrary keywords, `async def` demands
+    a Coroutine where redis-py declares an Awaitable, and `dict[str, str]` is
+    invariant against the far wider key type redis-py accepts. Spelling out the
+    two arguments actually used is what lets both the real client and a fake
+    satisfy the same protocol.
+    """
+
+    def xadd(
+        self, name: str, fields: Any, *, maxlen: int | None = ..., approximate: bool = ...
+    ) -> Any: ...
 
 
 @dataclass(slots=True)

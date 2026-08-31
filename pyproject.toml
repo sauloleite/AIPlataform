@@ -25,6 +25,7 @@ dev = [
     "import-linter>=2.1",
     "testcontainers>=4.9.1",
     "schemathesis>=3.39.0",
+    "types-pyyaml>=6.0.12",
 ]
 
 [tool.uv.workspace]
@@ -69,6 +70,9 @@ select = [
 ignore = ["S101"]  # assert is valid in a test
 
 [tool.ruff.lint.per-file-ignores]
+# A CLI writes to stdout. That is what it is for.
+"**/cli.py" = ["T20"]
+"**/__main__.py" = ["T20"]
 "**/tests/**" = ["S", "ARG", "T20"]
 "**/*_test.py" = ["S", "ARG", "T20"]
 "**/test_*.py" = ["S", "ARG", "T20"]
@@ -88,7 +92,7 @@ known-first-party = [
 python_version = "3.12"
 # Os servicos usam layout src/: sem isto o mypy acha o mesmo arquivo por dois
 # nomes de modulo e desiste antes de checar qualquer coisa.
-mypy_path = "apps/evaluation/src:python/aia_auth/src:python/aia_contracts/src:python/aia_errors/src:python/aia_messaging/src:python/aia_resilience/src:python/aia_telemetry/src:python/aia_sdk/src:apps/guardrails/src:apps/agent-runtime/src"
+mypy_path = "apps/evaluation/src:python/aia_auth/src:python/aia_contracts/src:python/aia_errors/src:python/aia_messaging/src:python/aia_resilience/src:python/aia_telemetry/src:python/aia_sdk/src:apps/guardrails/src:apps/agent-runtime/src:apps/agent-runtime/tests:apps/evaluation/tests"
 explicit_package_bases = true
 strict = true
 warn_unreachable = true
@@ -103,6 +107,15 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["python", "apps"]
+# `--import-mode=importlib` deliberately does not touch sys.path, which is what
+# keeps two `tests/` directories from colliding -- and also what stops a test
+# importing the helper module beside it. Declaring the directories here buys
+# both, in one place rather than a conftest per service.
+#
+# The helpers are named per service (`agent_fakes`, `evaluation_fakes`) rather
+# than `fakes`: two modules with one name collide in `sys.modules` however the
+# path is arranged, and the second one imported silently wins.
+pythonpath = ["apps/agent-runtime/tests", "apps/evaluation/tests"]
 # import-mode=importlib: without it, two `tests/` directories with the same
 # module name collide during collection.
 addopts = "-q --strict-markers --import-mode=importlib"

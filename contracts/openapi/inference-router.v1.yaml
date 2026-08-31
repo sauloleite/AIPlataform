@@ -33,6 +33,10 @@ paths:
 
         With `stream: true` the response is Server-Sent Events with typed events,
         an incrementing `id` for reconnection and a heartbeat every 15 s.
+
+        A request carrying `tools` never reads or writes the semantic cache: the
+        same prompt with a different toolset is a different question, and a
+        cached text answer would silently replace a tool call.
       parameters:
         - $ref: './_shared.yaml#/components/parameters/ProjectId'
         - $ref: './_shared.yaml#/components/parameters/TraceParent'
@@ -161,7 +165,59 @@ components:
         role: { type: string, enum: [system, user, assistant, tool] }
         content: { type: [string, 'null'] }
         name: { type: string }
-        tool_call_id: { type: string }
+        tool_call_id:
+          type: string
+          description: Which call this message answers. Required on a `tool` message.
+        tool_calls:
+          type: array
+          description: |
+            Present on an assistant message the model ended with
+            `finish_reason: tool_calls`. Sent back unchanged on the next turn so
+            the model can match each result to the call that produced it.
+          items: { $ref: '#/components/schemas/ToolCall' }
+
+    ToolCall:
+      type: object
+      required: [id, type, function]
+      properties:
+        id: { type: string }
+        type: { type: string, const: function }
+        function:
+          type: object
+          required: [name, arguments]
+          properties:
+            name: { type: string }
+            arguments:
+              type: string
+              description: |
+                A JSON document, as a string. It is the model that produced it,
+                so it may not parse; the caller validates before executing.
+        provider_state:
+          type: string
+          description: |
+            Opaque state the provider requires back UNCHANGED on the next turn.
+
+            Gemini returns a `thoughtSignature` beside every function call and
+            rejects the following request with a 400 when it is missing. Send
+            back whatever arrived here, verbatim; do not read it, store it
+            longer than the conversation, or invent one. Absent for providers
+            that need nothing echoed.
+
+    ToolDefinition:
+      type: object
+      required: [type, function]
+      properties:
+        type: { type: string, const: function }
+        function:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string, pattern: '^[a-zA-Z0-9_-]{1,64}$' }
+            description: { type: string }
+            parameters:
+              type: object
+              description: JSON Schema for the arguments.
+              additionalProperties: true
 
     ChatCompletionRequest:
       type: object
@@ -189,6 +245,30 @@ components:
           items: { type: string }
           maxItems: 4
         user: { type: string, description: An opaque identifier for the end user. }
+        tools:
+          type: array
+          maxItems: 128
+          description: |
+            What the model may call. The platform does not run any of them: it
+            reports the call and the caller executes it, which is what keeps
+            aia-mcp-gateway's allow-list, risk and approval in the path.
+          items: { $ref: '#/components/schemas/ToolDefinition' }
+        tool_choice:
+          description: |
+            `auto` (the default when tools are present), `none`, `required`, or
+            a specific function.
+          oneOf:
+            - type: string
+              enum: [auto, none, required]
+            - type: object
+              required: [type, function]
+              properties:
+                type: { type: string, const: function }
+                function:
+                  type: object
+                  required: [name]
+                  properties:
+                    name: { type: string }
       additionalProperties: false
 
     Usage:

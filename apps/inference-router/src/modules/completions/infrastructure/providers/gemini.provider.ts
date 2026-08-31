@@ -7,6 +7,7 @@ import type {
   ChatResult,
   EmbeddingsResult,
   ModelProvider,
+  ToolCallOutput,
 } from '../../application/ports.js';
 import { ensureOk, readSseLines, sseData } from './http.js';
 
@@ -24,7 +25,16 @@ import { ensureOk, readSseLines, sseData } from './http.js';
 export type GeminiProtocol = 'interactions' | 'generate-content';
 
 export interface GeminiOptions {
-  apiKey: string;
+  /**
+   * One or more API keys, used in turn.
+   *
+   * Rotation lives HERE rather than in the alias catalogue because a key is not
+   * a routing decision: a deployment is chosen by data zone, cost and model,
+   * and two keys for the same project in the same zone are the same
+   * deployment. `MODEL_PROVIDERS` is keyed by provider name, so two adapter
+   * instances would collide on `gemini` anyway.
+   */
+  apiKeys: string[];
   baseUrl: string;
   apiVersion: string;
   protocol?: GeminiProtocol;
@@ -51,10 +61,17 @@ interface InteractionsResponse {
   delta?: { text?: string };
 }
 
+interface GeminiPart {
+  text?: string;
+  functionCall?: { name?: string; args?: Record<string, unknown>; id?: string };
+  /** Opaque reasoning state. It sits beside the call, not inside it. */
+  thoughtSignature?: string;
+}
+
 interface GenerateContentResponse {
   responseId?: string;
   candidates?: {
-    content?: { parts?: { text?: string }[] };
+    content?: { parts?: GeminiPart[] };
     finishReason?: string;
   }[];
   usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
@@ -77,6 +94,122 @@ function splitSystem(messages: ChatMessageInput[]): {
     system: systemParts.length > 0 ? systemParts.join('\n\n') : undefined,
     turns: messages.filter((message) => message.role !== 'system'),
   };
+}
+
+/**
+ * Reads the calls, with the two things that have to survive the round trip.
+ *
+ * `thoughtSignature` is required: Gemini answers 400 on the next turn without
+ * it. An id is now returned by the API; it is still synthesised when absent,
+ * because a `functionResponse` is matched to its call by NAME and older
+ * responses carry no id at all.
+ */
+function readGeminiToolCalls(parts: GeminiPart[] | undefined): ToolCallOutput[] {
+  return (parts ?? [])
+    .filter((part) => part.functionCall?.name !== undefined && part.functionCall.name !== '')
+    .map((part, index) => ({
+      id: part.functionCall?.id ?? `call_${index.toString()}`,
+      name: part.functionCall?.name ?? '',
+      arguments: JSON.stringify(part.functionCall?.args ?? {}),
+      ...(part.thoughtSignature !== undefined && { providerState: part.thoughtSignature }),
+    }));
+}
+
+function toGeminiChunk(
+  payload: GenerateContentResponse,
+  calls: ToolCallOutput[],
+  anyCallsYet: boolean,
+): ChatChunk {
+  const candidate = payload.candidates?.[0];
+  const chunk: ChatChunk = {
+    delta: (candidate?.content?.parts ?? []).map((part) => part.text ?? '').join(''),
+  };
+
+  if (calls.length > 0) chunk.toolCalls = calls;
+
+  if (candidate?.finishReason !== undefined) {
+    // Gemini reports STOP even when it asked for a call; the parts are what
+    // actually say so, and every consumer branches on `finishReason`.
+    chunk.finishReason = anyCallsYet ? 'tool_calls' : normalizeFinishReason(candidate.finishReason);
+  }
+  if (payload.usageMetadata !== undefined) {
+    chunk.usage = {
+      promptTokens: payload.usageMetadata.promptTokenCount ?? 0,
+      completionTokens: payload.usageMetadata.candidatesTokenCount ?? 0,
+    };
+  }
+  return chunk;
+}
+
+function toolsConfig(request: ChatRequestInput): Record<string, unknown> {
+  if (request.tools === undefined || request.tools.length === 0) return {};
+
+  return {
+    tools: [
+      {
+        functionDeclarations: request.tools.map((tool) => ({
+          name: tool.name,
+          ...(tool.description !== undefined && { description: tool.description }),
+          ...(tool.parameters !== undefined && { parameters: tool.parameters }),
+        })),
+      },
+    ],
+    ...(request.toolChoice !== undefined && {
+      toolConfig: { functionCallingConfig: toFunctionCallingConfig(request.toolChoice) },
+    }),
+  };
+}
+
+function toFunctionCallingConfig(
+  choice: NonNullable<ChatRequestInput['toolChoice']>,
+): Record<string, unknown> {
+  if (choice === 'none') return { mode: 'NONE' };
+  if (choice === 'required') return { mode: 'ANY' };
+  if (choice === 'auto') return { mode: 'AUTO' };
+  return { mode: 'ANY', allowedFunctionNames: [choice.name] };
+}
+
+/** A turn becomes one `content`; a tool result becomes a `functionResponse` part. */
+function toGeminiContents(turns: ChatMessageInput[]): Record<string, unknown>[] {
+  return turns.map((message) => {
+    if (message.role === 'tool') {
+      return {
+        role: 'user',
+        parts: [
+          {
+            functionResponse: {
+              name: message.name ?? '',
+              response: { result: message.content ?? '' },
+            },
+          },
+        ],
+      };
+    }
+
+    const parts: Record<string, unknown>[] = [];
+    if (message.content !== null && message.content !== '') parts.push({ text: message.content });
+    for (const call of message.toolCalls ?? []) {
+      parts.push({
+        functionCall: { name: call.name, args: parseArgs(call.arguments), id: call.id },
+        // Echoed verbatim. Gemini rejects the turn without it, and answering
+        // without the assistant turn at all makes the model ignore the tool
+        // result while still returning 200.
+        ...(call.providerState !== undefined && { thoughtSignature: call.providerState }),
+      });
+    }
+    if (parts.length === 0) parts.push({ text: '' });
+
+    return { role: message.role === 'assistant' ? 'model' : 'user', parts };
+  });
+}
+
+function parseArgs(raw: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
 function normalizeFinishReason(raw: string | undefined): ChatResult['finishReason'] {
@@ -111,20 +244,38 @@ function textOfSteps(payload: InteractionsResponse): string {
 export class GeminiProvider implements ModelProvider {
   readonly provider = 'gemini' as const;
   private readonly protocol: GeminiProtocol;
+  private readonly keys: string[];
+  private cursor = 0;
 
   constructor(private readonly options: GeminiOptions) {
     this.protocol = options.protocol ?? 'interactions';
+    this.keys = options.apiKeys.filter((key) => key !== '');
   }
 
   get configured(): boolean {
-    return this.options.apiKey !== '';
+    return this.keys.length > 0;
+  }
+
+  /**
+   * The next key, round robin.
+   *
+   * Advanced on every outbound call, so a RETRY lands on a different key: a
+   * quota is per key, and `POLICIES.INFERENCE` already retries a 429 honouring
+   * `Retry-After`. Rotating on each attempt turns that retry into a failover
+   * for free, with no extra machinery.
+   */
+  private nextKey(): string {
+    if (this.keys.length === 0) return '';
+    const key = this.keys[this.cursor % this.keys.length] ?? '';
+    this.cursor += 1;
+    return key;
   }
 
   private headers(accept?: string): Record<string, string> {
     return {
       'Content-Type': 'application/json',
       // Key in a header, never in the query string: URLs leak into proxy logs.
-      'x-goog-api-key': this.options.apiKey,
+      'x-goog-api-key': this.nextKey(),
       ...(accept !== undefined && { Accept: accept }),
     };
   }
@@ -166,11 +317,9 @@ export class GeminiProvider implements ModelProvider {
     void _deployment;
     const { system, turns } = splitSystem(request.messages);
     return JSON.stringify({
-      contents: turns.map((message) => ({
-        role: message.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: message.content ?? '' }],
-      })),
+      contents: toGeminiContents(turns),
       ...(system !== undefined && { systemInstruction: { parts: [{ text: system }] } }),
+      ...toolsConfig(request),
       generationConfig: {
         maxOutputTokens: request.maxOutputTokens,
         ...(request.temperature !== undefined && { temperature: request.temperature }),
@@ -185,7 +334,7 @@ export class GeminiProvider implements ModelProvider {
     deployment: Deployment,
     signal: AbortSignal,
   ): Promise<ChatResult> {
-    if (this.protocol === 'generate-content') {
+    if (this.protocol === 'generate-content' || usesTools(request)) {
       return this.chatViaGenerateContent(request, deployment, signal);
     }
 
@@ -222,14 +371,20 @@ export class GeminiProvider implements ModelProvider {
     const payload = (await response.json()) as GenerateContentResponse;
     const candidate = payload.candidates?.[0];
 
+    const toolCalls = readGeminiToolCalls(candidate?.content?.parts);
+
     return {
       content: (candidate?.content?.parts ?? []).map((part) => part.text ?? '').join(''),
-      finishReason: normalizeFinishReason(candidate?.finishReason),
+      // Gemini reports STOP even when it asked for a call; the parts are what
+      // actually say so, and every consumer branches on `finishReason`.
+      finishReason:
+        toolCalls.length > 0 ? 'tool_calls' : normalizeFinishReason(candidate?.finishReason),
       usage: {
         promptTokens: payload.usageMetadata?.promptTokenCount ?? 0,
         completionTokens: payload.usageMetadata?.candidatesTokenCount ?? 0,
       },
       ...(payload.responseId !== undefined && { providerResponseId: payload.responseId }),
+      ...(toolCalls.length > 0 && { toolCalls }),
     };
   }
 
@@ -238,7 +393,7 @@ export class GeminiProvider implements ModelProvider {
     deployment: Deployment,
     signal: AbortSignal,
   ): AsyncGenerator<ChatChunk> {
-    if (this.protocol === 'generate-content') {
+    if (this.protocol === 'generate-content' || usesTools(request)) {
       yield* this.streamViaGenerateContent(request, deployment, signal);
       return;
     }
@@ -285,25 +440,17 @@ export class GeminiProvider implements ModelProvider {
     );
     await ensureOk(response, this.provider);
 
+    let toolCalls: ToolCallOutput[] = [];
+
     for await (const line of readSseLines(response)) {
       const data = sseData(line);
       if (data === null || data === '[DONE]') continue;
 
       const payload = JSON.parse(data) as GenerateContentResponse;
-      const candidate = payload.candidates?.[0];
-      const chunk: ChatChunk = {
-        delta: (candidate?.content?.parts ?? []).map((part) => part.text ?? '').join(''),
-      };
-
-      const finishReason = normalizeFinishReason(candidate?.finishReason);
-      if (candidate?.finishReason !== undefined) chunk.finishReason = finishReason;
-      if (payload.usageMetadata !== undefined) {
-        chunk.usage = {
-          promptTokens: payload.usageMetadata.promptTokenCount ?? 0,
-          completionTokens: payload.usageMetadata.candidatesTokenCount ?? 0,
-        };
-      }
-      yield chunk;
+      // Gemini sends each `functionCall` whole in one chunk; nothing to rejoin.
+      const calls = readGeminiToolCalls(payload.candidates?.[0]?.content?.parts);
+      toolCalls = [...toolCalls, ...calls];
+      yield toGeminiChunk(payload, calls, toolCalls.length > 0);
     }
   }
 
@@ -333,4 +480,14 @@ export class GeminiProvider implements ModelProvider {
 
     return { vectors, usage: { promptTokens: 0, completionTokens: 0 } };
   }
+}
+
+/**
+ * The Interactions API has no published function-calling shape, so a request
+ * carrying tools takes the `generateContent` route regardless of the configured
+ * protocol. Same model, same deployment, same data zone — only the wire format
+ * differs, and guessing at an undocumented one would fail silently instead.
+ */
+function usesTools(request: ChatRequestInput): boolean {
+  return request.tools !== undefined && request.tools.length > 0;
 }

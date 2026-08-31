@@ -1,0 +1,536 @@
+openapi: 3.1.0
+info:
+  title: AIA Knowledge
+  version: '1.0.0'
+  description: |
+    RAG: vector stores, asynchronous ingestion and search with SECURITY
+    TRIMMING.
+
+    A store is owned here outright -- definition, documents and index together
+    (ADR-016). The registry references one by id and validates the reference
+    when an agent is published; it does not hold a second copy of it.
+
+    Every search filters by `project_id` and by document ACL WITHIN the vector
+    query, never afterwards (ADR-006). Filtering after the fact leaks results
+    and breaks pagination on top of that.
+
+    Ingestion is asynchronous (flow 7.3): the document is uploaded straight to
+    object storage with a presigned URL, and a worker parses, chunks, embeds
+    and indexes it. Embeddings go through aia-inference-router, so budget,
+    data-classification routing and audit apply to ingestion exactly as they
+    apply to chat.
+  license: { name: MIT }
+
+servers:
+  - url: http://localhost:8080
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: stores
+  - name: documents
+  - name: search
+
+paths:
+  /v1/stores:
+    post:
+      operationId: createStore
+      tags: [stores]
+      summary: Creates a vector store
+      description: |
+        The embedding alias and its dimension are FIXED at creation: changing
+        the embedding model invalidates every vector already indexed, so that
+        is a new store rather than an edit.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateStoreRequest' }
+      responses:
+        '201':
+          description: Store created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VectorStore' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '409':
+          description: A store with this slug already exists in the project
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+    get:
+      operationId: listStores
+      tags: [stores]
+      summary: Lists the vector stores of a project
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+        - $ref: './_shared.yaml#/components/parameters/Cursor'
+        - $ref: './_shared.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of stores
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './_shared.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/VectorStore' }
+
+  /v1/stores/catalogue:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - $ref: './_shared.yaml#/components/parameters/Cursor'
+      - $ref: './_shared.yaml#/components/parameters/Limit'
+    get:
+      operationId: listStoreCatalogue
+      tags: [stores]
+      summary: Published stores this project could reuse
+      description: |
+        Stores other projects have published (ADR-023). Listing one is not
+        access to it: the contents stay put until this project subscribes.
+        Declared before `/v1/stores/{storeId}` so `catalogue` is never read as
+        a store id.
+      responses:
+        '200':
+          description: The catalogue
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/VectorStore' }
+                  next_cursor: { type: string, nullable: true }
+
+  /v1/stores/{storeId}/visibility:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: storeId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: setStoreVisibility
+      tags: [stores]
+      summary: Publishes the store to other projects, or withdraws it
+      description: |
+        The owner's half of the bargain. Publishing offers the store to the
+        catalogue and nothing more; withdrawing drops every subscription, so
+        republishing later does not silently restore anyone's access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visibility]
+              properties:
+                visibility: { type: string, enum: [private, public] }
+      responses:
+        '200':
+          description: The store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VectorStore' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /v1/stores/{storeId}/subscription:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: storeId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: subscribeToStore
+      tags: [stores]
+      summary: Accepts a published store into this project
+      description: |
+        The consumer's half. Idempotent: subscribing twice is the same state.
+        A store that is not published answers 404 rather than 403, so an
+        unpublished store cannot be discovered by trying to subscribe to it.
+      responses:
+        '200':
+          description: The store, now reachable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VectorStore' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+    delete:
+      operationId: unsubscribeFromStore
+      tags: [stores]
+      summary: Stops using a shared store
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+
+  /v1/stores/{storeId}:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: storeId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getStore
+      tags: [stores]
+      summary: Details a vector store
+      responses:
+        '200':
+          description: The store
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VectorStore' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+    delete:
+      operationId: deleteStore
+      tags: [stores]
+      summary: Deletes the store, its documents and its vectors
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /v1/stores/{storeId}/documents:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: storeId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: requestDocumentUpload
+      tags: [documents]
+      summary: Registers a document and returns a presigned upload URL
+      description: |
+        The document never passes through this service. The client PUTs the
+        bytes to the returned URL and then calls `completeDocumentUpload`;
+        ingestion is only queued once the bytes are known to exist, so the
+        worker never starts on an object that is not there yet.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterDocumentRequest' }
+      responses:
+        '201':
+          description: Document registered, awaiting upload
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadTicket' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+    get:
+      operationId: listDocuments
+      tags: [documents]
+      summary: Lists the documents of a store, with their ingestion status
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/Cursor'
+        - $ref: './_shared.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of documents
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './_shared.yaml#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Document' }
+
+  /v1/stores/{storeId}/documents/{documentId}/complete:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: storeId
+        in: path
+        required: true
+        schema: { type: string }
+      - name: documentId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: completeDocumentUpload
+      tags: [documents]
+      summary: Confirms the upload and queues ingestion
+      responses:
+        '202':
+          description: Ingestion queued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '400':
+          description: The object is not in storage
+          content:
+            application/problem+json:
+              schema: { $ref: './_shared.yaml#/components/schemas/ProblemDetails' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /v1/stores/{storeId}/documents/{documentId}:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: storeId
+        in: path
+        required: true
+        schema: { type: string }
+      - name: documentId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: deleteDocument
+      tags: [documents]
+      summary: Removes the document, its chunks and its vectors
+      description: |
+        Also the erasure hook for a data subject request (LGPD): removing the
+        document removes what was indexed from it.
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /v1/stores/{storeId}/search:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: storeId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: searchStore
+      tags: [search]
+      summary: Searches the store, trimmed to what the caller may see
+      description: |
+        The project and the caller's ACL are applied INSIDE the vector query.
+        A chunk the caller may not read is never a candidate, so it cannot
+        appear, be counted, or shift pagination.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SearchRequest' }
+      responses:
+        '200':
+          description: The matching chunks, with their source documents
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResponse' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /health/live:
+    get:
+      operationId: knowledgeLive
+      security: []
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+  /health/ready:
+    get:
+      operationId: knowledgeReady
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+        '503': { $ref: './_shared.yaml#/components/responses/ServiceUnavailable' }
+
+components:
+  securitySchemes:
+    bearerAuth: { $ref: './_shared.yaml#/components/securitySchemes/bearerAuth' }
+
+  schemas:
+    ChunkingStrategy:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          description: |
+            `markdown-heading` splits on structure and falls back to size;
+            `recursive` splits on paragraph then sentence; `fixed` is a plain
+            sliding window.
+          enum: [fixed, recursive, markdown-heading]
+          default: markdown-heading
+        max_tokens: { type: integer, minimum: 64, maximum: 2048, default: 512 }
+        overlap_tokens: { type: integer, minimum: 0, default: 64 }
+
+    DocumentAcl:
+      type: object
+      description: |
+        Who may see the document within the project. A non-public ACL naming
+        nobody is refused: a document no one can reach is an invisible bug, not
+        a configuration.
+      properties:
+        public:
+          type: boolean
+          default: true
+          description: Readable by every member of the project.
+        groups: { type: array, items: { type: string } }
+        principals: { type: array, items: { type: string } }
+
+    IngestionStatus:
+      type: string
+      enum: [pending, parsing, chunking, embedding, indexing, ingested, failed]
+
+    VectorStore:
+      type: object
+      required: [id, project_id, visibility, slug, name, embedding_alias, dimensions, created_at]
+      properties:
+        id: { type: string }
+        project_id:
+          type: string
+          description: |
+            The project that OWNS the store, which is not always the one
+            reading it. A subscriber sees the owner's id here.
+        visibility:
+          type: string
+          enum: [private, public]
+          description: |
+            Whether the owner has offered it to other projects. `public` is an
+            offer, not access -- the consumer still has to subscribe.
+        access:
+          type: string
+          enum: [owner, shared]
+          description: How the reading project reaches it. Absent in the catalogue.
+        subscribed:
+          type: boolean
+          description: Only in the catalogue, where it says whether this project already accepted it.
+        slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        embedding_alias: { type: string }
+        embedding_model:
+          type: string
+          description: The provider model the alias resolved to, pinned at creation.
+        dimensions: { type: integer, minimum: 1 }
+        chunking: { $ref: '#/components/schemas/ChunkingStrategy' }
+        document_count: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Document:
+      type: object
+      required: [id, store_id, title, status, created_at]
+      properties:
+        id: { type: string }
+        store_id: { type: string }
+        title: { type: string }
+        mime_type: { type: string }
+        size_bytes: { type: integer, minimum: 0 }
+        content_hash:
+          type: [string, 'null']
+          description: sha256 of the bytes. Ingesting the same bytes twice is a no-op.
+        version: { type: integer, minimum: 1 }
+        status: { $ref: '#/components/schemas/IngestionStatus' }
+        error_code: { type: [string, 'null'] }
+        chunk_count: { type: integer, minimum: 0 }
+        acl: { $ref: '#/components/schemas/DocumentAcl' }
+        created_at: { type: string, format: date-time }
+        ingested_at: { type: [string, 'null'], format: date-time }
+
+    CreateStoreRequest:
+      type: object
+      required: [slug, name]
+      properties:
+        slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+        embedding_alias: { type: string, default: embedding-default }
+        chunking: { $ref: '#/components/schemas/ChunkingStrategy' }
+
+    RegisterDocumentRequest:
+      type: object
+      required: [title, mime_type]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 500 }
+        mime_type: { type: string }
+        size_bytes: { type: integer, minimum: 1 }
+        acl: { $ref: '#/components/schemas/DocumentAcl' }
+
+    UploadTicket:
+      type: object
+      required: [document, upload_url, expires_at]
+      properties:
+        document: { $ref: '#/components/schemas/Document' }
+        upload_url:
+          type: string
+          format: uri
+          description: Presigned PUT. The bytes go straight to object storage.
+        expires_at: { type: string, format: date-time }
+
+    SearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query: { type: string, minLength: 1, maxLength: 8000 }
+        top_k: { type: integer, minimum: 1, maximum: 50, default: 5 }
+        mode:
+          type: string
+          enum: [vector, hybrid]
+          default: hybrid
+          description: |
+            `hybrid` fuses the vector ranking with a lexical one over the same
+            chunks, which is what finds an exact identifier a nearest-neighbour
+            search ranks by topic. `vector` is the pure nearest-neighbour
+            search, kept as an escape hatch and for measuring the difference.
+        min_score:
+          type: number
+          description: |
+            A cosine floor on the VECTOR ranking, applied before fusion. It does
+            not bound the lexical ranking, which has no comparable scale --
+            fusion uses positions, not scores.
+
+    SearchResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            required: [document_id, chunk_index, score, retrieval, text]
+            properties:
+              document_id: { type: string }
+              document_title: { type: string }
+              chunk_index: { type: integer, minimum: 0 }
+              score:
+                type: number
+                description: |
+                  What the results were ordered by: cosine similarity in
+                  `vector` mode, the fused rank score in `hybrid`. The two are
+                  not on the same scale, and neither is comparable across
+                  responses -- only within one.
+              retrieval:
+                type: string
+                enum: [vector, text, both]
+                description: Which ranking found this chunk. `both` is the strongest signal.
+              vector_score:
+                type: number
+                description: |
+                  The cosine similarity, when the vector ranking found it. Absent
+                  for a chunk only the lexical ranking reached.
+              text: { type: string }

@@ -8,6 +8,13 @@ import type {
   ModelProvider,
 } from '../../application/ports.js';
 import { ensureOk, readSseLines, sseData } from './http.js';
+import {
+  ToolCallAccumulator,
+  messagesBody,
+  readToolCalls,
+  toolsBody,
+  type OpenAiToolCall,
+} from './openai-tools.js';
 
 export interface OpenAiOptions {
   apiKey: string;
@@ -16,8 +23,8 @@ export interface OpenAiOptions {
 }
 
 interface OpenAiChoice {
-  message?: { content?: string | null };
-  delta?: { content?: string | null };
+  message?: { content?: string | null; tool_calls?: OpenAiToolCall[] };
+  delta?: { content?: string | null; tool_calls?: OpenAiToolCall[] };
   finish_reason?: string | null;
 }
 
@@ -39,6 +46,24 @@ function normalizeFinishReason(raw: string | null | undefined): ChatResult['fini
   return FINISH_REASONS.includes(raw as (typeof FINISH_REASONS)[number])
     ? (raw as ChatResult['finishReason'])
     : 'stop';
+}
+
+/** One streamed event as a chunk. Tool calls are NOT read here: they arrive in
+ *  fragments and are only whole once the stream has ended. */
+function toChunk(payload: OpenAiChatResponse): ChatChunk {
+  const choice = payload.choices?.[0];
+  const chunk: ChatChunk = { delta: choice?.delta?.content ?? '' };
+
+  const finishReason = normalizeFinishReason(choice?.finish_reason);
+  if (finishReason !== null) chunk.finishReason = finishReason;
+  // With `include_usage`, the real consumption arrives in the last event.
+  if (payload.usage !== undefined) {
+    chunk.usage = {
+      promptTokens: payload.usage.prompt_tokens ?? 0,
+      completionTokens: payload.usage.completion_tokens ?? 0,
+    };
+  }
+  return chunk;
 }
 
 /**
@@ -72,11 +97,8 @@ export class OpenAiProvider implements ModelProvider {
   private body(request: ChatRequestInput, deployment: Deployment, stream: boolean): string {
     return JSON.stringify({
       model: deployment.model,
-      messages: request.messages.map((message) => ({
-        role: message.role,
-        content: message.content,
-        ...(message.name !== undefined && { name: message.name }),
-      })),
+      messages: messagesBody(request.messages),
+      ...toolsBody(request),
       max_completion_tokens: request.maxOutputTokens,
       ...(request.temperature !== undefined && { temperature: request.temperature }),
       ...(request.topP !== undefined && { top_p: request.topP }),
@@ -102,6 +124,8 @@ export class OpenAiProvider implements ModelProvider {
     const payload = (await response.json()) as OpenAiChatResponse;
     const choice = payload.choices?.[0];
 
+    const toolCalls = readToolCalls(choice?.message?.tool_calls);
+
     return {
       content: choice?.message?.content ?? '',
       finishReason: normalizeFinishReason(choice?.finish_reason),
@@ -110,6 +134,7 @@ export class OpenAiProvider implements ModelProvider {
         completionTokens: payload.usage?.completion_tokens ?? 0,
       },
       ...(payload.id !== undefined && { providerResponseId: payload.id }),
+      ...(toolCalls.length > 0 && { toolCalls }),
     };
   }
 
@@ -126,27 +151,21 @@ export class OpenAiProvider implements ModelProvider {
     });
     await ensureOk(response, this.provider);
 
+    const calls = new ToolCallAccumulator();
+
     for await (const line of readSseLines(response)) {
       const data = sseData(line);
       if (data === null) continue;
-      if (data === '[DONE]') return;
+      if (data === '[DONE]') break;
 
       const payload = JSON.parse(data) as OpenAiChatResponse;
-      const choice = payload.choices?.[0];
-      const delta = choice?.delta?.content ?? '';
-
-      const chunk: ChatChunk = { delta };
-      const finishReason = normalizeFinishReason(choice?.finish_reason);
-      if (finishReason !== null) chunk.finishReason = finishReason;
-      // With `include_usage`, the real consumption arrives in the last event.
-      if (payload.usage !== undefined) {
-        chunk.usage = {
-          promptTokens: payload.usage.prompt_tokens ?? 0,
-          completionTokens: payload.usage.completion_tokens ?? 0,
-        };
-      }
-      yield chunk;
+      calls.add(payload.choices?.[0]?.delta?.tool_calls);
+      yield toChunk(payload);
     }
+
+    // The assembled calls come after the loop, never mid-stream: only once the
+    // provider has stopped sending fragments is any of them complete.
+    if (!calls.isEmpty) yield { delta: '', toolCalls: calls.drain() };
   }
 
   async embed(

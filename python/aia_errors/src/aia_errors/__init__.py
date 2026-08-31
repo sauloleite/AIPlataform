@@ -36,6 +36,20 @@ class ErrorCode:
     IDEMPOTENCY_CONFLICT: Final = "idempotency_conflict"
     NOT_FOUND: Final = "not_found"
     CONFLICT: Final = "conflict"
+    ASSET_NOT_FOUND: Final = "asset_not_found"
+    ASSET_NOT_PUBLISHED: Final = "asset_not_published"
+    ASSET_VERSION_CONFLICT: Final = "asset_version_conflict"
+    STORE_NOT_FOUND: Final = "store_not_found"
+    DOCUMENT_NOT_FOUND: Final = "document_not_found"
+    UNSUPPORTED_MEDIA_TYPE: Final = "unsupported_media_type"
+    EMBEDDING_DIMENSION_MISMATCH: Final = "embedding_dimension_mismatch"
+    INGESTION_FAILED: Final = "ingestion_failed"
+    TOOL_NOT_FOUND: Final = "tool_not_found"
+    TOOL_NOT_ALLOWED: Final = "tool_not_allowed"
+    TOOL_RATE_LIMITED: Final = "tool_rate_limited"
+    APPROVAL_REQUIRED: Final = "approval_required"
+    TOOL_EXECUTION_FAILED: Final = "tool_execution_failed"
+    AGENT_STEP_LIMIT: Final = "agent_step_limit"
     UPSTREAM_TIMEOUT: Final = "upstream_timeout"
     CIRCUIT_OPEN: Final = "circuit_open"
     INTERNAL_ERROR: Final = "internal_error"
@@ -67,6 +81,20 @@ _TITLES: Final[dict[str, str]] = {
     ErrorCode.IDEMPOTENCY_CONFLICT: "Idempotency conflict",
     ErrorCode.NOT_FOUND: "Resource not found",
     ErrorCode.CONFLICT: "State conflict",
+    ErrorCode.ASSET_NOT_FOUND: "Asset not found",
+    ErrorCode.ASSET_NOT_PUBLISHED: "Asset has no published version",
+    ErrorCode.ASSET_VERSION_CONFLICT: "Asset changed since it was read",
+    ErrorCode.STORE_NOT_FOUND: "Vector store not found",
+    ErrorCode.DOCUMENT_NOT_FOUND: "Document not found",
+    ErrorCode.UNSUPPORTED_MEDIA_TYPE: "No parser for this document type",
+    ErrorCode.EMBEDDING_DIMENSION_MISMATCH: "Embedding dimension does not match the store",
+    ErrorCode.INGESTION_FAILED: "Document ingestion failed",
+    ErrorCode.TOOL_NOT_FOUND: "Tool not found",
+    ErrorCode.TOOL_NOT_ALLOWED: "Tool not allowed for this project",
+    ErrorCode.TOOL_RATE_LIMITED: "Tool rate limit reached",
+    ErrorCode.APPROVAL_REQUIRED: "A human has to approve this tool call",
+    ErrorCode.TOOL_EXECUTION_FAILED: "The tool failed to execute",
+    ErrorCode.AGENT_STEP_LIMIT: "The agent reached its step limit without finishing",
     ErrorCode.UPSTREAM_TIMEOUT: "Dependency timed out",
     ErrorCode.CIRCUIT_OPEN: "Dependency circuit open",
     ErrorCode.INTERNAL_ERROR: "Internal error",

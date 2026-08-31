@@ -22,3 +22,4 @@ export {
 } from './request-context.js';
 export { RequestContextMiddleware } from './request-context.middleware.js';
 export { validateConfig } from './config.js';
+export { ServiceTokenProvider, type ServiceTokenOptions } from './service-token.js';

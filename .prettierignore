@@ -14,4 +14,8 @@ docs/reference
 deploy/helm/**/templates
 deploy/helm/**/charts
 
+# Agent scratch space: launch config, and git worktrees that hold a whole
+# second checkout. Walking those makes lint fail on files that are not ours.
+.claude
+
 .import_linter_cache

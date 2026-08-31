@@ -18,6 +18,9 @@ allowBuilds:
   # explicitly keeps `pnpm install` from failing over a build script nothing runs.
   sharp: false
 
+minimumReleaseAgeExclude:
+  - '@fluentui/react-icons@2.0.339'
+
 overrides:
   # Transitive, with no direct release from the packages that pull it in.
   # GHSA-rgw5-rvv9-x895.

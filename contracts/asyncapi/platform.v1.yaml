@@ -42,6 +42,50 @@ channels:
       BudgetChanged:
         $ref: '#/components/messages/BudgetChanged'
 
+  assetPublished:
+    address: 'aia:events:aia.registry.asset.published.v1'
+    description: |
+      A definition was frozen as an immutable version. Runtimes pin a published
+      version for the length of a run, so this is what tells a cache that a new
+      one is available -- never that a running one changed.
+    messages:
+      AssetPublished:
+        $ref: '#/components/messages/AssetPublished'
+
+  assetDeprecated:
+    address: 'aia:events:aia.registry.asset.deprecated.v1'
+    description: A published version was withdrawn.
+    messages:
+      AssetDeprecated:
+        $ref: '#/components/messages/AssetDeprecated'
+
+  toolInvoked:
+    address: 'aia:events:aia.tools.tool.invoked.v1'
+    description: |
+      A tool ran. Published only on success -- a refusal is audited but is not
+      a business fact anybody downstream acts on.
+    messages:
+      ToolInvoked:
+        $ref: '#/components/messages/ToolInvoked'
+
+  agentRunFinished:
+    address: 'aia:events:aia.agent.run.finished.v1'
+    description: |
+      A run reached a terminal state. Published on failure too: a run that ends
+      badly is exactly what an operator needs to hear about.
+    messages:
+      AgentRunFinished:
+        $ref: '#/components/messages/AgentRunFinished'
+
+  approvalRequested:
+    address: 'aia:events:aia.agent.approval.requested.v1'
+    description: |
+      A run stopped on a high-risk tool and is waiting for a human (OWASP LLM06).
+      It is what a notifier subscribes to: nobody is watching the console at 3am.
+    messages:
+      ApprovalRequested:
+        $ref: '#/components/messages/ApprovalRequested'
+
   policyChanged:
     address: 'aia:events:aia.governance.policy.changed.v1'
     description: |
@@ -61,6 +105,46 @@ operations:
     channel: { $ref: '#/channels/usageRecorded' }
     summary: Consumed by aia-data-platform (Bronze) and by aia-governance.
 
+  publishToolInvoked:
+    action: send
+    channel: { $ref: '#/channels/toolInvoked' }
+    summary: Published by aia-mcp-gateway through the outbox.
+
+  consumeToolInvoked:
+    action: receive
+    channel: { $ref: '#/channels/toolInvoked' }
+    summary: Consumed by aia-data-platform for tool usage analytics.
+
+  publishAssetPublished:
+    action: send
+    channel: { $ref: '#/channels/assetPublished' }
+    summary: Published by aia-registry through the outbox.
+
+  consumeAssetPublished:
+    action: receive
+    channel: { $ref: '#/channels/assetPublished' }
+    summary: Consumed by aia-agent-runtime to invalidate its definition cache.
+
+  publishAssetDeprecated:
+    action: send
+    channel: { $ref: '#/channels/assetDeprecated' }
+    summary: Published by aia-registry through the outbox.
+
+  publishAgentRunFinished:
+    action: send
+    channel: { $ref: '#/channels/agentRunFinished' }
+    summary: Published by aia-agent-runtime through the outbox.
+
+  consumeAgentRunFinished:
+    action: receive
+    channel: { $ref: '#/channels/agentRunFinished' }
+    summary: Consumed by aia-data-platform for run analytics.
+
+  publishApprovalRequested:
+    action: send
+    channel: { $ref: '#/channels/approvalRequested' }
+    summary: Published by aia-agent-runtime when a run stops on a high-risk tool.
+
   publishPolicyChanged:
     action: send
     channel: { $ref: '#/channels/policyChanged' }
@@ -78,6 +162,112 @@ components:
             properties:
               type: { const: 'aia.inference.usage.recorded.v1' }
               data: { $ref: '#/components/schemas/UsageRecordedData' }
+
+    ToolInvoked:
+      name: ToolInvoked
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.tools.tool.invoked.v1' }
+              data:
+                type: object
+                required: [tool_id, tool_type, risk_level, principal_id]
+                properties:
+                  tool_id: { type: string }
+                  tool_type: { type: string, enum: [mcp, openapi, function, builtin] }
+                  risk_level: { type: string, enum: [low, medium, high] }
+                  principal_id:
+                    type: string
+                    description: Who the tool acted as. Never the gateway itself.
+                  duration_ms: { type: integer, minimum: 0 }
+
+    AgentRunFinished:
+      name: AgentRunFinished
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.agent.run.finished.v1' }
+              data:
+                type: object
+                required: [run_id, agent_id, agent_version, status, steps, principal_id]
+                properties:
+                  run_id: { type: string }
+                  agent_id: { type: string }
+                  agent_version:
+                    type: integer
+                    minimum: 1
+                    description: The published version the run was pinned to.
+                  thread_id: { type: string }
+                  status: { type: string, enum: [completed, failed, cancelled] }
+                  steps: { type: integer, minimum: 0 }
+                  tool_calls: { type: integer, minimum: 0 }
+                  principal_id: { type: string }
+                  error_code: { type: [string, 'null'] }
+                  duration_ms: { type: integer, minimum: 0 }
+
+    ApprovalRequested:
+      name: ApprovalRequested
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.agent.approval.requested.v1' }
+              data:
+                type: object
+                required: [run_id, agent_id, tool_call_id, tool_name, risk_level, principal_id]
+                properties:
+                  run_id: { type: string }
+                  agent_id: { type: string }
+                  tool_call_id: { type: string }
+                  tool_name: { type: string }
+                  risk_level: { type: string, enum: [low, medium, high] }
+                  principal_id:
+                    type: string
+                    description: Who started the run, not who will approve it.
+
+    AssetPublished:
+      name: AssetPublished
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.registry.asset.published.v1' }
+              data:
+                type: object
+                required: [asset_id, kind, slug, version]
+                properties:
+                  asset_id: { type: string }
+                  kind: { type: string, enum: [agent, tool, prompt] }
+                  slug: { type: string }
+                  version: { type: integer, minimum: 1 }
+
+    AssetDeprecated:
+      name: AssetDeprecated
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.registry.asset.deprecated.v1' }
+              data:
+                type: object
+                required: [asset_id, kind, slug, version]
+                properties:
+                  asset_id: { type: string }
+                  kind: { type: string, enum: [agent, tool, prompt] }
+                  slug: { type: string }
+                  version: { type: integer, minimum: 1 }
 
     ProjectCreated:
       name: ProjectCreated

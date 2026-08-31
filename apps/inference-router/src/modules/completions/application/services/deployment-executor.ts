@@ -3,6 +3,7 @@ import { SpanKind, type Span } from '@opentelemetry/api';
 import { POLICIES, ResilienceExecutor } from '@aia/resilience';
 import { AIA_ATTR, GEN_AI_ATTR, GEN_AI_SPAN, getTracer, recordSpanError } from '@aia/telemetry';
 import { AllDeploymentsFailedError } from '../../domain/errors/index.js';
+import { sameWidth } from '../../domain/services/model-selection-policy.js';
 import type { Deployment } from '../../domain/entities/deployment.js';
 import {
   MODEL_PROVIDERS,
@@ -287,7 +288,11 @@ export class DeploymentExecutor {
     input: string[],
     deployments: readonly Deployment[],
   ): Promise<{ deployment: Deployment; result: EmbeddingsResult; attempts: number }> {
-    const candidates = this.usable(deployments);
+    // Only across deployments of the SAME vector width. A chat answer from
+    // another model is still an answer; an embedding of another width is a
+    // vector nothing can search against. Anchored on what can actually run,
+    // because a provider with no key is not a candidate for anything.
+    const candidates = sameWidth(this.usable(deployments));
     let attempts = 0;
     let lastError: unknown;
 

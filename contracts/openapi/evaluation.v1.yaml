@@ -1,0 +1,221 @@
+openapi: 3.1.0
+info:
+  title: AIA Evaluation
+  version: '1.0.0'
+  description: |
+    Quality measured, not assumed (reference doc 02, principle 10).
+
+    A suite says WHAT to measure and WHERE the failing threshold sits. Running
+    one answers with the numbers and with a verdict CI can act on.
+
+    Two kinds of bad run, deliberately distinct. A run that **failed** measured
+    everything and fell below a threshold — that is quality regressing, and the
+    prompts are the place to look. A run that **errored** did not measure what
+    it claimed: a case fell over, or a judged evaluator had no judge. Reporting
+    the second as the first sends people to debug a model that was never asked.
+  license: { name: MIT }
+
+servers:
+  - url: http://localhost:8080
+    description: Local environment (docker-compose)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: evaluation
+    description: Suites, runs and the regression gate
+
+paths:
+  /v1/evaluations:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+    post:
+      operationId: runEvaluation
+      tags: [evaluation]
+      summary: Runs the suites and reports what they measured
+      description: |
+        Synchronous, because a caller running a gate wants the verdict, not a
+        job id to poll. It spends real inference against this project's budget.
+
+        The status IS the gate: `202` when everything held, `409` when anything
+        did not. A caller that reads nothing but the status still learns whether
+        to stop the merge.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunRequest' }
+      responses:
+        '202':
+          description: Every suite passed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunPage' }
+        '409':
+          description: A suite failed its threshold, or a run did not measure
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunPage' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+    get:
+      operationId: listEvaluations
+      tags: [evaluation]
+      summary: Recent runs for this project
+      description: |
+        History is the point. A number nobody kept is an opinion again next
+        week, and a threshold only means something next to what it used to be.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The runs, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunPage' }
+
+  /v1/evaluations/{runId}:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getEvaluation
+      tags: [evaluation]
+      summary: One run, with the answers behind the numbers
+      description: |
+        A score that dropped is only actionable next to the answers that
+        produced it. A run from another project answers 404, never 403.
+      responses:
+        '200':
+          description: The run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunDetail' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
+  /health/live:
+    get:
+      operationId: evaluationLive
+      tags: [evaluation]
+      summary: Liveness
+      security: []
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+
+  /health/ready:
+    get:
+      operationId: evaluationReady
+      tags: [evaluation]
+      summary: Readiness
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+        '503': { $ref: './_shared.yaml#/components/responses/ServiceUnavailable' }
+
+components:
+  securitySchemes:
+    bearerAuth: { $ref: './_shared.yaml#/components/securitySchemes/bearerAuth' }
+
+  schemas:
+    RunStatus:
+      type: string
+      description: |
+        `failed` is quality below a threshold. `errored` is a measurement that
+        did not happen. Both stop a merge; only one is about the model.
+      enum: [running, passed, failed, errored]
+
+    RunRequest:
+      type: object
+      properties:
+        suite:
+          type: string
+          description: A suite file or a directory of them. Defaults to the configured path.
+        alias:
+          type: string
+          description: |
+            Overrides the alias every suite names. What a model-regression run
+            does before an alias's deployment is swapped.
+
+    Metric:
+      type: object
+      required: [evaluator, value, passed, sample_size]
+      properties:
+        evaluator:
+          type: string
+          enum: [groundedness, relevance, safety, exact_match, cost_per_answer, latency_p95]
+        value: { type: number }
+        threshold:
+          type: [number, 'null']
+          description: The floor a score has to reach.
+        maximum:
+          type: [number, 'null']
+          description: The ceiling a cost or a latency has to stay under.
+        passed: { type: boolean }
+        sample_size:
+          type: integer
+          minimum: 0
+          description: |
+            How many cases contributed. Zero never passes: an evaluator that
+            scored nothing has measured nothing, and an average over an empty
+            set reads as a comfortable zero.
+
+    Run:
+      type: object
+      required: [id, project_id, suite, alias, status, metrics, started_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        suite: { type: string }
+        alias: { type: string }
+        principal_id: { type: string }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        error_code: { type: [string, 'null'] }
+        metrics:
+          type: array
+          items: { $ref: '#/components/schemas/Metric' }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+
+    RunDetail:
+      allOf:
+        - $ref: '#/components/schemas/Run'
+        - type: object
+          properties:
+            cases:
+              type: array
+              items: { $ref: '#/components/schemas/CaseOutcome' }
+
+    CaseOutcome:
+      type: object
+      required: [case_id, input]
+      properties:
+        case_id: { type: string }
+        input: { type: string }
+        answer: { type: [string, 'null'] }
+        error_code:
+          type: [string, 'null']
+          description: Present when the case never got an answer. A hole, not a zero.
+        scores:
+          type: object
+          additionalProperties: { type: number }
+
+    RunPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Run' }
+        next_cursor: { type: [string, 'null'] }

@@ -27,6 +27,8 @@ export interface AliasDefinition {
     outputCostPerMillion: number;
     currency: string;
     maxOutputTokens: number;
+    /** Vector width. Embeddings only, and what stops a failover changing it. */
+    dimensions?: number;
     enabled?: boolean;
     deprecatedAt?: string;
   }[];
@@ -50,6 +52,7 @@ export class InMemoryAliasRegistry implements AliasRegistry {
             outputCostPerMillion: BigInt(deployment.outputCostPerMillion),
             currency: deployment.currency,
             maxOutputTokens: deployment.maxOutputTokens,
+            ...(deployment.dimensions !== undefined && { dimensions: deployment.dimensions }),
             enabled: deployment.enabled ?? true,
             ...(deployment.deprecatedAt !== undefined && {
               deprecatedAt: new Date(deployment.deprecatedAt),
@@ -96,6 +99,7 @@ export function defaultAliasCatalog(models: {
   openaiChat: string;
   openaiEmbedding: string;
   geminiChat: string;
+  geminiAdvanced: string;
   geminiEmbedding: string;
   anthropicChat: string;
 }): AliasDefinition[] {
@@ -103,7 +107,10 @@ export function defaultAliasCatalog(models: {
     {
       id: 'chat-fast',
       description: 'General-purpose chat, tuned for cost and latency',
-      capabilities: ['chat'],
+      // `tools` as well: every provider behind this alias supports function
+      // calling, so an agent does not have to reach for `chat-advanced` and
+      // its far more expensive deployment just to call one tool.
+      capabilities: ['chat', 'tools'],
       deployments: [
         {
           id: 'gemini-flash',
@@ -117,11 +124,27 @@ export function defaultAliasCatalog(models: {
           maxOutputTokens: 8192,
         },
         {
+          // A SECOND Gemini, on a different model. The failover that matters
+          // most in practice is not between vendors but between models at one
+          // vendor: `flash-latest` returning 503 for "high demand" while
+          // another flash answers in under a second is a thing that happens.
+          // The keys rotate underneath both.
+          id: 'gemini-flash-alt',
+          provider: 'gemini',
+          model: models.geminiAdvanced,
+          dataZone: 'global',
+          priority: 1,
+          inputCostPerMillion: 600_000,
+          outputCostPerMillion: 2_400_000,
+          currency: 'BRL',
+          maxOutputTokens: 8192,
+        },
+        {
           id: 'openai-mini',
           provider: 'openai',
           model: models.openaiChat,
           dataZone: 'us',
-          priority: 1,
+          priority: 2,
           inputCostPerMillion: 800_000,
           outputCostPerMillion: 3_200_000,
           currency: 'BRL',
@@ -132,7 +155,7 @@ export function defaultAliasCatalog(models: {
           provider: 'ollama',
           model: models.ollamaChat,
           dataZone: 'local',
-          priority: 2,
+          priority: 3,
           inputCostPerMillion: 0,
           outputCostPerMillion: 0,
           currency: 'BRL',
@@ -157,11 +180,22 @@ export function defaultAliasCatalog(models: {
           maxOutputTokens: 16384,
         },
         {
+          id: 'gemini-pro',
+          provider: 'gemini',
+          model: models.geminiAdvanced,
+          dataZone: 'global',
+          priority: 1,
+          inputCostPerMillion: 6_000_000,
+          outputCostPerMillion: 24_000_000,
+          currency: 'BRL',
+          maxOutputTokens: 16384,
+        },
+        {
           id: 'ollama-local-advanced',
           provider: 'ollama',
           model: models.ollamaChat,
           dataZone: 'local',
-          priority: 1,
+          priority: 2,
           inputCostPerMillion: 0,
           outputCostPerMillion: 0,
           currency: 'BRL',
@@ -202,6 +236,7 @@ export function defaultAliasCatalog(models: {
           outputCostPerMillion: 0,
           currency: 'BRL',
           maxOutputTokens: 1,
+          dimensions: 1536,
         },
         {
           id: 'gemini-embed',
@@ -213,6 +248,7 @@ export function defaultAliasCatalog(models: {
           outputCostPerMillion: 0,
           currency: 'BRL',
           maxOutputTokens: 1,
+          dimensions: 3072,
         },
         {
           id: 'ollama-embed',
@@ -224,6 +260,7 @@ export function defaultAliasCatalog(models: {
           outputCostPerMillion: 0,
           currency: 'BRL',
           maxOutputTokens: 1,
+          dimensions: 768,
         },
       ],
     },

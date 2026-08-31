@@ -140,6 +140,9 @@ inferenceRouter:
       # An alias, not a pinned version: Google retires versioned models for new
       # keys, and a pinned default turns every fresh install into a 404.
       chatModel: gemini-flash-latest
+      # A different, stronger model for `chat-advanced` -- and the evaluation
+      # judge, which must not be the model under test.
+      advancedModel: gemini-3-flash-preview
       embeddingModel: gemini-embedding-001
     anthropic:
       baseUrl: https://api.anthropic.com

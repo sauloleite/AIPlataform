@@ -1,4 +1,9 @@
-"""Configuration validated at startup."""
+"""Configuration validated at startup.
+
+The application does not start on invalid configuration: a runtime that boots
+without knowing where the registry is would fail on the first run instead, with
+a 500 nobody can read.
+"""
 
 from __future__ import annotations
 
@@ -19,8 +24,18 @@ class Settings(BaseSettings):
     identity_jwks_url: str | None = None
 
     inference_router_url: str = "http://inference-router:3000"
-    agent_runtime_service_token: str = ""
-    default_alias: str = "chat-fast"
+    registry_url: str = "http://registry:3004"
+    mcp_gateway_url: str = "http://mcp-gateway:3006"
+
+    mongo_uri: str = "mongodb://mongo:27017"
+    mongo_database: str = "aia_agent_runtime"
+    redis_url: str = "redis://redis:6379"
+
+    #: The ceiling on tool calls in one run. A runaway loop spends real money.
+    agent_max_steps: int = 12
+    #: The gap allowed between two chunks of a model stream, not the length of
+    #: the answer. A local model on a cold start can be slow to the first token.
+    model_read_timeout_seconds: float = 180.0
 
     otel_exporter_otlp_endpoint: str | None = None
 
