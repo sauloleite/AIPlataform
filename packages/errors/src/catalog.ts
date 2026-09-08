@@ -54,6 +54,7 @@ export const ERROR_CODES = {
   // Tools (aia-mcp-gateway)
   TOOL_NOT_FOUND: 'tool_not_found',
   TOOL_NOT_ALLOWED: 'tool_not_allowed',
+  TOOL_ARGUMENTS_INVALID: 'tool_arguments_invalid',
   TOOL_RATE_LIMITED: 'tool_rate_limited',
   APPROVAL_REQUIRED: 'approval_required',
   TOOL_EXECUTION_FAILED: 'tool_execution_failed',

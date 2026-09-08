@@ -353,6 +353,9 @@ importers:
       '@nestjs/platform-express':
         specifier: ^11.0.5
         version: 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.2.1)(supports-color@10.2.2)
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
       ioredis:
         specifier: ^5.4.2
         version: 5.11.1(supports-color@10.2.2)

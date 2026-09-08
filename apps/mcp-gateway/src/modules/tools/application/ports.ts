@@ -63,6 +63,28 @@ export interface ToolExecutor {
 }
 export const TOOL_EXECUTORS = Symbol('ToolExecutors');
 
+/**
+ * Checks the arguments a model produced against the schema the tool declares.
+ *
+ * A port rather than a direct call, because JSON Schema evaluation is a library
+ * (Ajv compiles and caches), and an adapter is where a library belongs. The
+ * RULE -- untrusted arguments are checked before anything runs -- is the
+ * gateway's; the dialect is not.
+ *
+ * Returns the reasons rather than throwing, so the use case decides the error
+ * and the audit record, and a validator is testable without one.
+ */
+export interface SchemaValidator {
+  /**
+   * Empty when the arguments satisfy the schema.
+   *
+   * A schema this validator cannot compile is a REJECTION, never a pass: a tool
+   * published with a broken schema must not become the one tool nobody checks.
+   */
+  validate(input: { schema: Record<string, unknown>; value: unknown }): readonly string[];
+}
+export const SCHEMA_VALIDATOR = Symbol('SchemaValidator');
+
 export interface RateLimiter {
   /**
    * Consumes one unit. Returns how long to wait when the window is full, or

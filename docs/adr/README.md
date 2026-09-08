@@ -35,6 +35,7 @@ change of context.
 | [022](ADR-022-search-fuses-two-rankings.md)                        | Search fuses a lexical ranking with the vector one                            | accepted (new)                      |
 | [023](ADR-023-a-store-is-shared-by-two-consents.md)                | A knowledge store is shared by two consents                                   | accepted (new)                      |
 | [024](ADR-024-gateway-api-replaces-ingress.md)                     | The Gateway API replaces the Ingress in the Helm chart                        | accepted (new)                      |
+| [025](ADR-025-tool-arguments-are-validated-at-the-gateway.md)      | Tool arguments are validated against their schema at the gateway              | accepted (new)                      |
 
 Format: context, decision, alternatives, consequences and review trigger.
 Template in [TEMPLATE.md](TEMPLATE.md).

@@ -7,6 +7,7 @@ import {
   ApprovalRequiredError,
   ToolExecutionFailedError,
   ToolNotAllowedError,
+  ToolArgumentsInvalidError,
   ToolNotFoundError,
   ToolRateLimitedError,
 } from '../../domain/errors/index.js';
@@ -23,6 +24,7 @@ import {
   ID_GENERATOR,
   RATE_LIMITER,
   TOOL_CATALOG,
+  SCHEMA_VALIDATOR,
   TOOL_EXECUTORS,
   type ApprovalStore,
   type AuditRepository,
@@ -34,6 +36,7 @@ import {
   type ResolvedCredential,
   type SecretResolver,
   type ToolCatalog,
+  type SchemaValidator,
   type ToolExecutor,
 } from '../ports.js';
 
@@ -57,6 +60,7 @@ export class InvokeTool {
     @Inject(RATE_LIMITER) private readonly limiter: RateLimiter,
     @Inject(APPROVAL_STORE) private readonly approvals: ApprovalStore,
     @Inject(TOOL_EXECUTORS) private readonly executors: readonly ToolExecutor[],
+    @Inject(SCHEMA_VALIDATOR) private readonly schema: SchemaValidator,
     @Inject(CONNECTION_REPOSITORY) private readonly connections: ConnectionRepository,
     @Inject(SECRET_RESOLVER) private readonly secrets: SecretResolver,
     @Inject(AUDIT_REPOSITORY) private readonly audit: AuditRepository,
@@ -86,6 +90,12 @@ export class InvokeTool {
       await this.recordDenial(command, tool, error);
       throw error;
     }
+
+    // Before the rate limit, for the same reason the rate limit is after the
+    // decision: a call refused for being malformed must not spend somebody
+    // else's allowance. Before the approval too -- asking a person to approve
+    // arguments that cannot run wastes the one reviewer this control has.
+    await this.assertArgumentsMatchSchema(command, tool);
 
     // The rate is consumed AFTER the decision: a refused call must not spend
     // somebody else's allowance.
@@ -281,6 +291,33 @@ export class InvokeTool {
   }
 
   /** A refusal is audited too: who was told no, and why, is the useful half. */
+  /**
+   * OWASP LLM05: what the model asked for has to match what the tool declares.
+   *
+   * A tool with no declared parameters is not validated, and that is a real
+   * decision rather than an omission: `parameters` is optional in the registry,
+   * and treating "undeclared" as "nothing is allowed" would break every tool
+   * that takes free-form input. What it does mean is that a tool wanting this
+   * protection has to declare a schema -- which the registry already validates
+   * at publish time.
+   */
+  private async assertArgumentsMatchSchema(
+    command: InvokeToolCommand,
+    tool: ToolDefinition,
+  ): Promise<void> {
+    if (tool.parameters === undefined) return;
+
+    const reasons = this.schema.validate({
+      schema: tool.parameters,
+      value: command.arguments,
+    });
+    if (reasons.length === 0) return;
+
+    const error = new ToolArgumentsInvalidError(tool.toolId, reasons);
+    await this.recordDenial(command, tool, error);
+    throw error;
+  }
+
   private async recordDenial(
     command: InvokeToolCommand,
     tool: ToolDefinition,

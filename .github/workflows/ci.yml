@@ -90,23 +90,55 @@ jobs:
       - name: import-linter (Python)
         run: uv run lint-imports
 
-      - name: The rule really fails when violated
-        # An architecture test that never fails protects nothing. This step
-        # introduces a violation on purpose and requires depcruise to catch it.
+      # An architecture test that never fails protects nothing. Each rule below
+      # is given a violation on purpose and has to catch it.
+      #
+      # This used to exercise ONE rule, and that is how
+      # `domain-does-not-know-frameworks` came to match nothing at all for as
+      # long as it existed: `exclude` dropped node_modules from the graph, and
+      # the patterns were module names where a resolved path was compared. The
+      # rule reported success because there was nothing left to report on. A
+      # negative control that covers one rule tells you about one rule.
+      - name: Every dependency rule really fails when violated
         run: |
           set -euo pipefail
-          VIOLATION=apps/inference-router/src/modules/completions/domain/__ci-violation.ts
+          DOMAIN=apps/inference-router/src/modules/completions/domain
+          VIOLATION="$DOMAIN/__ci-violation.ts"
+          trap 'rm -f "$VIOLATION"' EXIT
+
+          assert_caught() {
+            local rule="$1"
+            if pnpm exec depcruise --config .dependency-cruiser.cjs \
+                 --output-type err apps/inference-router >/dev/null; then
+              echo "::error::$rule did NOT detect a deliberate violation."
+              exit 1
+            fi
+            echo "  $rule: caught"
+          }
+
           cat > "$VIOLATION" <<'TS'
           import { MongoAuditRepository } from '../infrastructure/mongo/audit.repository.js';
           export const x = MongoAuditRepository;
           TS
-          if pnpm exec depcruise --config .dependency-cruiser.cjs --output-type err apps/inference-router; then
-            rm -f "$VIOLATION"
-            echo "::error::The dependency rule did NOT detect a deliberate violation."
-            exit 1
-          fi
+          assert_caught domain-does-not-know-infrastructure
+
+          # An npm framework in the domain. The package has to be one the
+          # service really depends on, or it fails to resolve and the graph
+          # records nothing -- which looks exactly like the rule passing.
+          cat > "$VIOLATION" <<'TS'
+          import { MongoClient } from 'mongodb';
+          export const x = MongoClient;
+          TS
+          assert_caught domain-does-not-know-frameworks
+
+          cat > "$VIOLATION" <<'TS'
+          import { readFileSync } from 'node:fs';
+          export const x = readFileSync;
+          TS
+          assert_caught domain-does-no-io
+
           rm -f "$VIOLATION"
-          echo "architecture rule confirmed"
+          echo "architecture rules confirmed"
 
   # ==========================================================================
   # Contracts: what is generated has to match what was committed.

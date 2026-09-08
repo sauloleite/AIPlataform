@@ -46,6 +46,7 @@ class ErrorCode:
     INGESTION_FAILED: Final = "ingestion_failed"
     TOOL_NOT_FOUND: Final = "tool_not_found"
     TOOL_NOT_ALLOWED: Final = "tool_not_allowed"
+    TOOL_ARGUMENTS_INVALID: Final = "tool_arguments_invalid"
     TOOL_RATE_LIMITED: Final = "tool_rate_limited"
     APPROVAL_REQUIRED: Final = "approval_required"
     TOOL_EXECUTION_FAILED: Final = "tool_execution_failed"
@@ -91,6 +92,7 @@ _TITLES: Final[dict[str, str]] = {
     ErrorCode.INGESTION_FAILED: "Document ingestion failed",
     ErrorCode.TOOL_NOT_FOUND: "Tool not found",
     ErrorCode.TOOL_NOT_ALLOWED: "Tool not allowed for this project",
+    ErrorCode.TOOL_ARGUMENTS_INVALID: "Tool arguments do not match its schema",
     ErrorCode.TOOL_RATE_LIMITED: "Tool rate limit reached",
     ErrorCode.APPROVAL_REQUIRED: "A human has to approve this tool call",
     ErrorCode.TOOL_EXECUTION_FAILED: "The tool failed to execute",

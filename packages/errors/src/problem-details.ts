@@ -60,6 +60,7 @@ const TITLES: Record<string, string> = {
   [ERROR_CODES.INGESTION_FAILED]: 'Document ingestion failed',
   [ERROR_CODES.TOOL_NOT_FOUND]: 'Tool not found',
   [ERROR_CODES.TOOL_NOT_ALLOWED]: 'Tool not allowed in this project',
+  [ERROR_CODES.TOOL_ARGUMENTS_INVALID]: 'Tool arguments do not match its schema',
   [ERROR_CODES.TOOL_RATE_LIMITED]: 'Tool rate limit reached',
   [ERROR_CODES.APPROVAL_REQUIRED]: 'Human approval required',
   [ERROR_CODES.TOOL_EXECUTION_FAILED]: 'Tool execution failed',

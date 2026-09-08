@@ -90,6 +90,7 @@ components:
             - ingestion_failed
             - tool_not_found
             - tool_not_allowed
+            - tool_arguments_invalid
             - tool_rate_limited
             - approval_required
             - tool_execution_failed

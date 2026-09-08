@@ -24,6 +24,34 @@ export class ToolNotAllowedError extends DomainError {
   }
 }
 
+/**
+ * OWASP LLM05, improper output handling.
+ *
+ * The registry validates a tool's schema when it is PUBLISHED; nothing checked
+ * the arguments at invoke time, so a model could send a string where a number
+ * was declared, an unknown field, or a whole extra object, and the executor
+ * would forward it. The six published design patterns against prompt injection
+ * stop untrusted input from SELECTING an action; none of them governs what the
+ * selected action CARRIES. This is that gap.
+ *
+ * 400, not 422: the argument is malformed against a schema the caller was
+ * given, which is a bad request in the ordinary sense.
+ */
+export class ToolArgumentsInvalidError extends DomainError {
+  readonly code: ErrorCode = ERROR_CODES.TOOL_ARGUMENTS_INVALID;
+  readonly status = 400;
+
+  constructor(toolId: string, reasons: readonly string[]) {
+    super(`The arguments do not match the schema of ${toolId}`, {
+      tool_id: toolId,
+      // Returned to the caller because the caller is usually a model that can
+      // correct itself on the next turn. They describe the SCHEMA, never the
+      // value, so an argument carrying a secret is not echoed back.
+      reasons: [...reasons],
+    });
+  }
+}
+
 export class ToolRateLimitedError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.TOOL_RATE_LIMITED;
   readonly status = 429;

@@ -15,6 +15,7 @@ import {
   RATE_LIMITER,
   SECRET_RESOLVER,
   TOOL_CATALOG,
+  SCHEMA_VALIDATOR,
   TOOL_EXECUTORS,
   type ApprovalStore,
   type AuditRepository,
@@ -48,6 +49,7 @@ import {
   FirstOf,
 } from './infrastructure/secrets/secret-resolvers.js';
 import { RedisApprovalStore } from './infrastructure/redis/redis-approval-store.js';
+import { AjvSchemaValidator } from './infrastructure/schema/ajv-schema-validator.js';
 import { RedisRateLimiter } from './infrastructure/redis/redis-rate-limiter.js';
 import { ToolsController } from './presentation/http/tools.controller.js';
 
@@ -89,6 +91,11 @@ const adapters: Provider[] = [
     provide: RATE_LIMITER,
     useFactory: (redis: Redis): RateLimiter => new RedisRateLimiter(redis),
     inject: [Redis],
+  },
+  {
+    // One instance, so the compiled-schema cache survives between calls.
+    provide: SCHEMA_VALIDATOR,
+    useClass: AjvSchemaValidator,
   },
   {
     provide: APPROVAL_STORE,
