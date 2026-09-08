@@ -24,6 +24,33 @@ x-platform-env: &platform-env
   IDENTITY_ISSUER: http://identity:3001
   IDENTITY_AUDIENCE: aia-platform
 
+x-knowledge-base: &knowledge-base
+  <<: *service-defaults
+  build:
+    context: ../..
+    dockerfile: deploy/docker/node.Dockerfile
+    args: { SERVICE: knowledge }
+  environment: &knowledge-env
+    <<: *platform-env
+    PORT: 3007
+    MONGO_DATABASE: aia_knowledge
+    QDRANT_URL: http://qdrant:6333
+    MINIO_ENDPOINT: http://minio:9000
+    MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aia}
+    MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aia-local-dev-only}
+    KNOWLEDGE_BUCKET: ${KNOWLEDGE_BUCKET:-aia-documents}
+    INFERENCE_ROUTER_URL: http://inference-router:3000
+    EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+    # Empty until aia-document-processing exists: only text and markdown
+    # parse locally, and any other type fails that one job.
+    DOCUMENT_PROCESSING_URL: ${DOCUMENT_PROCESSING_URL:-}
+  depends_on:
+    mongo: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    qdrant: { condition: service_healthy }
+    minio: { condition: service_healthy }
+    identity: { condition: service_healthy }
+
 services:
   # ==========================================================================
   # Infrastructure
@@ -271,33 +298,12 @@ services:
       traefik.http.routers.registry.rule: 'PathPrefix(`/v1/assets`)'
       traefik.http.services.registry.loadbalancer.server.port: '3004'
 
-  knowledge: &knowledge-base
-    <<: *service-defaults
-    build:
-      context: ../..
-      dockerfile: deploy/docker/node.Dockerfile
-      args: { SERVICE: knowledge }
-    environment: &knowledge-env
-      <<: *platform-env
-      PORT: 3007
-      MONGO_DATABASE: aia_knowledge
-      QDRANT_URL: http://qdrant:6333
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aia}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aia-local-dev-only}
-      KNOWLEDGE_BUCKET: ${KNOWLEDGE_BUCKET:-aia-documents}
-      INFERENCE_ROUTER_URL: http://inference-router:3000
-      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
-      # Empty until aia-document-processing exists: only text and markdown
-      # parse locally, and any other type fails that one job.
-      DOCUMENT_PROCESSING_URL: ${DOCUMENT_PROCESSING_URL:-}
+  # The image and the configuration are shared by the API and the worker. The
+  # HTTP healthcheck deliberately is NOT: only the API opens a port, and a
+  # worker that inherited the probe would be permanently unhealthy.
+  knowledge:
+    <<: *knowledge-base
     ports: ['3007:3007']
-    depends_on:
-      mongo: { condition: service_healthy }
-      redis: { condition: service_healthy }
-      qdrant: { condition: service_healthy }
-      minio: { condition: service_healthy }
-      identity: { condition: service_healthy }
     healthcheck:
       test:
         [
@@ -361,9 +367,12 @@ services:
     environment:
       <<: *knowledge-env
     ports: []
-    # No HTTP listener, so nothing to probe and nothing for Traefik to route.
-    healthcheck:
-      disable: true
+    # No healthcheck AT ALL, and the difference from `disable: true` matters:
+    # `disable` still sets a healthcheck (test NONE), so `up --wait` finds a
+    # configured check with no health state and fails the whole run with
+    # "container has no healthcheck configured". Omitting the key leaves it
+    # unset, and --wait then falls back to waiting for "running", which is all
+    # a process with no listener can honestly report.
     labels:
       traefik.enable: 'false'
     depends_on:
