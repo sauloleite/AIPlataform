@@ -494,8 +494,14 @@ print(base64.urlsafe_b64encode(json.dumps(session).encode()).decode().rstrip("="
   assert_contains "$PROJECTS_HTML" 'local model only' "a restricted project is flagged in the list"
 
   DETAIL_HTML=$(curl -sS "${WEB_URL}/projects/${PROJECT_RESTRICTED}" -H "Cookie: ${COOKIES}")
-  assert_contains "$DETAIL_HTML" 'Allowed zones' "the project page shows the effective policy"
   assert_contains "$DETAIL_HTML" 'chat-local' "the alias catalogue is filtered by classification"
+
+  # The effective policy lives on Settings, not on Overview: the console groups
+  # classification, budget and policy under Manage. Asserting it against
+  # Overview passed until the console grew a project-scoped rail, and then
+  # reported a missing card as a missing policy.
+  SETTINGS_HTML=$(curl -sS "${WEB_URL}/projects/${PROJECT_RESTRICTED}/settings" -H "Cookie: ${COOKIES}")
+  assert_contains "$SETTINGS_HTML" 'Allowed zones' "the settings page shows the effective policy"
 
   # Streaming through the BFF. This is the path a Server Action cannot take, and
   # the only route handler the console has.
