@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ERROR_CODES } from './catalog.js';
+import { ERROR_CODES, type ErrorCode } from './catalog.js';
 import { DomainError, InternalError, NotFoundError } from './domain-error.js';
-import { fromUnknown, toProblemDetails } from './problem-details.js';
+import { fromUnknown, titleFor, toProblemDetails } from './problem-details.js';
 
 class BudgetExhausted extends DomainError {
   readonly code = ERROR_CODES.BUDGET_EXHAUSTED;
@@ -61,5 +61,27 @@ describe('fromUnknown', () => {
 
   it('handles thrown values that are not even Errors', () => {
     expect(fromUnknown('a bare string').status).toBe(500);
+  });
+});
+
+describe('the title catalogue', () => {
+  /**
+   * The whole catalogue, not a sample.
+   *
+   * `titleFor` falls back to 'Error' for an unknown code, which is right for a
+   * code from a newer version and wrong for one this package declares. Fourteen
+   * of the thirty-seven had drifted into that fallback -- every error registry,
+   * knowledge, mcp-gateway and agent-runtime raise, because those services
+   * shipped after the map was last touched. The failure was invisible: the
+   * response was still valid Problem Details, just titled "Error".
+   */
+  it('gives every declared code a title of its own', () => {
+    const untitled = Object.values(ERROR_CODES).filter((code) => titleFor(code) === 'Error');
+
+    expect(untitled).toEqual([]);
+  });
+
+  it('still falls back for a code it has never heard of', () => {
+    expect(titleFor('from_a_newer_version' as ErrorCode)).toBe('Error');
   });
 });

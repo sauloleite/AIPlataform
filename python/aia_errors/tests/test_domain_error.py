@@ -17,6 +17,7 @@ from aia_errors import (
     UnauthenticatedError,
     ValidationError,
     problem_from_unknown,
+    title_for,
 )
 
 
@@ -81,3 +82,28 @@ def test_unknown_error_does_not_leak_internal_detail() -> None:
     assert problem["status"] == 500
     assert problem["code"] == "internal_error"
     assert "mongo://" not in str(problem)
+
+
+class TestTitleCatalogue:
+    """The catalogue, whole.
+
+    `title_for` falls back to "Error" for an unknown code, which is right for a
+    code from a newer version and wrong for one this package declares. The
+    TypeScript mirror had drifted into that fallback for fourteen of its
+    thirty-seven -- silently, because the response stayed valid Problem Details
+    and was merely titled "Error". This side was complete; the test is what keeps
+    both that way as codes are added.
+    """
+
+    def test_every_declared_code_has_a_title_of_its_own(self) -> None:
+        declared = [
+            value
+            for name, value in vars(ErrorCode).items()
+            if not name.startswith("_") and isinstance(value, str)
+        ]
+        untitled = sorted(code for code in declared if title_for(code) == "Error")
+
+        assert untitled == []
+
+    def test_a_code_from_a_newer_version_still_falls_back(self) -> None:
+        assert title_for("from_a_newer_version") == "Error"
