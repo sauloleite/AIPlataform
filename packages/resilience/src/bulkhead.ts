@@ -23,9 +23,15 @@ export interface BulkheadLease {
 /**
  * Caps concurrency per key so that one project cannot consume the capacity of
  * every other one (reference doc 02 §9).
+ *
+ * `maxConcurrent` overrides the policy's default for this key. It exists
+ * because the limit is a GOVERNANCE decision -- `Project.maxConcurrentRequests`
+ * is set per project and changes without a deploy -- while the policy carries
+ * the shape that does not vary: how long to wait for a slot, and how long a
+ * lease may live before a dead process stops holding it.
  */
 export interface Bulkhead {
-  acquire(key: string): Promise<BulkheadLease>;
+  acquire(key: string, maxConcurrent?: number): Promise<BulkheadLease>;
 }
 
 /** Per-process semaphore. Enough for a single replica, or for tests. */
@@ -35,26 +41,27 @@ export class InMemoryBulkhead implements Bulkhead {
 
   constructor(private readonly policy: BulkheadPolicy) {}
 
-  async acquire(key: string): Promise<BulkheadLease> {
+  async acquire(key: string, maxConcurrent?: number): Promise<BulkheadLease> {
+    const limit = maxConcurrent ?? this.policy.maxConcurrent;
     const current = this.inFlight.get(key) ?? 0;
 
-    if (current < this.policy.maxConcurrent) {
+    if (current < limit) {
       this.inFlight.set(key, current + 1);
       return this.leaseFor(key);
     }
 
-    await this.waitForSlot(key);
+    await this.waitForSlot(key, limit);
     this.inFlight.set(key, (this.inFlight.get(key) ?? 0) + 1);
     return this.leaseFor(key);
   }
 
-  private waitForSlot(key: string): Promise<void> {
+  private waitForSlot(key: string, limit: number): Promise<void> {
     return new Promise((resolve, reject) => {
       const queue = this.waiting.get(key) ?? [];
       const timer = setTimeout(() => {
         const index = queue.indexOf(onSlot);
         if (index >= 0) queue.splice(index, 1);
-        reject(new ConcurrencyLimitError(key, this.policy.maxConcurrent));
+        reject(new ConcurrencyLimitError(key, limit));
       }, this.policy.acquireTimeoutMs);
 
       const onSlot = (): void => {
@@ -111,7 +118,8 @@ export class RedisBulkhead implements Bulkhead {
     private readonly keyPrefix = 'aia:bulkhead',
   ) {}
 
-  async acquire(key: string): Promise<BulkheadLease> {
+  async acquire(key: string, maxConcurrent?: number): Promise<BulkheadLease> {
+    const limit = maxConcurrent ?? this.policy.maxConcurrent;
     const redisKey = `${this.keyPrefix}:${key}`;
     const ttl = this.policy.leaseTtlMs ?? 60_000;
     const deadline = Date.now() + this.policy.acquireTimeoutMs;
@@ -124,7 +132,7 @@ export class RedisBulkhead implements Bulkhead {
         redisKey,
         Date.now(),
         ttl,
-        this.policy.maxConcurrent,
+        limit,
         member,
       );
 
@@ -140,7 +148,7 @@ export class RedisBulkhead implements Bulkhead {
       }
 
       if (Date.now() >= deadline) {
-        throw new ConcurrencyLimitError(key, this.policy.maxConcurrent);
+        throw new ConcurrencyLimitError(key, limit);
       }
       await new Promise((resolve) => setTimeout(resolve, 25));
     }

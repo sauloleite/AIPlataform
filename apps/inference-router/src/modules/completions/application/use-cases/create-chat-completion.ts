@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { Bulkhead, BulkheadLease } from '@aia/resilience';
 import { AliasNotFoundError, StreamInterruptedError } from '../../domain/errors/index.js';
 import { BudgetReservation } from '../../domain/entities/budget-reservation.js';
 import { ModelSelectionPolicy } from '../../domain/services/model-selection-policy.js';
@@ -9,6 +10,7 @@ import {
   ALIAS_REGISTRY,
   AUDIT_REPOSITORY,
   BUDGET_LEDGER,
+  BULKHEAD,
   CLOCK,
   GUARDRAIL,
   POLICY_READER,
@@ -73,8 +75,26 @@ export class CreateChatCompletion {
     @Inject(AUDIT_REPOSITORY) private readonly audit: AuditRepository,
     @Inject(USAGE_PUBLISHER) private readonly usage: UsagePublisher,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Inject(BULKHEAD) private readonly bulkhead: Bulkhead,
     private readonly executor: DeploymentExecutor,
   ) {}
+
+  /**
+   * A slot for this project, or a 429.
+   *
+   * Taken AFTER the cache lookup on purpose: an answer already in Redis costs
+   * nothing to serve, and refusing it for concurrency would make the platform
+   * least available exactly when the cache is doing the most good.
+   *
+   * The limit comes from the project's own policy rather than from
+   * `POLICIES.INFERENCE.bulkhead`, which carries only the shape -- how long to
+   * wait for a slot, how long a lease may outlive a dead process. How many
+   * requests a project may run at once is a governance decision, changeable
+   * without a deploy.
+   */
+  private admit(plan: Plan, projectId: string): Promise<BulkheadLease> {
+    return this.bulkhead.acquire(projectId, plan.policyResult.maxConcurrentRequests);
+  }
 
   async execute(command: CreateChatCompletionCommand): Promise<ChatCompletionResult> {
     const plan = await this.prepare(command);
@@ -84,6 +104,10 @@ export class CreateChatCompletion {
       return this.finishFromCache(command, plan, startedAt);
     }
 
+    // Before the budget reservation: a request refused for concurrency must not
+    // have reserved money it will never spend, and releasing a reservation the
+    // caller never got an answer for is work with no purpose.
+    const lease = await this.admit(plan, command.projectId);
     const reservation = await this.reserve(command, plan);
 
     try {
@@ -134,6 +158,8 @@ export class CreateChatCompletion {
       await this.ledger.release(reservation);
       await this.recordFailure(command, plan, error, startedAt);
       throw error;
+    } finally {
+      await lease.release();
     }
   }
 
@@ -155,6 +181,11 @@ export class CreateChatCompletion {
       return;
     }
 
+    // Held for the whole stream, not just until the first token: a generation
+    // that runs for two minutes occupies the project's capacity for two
+    // minutes, and `POLICIES.INFERENCE_STREAMING` gives the lease a longer TTL
+    // for exactly that reason.
+    const lease = await this.admit(plan, command.projectId);
     const reservation = await this.reserve(command, plan);
 
     let emitted = '';
@@ -248,6 +279,10 @@ export class CreateChatCompletion {
       await this.ledger.release(reservation);
       await this.recordFailure(command, plan, error, startedAt);
       throw error;
+    } finally {
+      // A generator abandoned by its consumer still runs this: without it, a
+      // client that disconnects mid-stream leaks a slot until the lease TTL.
+      await lease.release();
     }
   }
 

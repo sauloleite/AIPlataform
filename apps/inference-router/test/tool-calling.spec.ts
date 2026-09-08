@@ -8,6 +8,7 @@ import type {
 } from '../src/modules/completions/application/dto.js';
 import { aDeployment, anAlias } from './builders.js';
 import {
+  CountingBulkhead,
   FakeAliasRegistry,
   FakeAuditRepository,
   FakeBudgetLedger,
@@ -39,12 +40,14 @@ const SEARCH_TOOL = {
 
 function build(): {
   useCase: CreateChatCompletion;
+  bulkhead: CountingBulkhead;
   openai: FakeModelProvider;
   cache: FakeSemanticCache;
 } {
   const openai = new FakeModelProvider('openai');
   const cache = new FakeSemanticCache();
 
+  const bulkhead = new CountingBulkhead();
   const useCase = new CreateChatCompletion(
     new FakePolicyReader(),
     new FakeAliasRegistry([anAlias([OPENAI])]),
@@ -55,10 +58,11 @@ function build(): {
     new FakeAuditRepository(),
     new FakeUsagePublisher(),
     new FixedClock(),
+    bulkhead,
     new DeploymentExecutor([openai]),
   );
 
-  return { useCase, openai, cache };
+  return { useCase, bulkhead, openai, cache };
 }
 
 function aCommand(

@@ -1,3 +1,4 @@
+import { ConcurrencyLimitError, type Bulkhead, type BulkheadLease } from '@aia/resilience';
 import { BudgetReservation } from '../src/modules/completions/domain/entities/budget-reservation.js';
 import { BudgetExhaustedError } from '../src/modules/completions/domain/errors/index.js';
 import { Cost } from '../src/modules/completions/domain/value-objects/index.js';
@@ -330,5 +331,47 @@ export class FixedClock implements Clock {
 
   advance(ms: number): void {
     this.current = new Date(this.current.getTime() + ms);
+  }
+}
+
+/**
+ * A bulkhead that counts, so a test can assert what was admitted and refused.
+ *
+ * A fake rather than a mock: it enforces the limit for real, so a test that
+ * says "the twenty-first request is refused" is testing the rule and not a
+ * recorded call. `waiting` is deliberately absent -- the real one queues for
+ * `acquireTimeoutMs`, and a test that had to wait two seconds to see a refusal
+ * would be a slow test measuring a timer.
+ */
+export class CountingBulkhead implements Bulkhead {
+  readonly acquired: { key: string; limit: number | undefined }[] = [];
+  private readonly inFlight = new Map<string, number>();
+  peak = 0;
+
+  acquire(key: string, maxConcurrent?: number): Promise<BulkheadLease> {
+    this.acquired.push({ key, limit: maxConcurrent });
+
+    const current = this.inFlight.get(key) ?? 0;
+    if (maxConcurrent !== undefined && current >= maxConcurrent) {
+      return Promise.reject(new ConcurrencyLimitError(key, maxConcurrent));
+    }
+
+    this.inFlight.set(key, current + 1);
+    this.peak = Math.max(this.peak, current + 1);
+
+    let released = false;
+    return Promise.resolve({
+      release: (): Promise<void> => {
+        if (released) return Promise.resolve();
+        released = true;
+        this.inFlight.set(key, Math.max(0, (this.inFlight.get(key) ?? 1) - 1));
+        return Promise.resolve();
+      },
+    });
+  }
+
+  /** How many slots this key is holding right now. */
+  inFlightFor(key: string): number {
+    return this.inFlight.get(key) ?? 0;
   }
 }

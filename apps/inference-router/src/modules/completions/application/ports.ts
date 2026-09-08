@@ -261,6 +261,15 @@ export interface SemanticCache {
 }
 export const SEMANTIC_CACHE = Symbol('SemanticCache');
 
+/**
+ * Admission control: how many requests one project may have in flight.
+ *
+ * The port is `Bulkhead` from `@aia/resilience` -- the platform does not invent
+ * its own semaphore (CLAUDE.md). It is declared here so the use case can be
+ * given one without knowing whether it counts in this process or in Redis.
+ */
+export const BULKHEAD = Symbol('Bulkhead');
+
 /** Local token estimate, to reserve budget before calling the model. */
 export interface TokenEstimator {
   countMessages(messages: ChatMessageInput[]): number;

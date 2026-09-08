@@ -8,6 +8,7 @@ import {
   ServiceTokenProvider,
   type DependencyCheck,
 } from '@aia/nest';
+import { POLICIES, RedisBulkhead } from '@aia/resilience';
 import { CreateChatCompletion } from './application/use-cases/create-chat-completion.js';
 import { CreateEmbeddings } from './application/use-cases/create-embeddings.js';
 import { ListModels } from './application/use-cases/list-models.js';
@@ -16,6 +17,7 @@ import {
   ALIAS_REGISTRY,
   AUDIT_REPOSITORY,
   BUDGET_LEDGER,
+  BULKHEAD,
   CLOCK,
   GUARDRAIL,
   ID_GENERATOR,
@@ -97,6 +99,15 @@ const adapters: Provider[] = [
   {
     provide: BUDGET_LEDGER,
     useFactory: (redis: Redis) => new RedisBudgetLedger(redis),
+    inject: [Redis],
+  },
+  {
+    provide: BULKHEAD,
+    // In Redis, not in the process. The limit is what a PROJECT may run at
+    // once, and with three router replicas a per-process semaphore would let it
+    // run three times that. The policy supplies the wait and the lease TTL; the
+    // ceiling itself arrives with each request's own policy.
+    useFactory: (redis: Redis) => new RedisBulkhead(redis, POLICIES.INFERENCE.bulkhead),
     inject: [Redis],
   },
   {

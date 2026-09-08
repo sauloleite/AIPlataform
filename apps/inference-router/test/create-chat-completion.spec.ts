@@ -12,6 +12,7 @@ import type { CreateChatCompletionCommand } from '../src/modules/completions/app
 import type { StreamEvent } from '../src/modules/completions/application/dto.js';
 import { aDeployment, anAlias } from './builders.js';
 import {
+  CountingBulkhead,
   FakeAliasRegistry,
   FakeAuditRepository,
   FakeBudgetLedger,
@@ -52,6 +53,7 @@ const OPENAI = aDeployment({
 
 interface Harness {
   useCase: CreateChatCompletion;
+  bulkhead: CountingBulkhead;
   ledger: FakeBudgetLedger;
   policies: FakePolicyReader;
   audit: FakeAuditRepository;
@@ -81,6 +83,7 @@ function build(
   const alias = anAlias(options.deployments ?? [OPENAI, LOCAL]);
   const executor = new DeploymentExecutor([openai, ollama]);
 
+  const bulkhead = new CountingBulkhead();
   const useCase = new CreateChatCompletion(
     policies,
     new FakeAliasRegistry([alias]),
@@ -91,10 +94,11 @@ function build(
     audit,
     usage,
     new FixedClock(),
+    bulkhead,
     executor,
   );
 
-  return { useCase, ledger, policies, audit, usage, guardrail, cache, openai, ollama };
+  return { useCase, bulkhead, ledger, policies, audit, usage, guardrail, cache, openai, ollama };
 }
 
 function aCommand(
@@ -442,5 +446,110 @@ describe('CreateChatCompletion - streaming', () => {
     await collect(harness.useCase.stream(aCommand({ stream: true })));
 
     expect(harness.usage.last()?.timeToFirstTokenMs).toBeDefined();
+  });
+});
+
+/**
+ * Admission control (OWASP LLM10, unbounded consumption).
+ *
+ * Five pieces of this existed before any of them met: the policy declared a
+ * bulkhead, the library implemented two, the executor supported one,
+ * `Project.maxConcurrentRequests` was carried all the way from governance into
+ * the router, and `concurrency_limit` was in the error catalogue and already
+ * rendered by the console. Nothing ever took a slot.
+ */
+describe('concurrency limit per project', () => {
+  it('refuses with concurrency_limit once the project is at its ceiling', async () => {
+    const { useCase, bulkhead } = build({ policy: { maxConcurrentRequests: 1 } });
+
+    // One slot taken outside the use case, standing in for a request already
+    // in flight on this or on another replica.
+    await bulkhead.acquire('proj-1', 1);
+
+    await expect(useCase.execute(aCommand())).rejects.toMatchObject({
+      code: 'concurrency_limit',
+      status: 429,
+    });
+  });
+
+  it('reserves no budget for a request it refuses', async () => {
+    const { useCase, bulkhead, ledger } = build({ policy: { maxConcurrentRequests: 1 } });
+    await bulkhead.acquire('proj-1', 1);
+
+    await useCase.execute(aCommand()).catch(() => undefined);
+
+    // Money reserved for an answer nobody receives has to be released again,
+    // and the cheapest way to get that right is never to reserve it.
+    expect(ledger.reserved).toHaveLength(0);
+  });
+
+  it('uses the project policy as the ceiling, not the library default', async () => {
+    const { useCase, bulkhead } = build({ policy: { maxConcurrentRequests: 3 } });
+
+    await useCase.execute(aCommand());
+
+    // 20 is what POLICIES.INFERENCE declares. The number that governs is the
+    // one governance set, which is the whole reason `acquire` takes it.
+    expect(bulkhead.acquired[0]).toEqual({ key: 'proj-1', limit: 3 });
+  });
+
+  it('releases the slot when the provider fails', async () => {
+    const { useCase, bulkhead, openai } = build({ deployments: [OPENAI] });
+    openai.failNext(new Error('provider down'), 5);
+
+    await useCase.execute(aCommand()).catch(() => undefined);
+
+    // A failure that leaked a slot would shrink the project's capacity by one
+    // for the lease TTL, and a provider outage would look like a concurrency
+    // problem an hour later.
+    expect(bulkhead.inFlightFor('proj-1')).toBe(0);
+  });
+
+  it('releases the slot when the answer succeeds', async () => {
+    const { useCase, bulkhead } = build();
+
+    await useCase.execute(aCommand());
+
+    expect(bulkhead.inFlightFor('proj-1')).toBe(0);
+  });
+
+  it('releases the slot at the end of a stream', async () => {
+    const { useCase, bulkhead } = build();
+
+    // Drained to the end, which is what a client that reads the whole answer
+    // does and what makes the generator's `finally` run.
+    const events = [];
+    for await (const event of useCase.stream(aCommand({ stream: true }))) events.push(event);
+    expect(events.length).toBeGreaterThan(0);
+
+    expect(bulkhead.inFlightFor('proj-1')).toBe(0);
+  });
+
+  it('releases the slot when the client abandons the stream half way', async () => {
+    const { useCase, bulkhead } = build();
+
+    const stream = useCase.stream(aCommand({ stream: true }));
+    await stream.next();
+    await stream.return(undefined);
+
+    // A disconnected browser is the common case, not the exotic one.
+    expect(bulkhead.inFlightFor('proj-1')).toBe(0);
+  });
+
+  it('serves a cached answer without taking a slot at all', async () => {
+    const { useCase, bulkhead, cache } = build({ policy: { maxConcurrentRequests: 1 } });
+    cache.primeWith({
+      content: 'from the cache',
+      usage: { promptTokens: 1, completionTokens: 1 },
+      deploymentId: 'openai-us',
+    });
+    await bulkhead.acquire('proj-1', 1);
+
+    const result = await useCase.execute(aCommand());
+
+    // Refusing an answer already in Redis would make the platform least
+    // available exactly when the cache is doing the most good.
+    expect(result.content).toBe('from the cache');
+    expect(bulkhead.acquired).toHaveLength(1);
   });
 });
