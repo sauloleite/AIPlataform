@@ -50,7 +50,7 @@ logs: ## Follows the logs (use SERVICE=inference-router to filter)
 models: ## Pulls the local models into Ollama (zero cost, no API key)
 	bash tools/scripts/pull-ollama-models.sh
 
-seed: ## Creates a sample user, project and budget
+seed: ## Creates the admin, a sample project and the platform-ci eval project
 	bash tools/scripts/seed.sh
 
 lint: ## Lint and formatting (fails on a warning, reference doc 03 §5)
@@ -82,10 +82,15 @@ test-unit: ## Unit tests (domain and application, no I/O)
 	pnpm exec nx run-many -t test --all
 	uv run pytest -m "not integration and not contract"
 
+# Both ecosystems, because CI runs both. This target used to run only pytest
+# while CI's job of the same name ran only vitest, so an integration test in
+# either language could be written into a runner that never executed it.
+#
 # Exit code 5 is pytest's "nothing collected". There are no Python integration
 # tests yet, and that is not a failure -- it becomes one the day somebody writes
 # one and it breaks.
 test-integration: ## Integration tests (Docker required)
+	RUN_INTEGRATION=1 pnpm exec vitest run --dir apps --passWithNoTests
 	uv run pytest -m integration || [ $$? -eq 5 ]
 
 test: test-unit test-integration ## The whole test suite
@@ -112,4 +117,11 @@ helm-lint: ## Validates the Helm chart
 	helm lint deploy/helm/aia-platform
 	helm template aia deploy/helm/aia-platform >/dev/null && echo "helm template OK"
 
-check: lint typecheck arch routes test ## What CI runs on every PR
+# Everything CI can run without Docker, a cluster or a network. The jobs left
+# out are left out because they need something this cannot assume: `e2e` needs
+# the platform up, `helm` needs helm, `delivery` and `contracts` need nothing
+# but are cheap enough that CI is the right place for them alone.
+#
+# It said "what CI runs on every PR" while omitting five jobs, which is the kind
+# of claim that makes somebody trust a green local run and get a red PR.
+check: lint typecheck arch routes test ## Everything CI runs that needs no Docker

@@ -226,11 +226,24 @@ jobs:
         with: { node-version: '22', cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --build tsconfig.build.json
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: uv sync --all-packages --frozen
 
       - name: Vitest (integration)
         run: pnpm exec vitest run --dir apps --testNamePattern "" --passWithNoTests
         env:
           RUN_INTEGRATION: '1'
+
+      # This job ran only vitest while `make test-integration` ran only pytest,
+      # so neither ran both and a Python integration test would have been
+      # written into a job that never executed it. Exit code 5 is pytest's
+      # "nothing collected", which is the honest state today and stops being
+      # acceptable the moment somebody writes one.
+      - name: pytest (integration)
+        run: uv run pytest -m integration || [ $? -eq 5 ]
 
   # ==========================================================================
   # End to end: brings the whole platform up and runs flow 7.1.
