@@ -8,9 +8,12 @@ import type { DataZone, ProviderName } from '../../domain/value-objects/index.js
 /**
  * The declarative shape of an alias, as it appears in configuration.
  *
- * The catalogue lives in a file until `aia-registry` exists (roadmap phase 2).
- * The `AliasRegistry` port already isolates that choice: swapping the file for a
- * service touches no use case.
+ * The catalogue is still compiled in, which means changing a model is a deploy
+ * rather than a catalogue edit -- the one place this platform's own promise is
+ * only half true. `aia-registry` now exists to hold it as a `model` asset, and
+ * the `AliasRegistry` port already isolates the choice: swapping this file for
+ * a registry client touches no use case. Roadmap M12, together with the
+ * deprecation dates and the regression gate that a real catalogue enables.
  */
 export interface AliasDefinition {
   id: string;

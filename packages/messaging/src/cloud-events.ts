@@ -70,6 +70,8 @@ export const EVENT_TYPES = {
   PROJECT_CREATED: 'aia.governance.project.created.v1',
   BUDGET_CHANGED: 'aia.governance.budget.changed.v1',
   POLICY_CHANGED: 'aia.governance.policy.changed.v1',
+  // Declared, not yet published: aia-identity emits no event today. It stays
+  // here so the name is decided once rather than invented at the call site.
   PRINCIPAL_CHANGED: 'aia.identity.principal.changed.v1',
   ASSET_PUBLISHED: 'aia.registry.asset.published.v1',
   ASSET_DEPRECATED: 'aia.registry.asset.deprecated.v1',
@@ -78,6 +80,8 @@ export const EVENT_TYPES = {
   TOOL_INVOKED: 'aia.tools.tool.invoked.v1',
   DOCUMENT_INGESTED: 'aia.knowledge.document.ingested.v1',
   INGESTION_FAILED: 'aia.knowledge.ingestion.failed.v1',
+  // Declared, not yet published: aia-document-processing does not exist yet
+  // (roadmap M7). aia-knowledge parses text inline until it does.
   DOCUMENT_PARSED: 'aia.documents.document.parsed.v1',
   EVALUATION_FINISHED: 'aia.evaluation.run.finished.v1',
 } as const;

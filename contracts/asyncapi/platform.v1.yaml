@@ -94,6 +94,36 @@ channels:
       PolicyChanged:
         $ref: '#/components/messages/PolicyChanged'
 
+  documentIngested:
+    address: 'aia:events:aia.knowledge.document.ingested.v1'
+    description: |
+      A document finished ingestion and its chunks are searchable. Carries the
+      chunk count because a document that ingested to zero chunks is a silent
+      failure a consumer should be able to notice.
+    messages:
+      DocumentIngested:
+        $ref: '#/components/messages/DocumentIngested'
+
+  ingestionFailed:
+    address: 'aia:events:aia.knowledge.ingestion.failed.v1'
+    description: |
+      Ingestion gave up on a document. Published rather than only logged: the
+      uploader's console has no other way to learn that the upload it accepted
+      minutes ago will never become searchable.
+    messages:
+      IngestionFailed:
+        $ref: '#/components/messages/IngestionFailed'
+
+  evaluationFinished:
+    address: 'aia:events:aia.evaluation.run.finished.v1'
+    description: |
+      An evaluation run reached a terminal state. `errored` and `failed` are
+      distinct (ADR-021): failed means the system scored below its threshold,
+      errored means the run did not measure and has no verdict to report.
+    messages:
+      EvaluationFinished:
+        $ref: '#/components/messages/EvaluationFinished'
+
 operations:
   publishUsageRecorded:
     action: send
@@ -149,6 +179,21 @@ operations:
     action: send
     channel: { $ref: '#/channels/policyChanged' }
     summary: Published by aia-governance.
+
+  publishDocumentIngested:
+    action: send
+    channel: { $ref: '#/channels/documentIngested' }
+    summary: Published by the aia-knowledge ingestion worker through the outbox.
+
+  publishIngestionFailed:
+    action: send
+    channel: { $ref: '#/channels/ingestionFailed' }
+    summary: Published by the aia-knowledge ingestion worker after the last retry.
+
+  publishEvaluationFinished:
+    action: send
+    channel: { $ref: '#/channels/evaluationFinished' }
+    summary: Published by aia-evaluation when a run reaches a terminal state.
 
 components:
   messages:
@@ -322,6 +367,69 @@ components:
                 properties:
                   project_id: { type: string }
                   version: { type: integer }
+
+    DocumentIngested:
+      name: DocumentIngested
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.knowledge.document.ingested.v1' }
+              data:
+                type: object
+                required: [store_id, document_id, chunk_count]
+                properties:
+                  store_id: { type: string }
+                  document_id: { type: string }
+                  chunk_count:
+                    type: integer
+                    minimum: 0
+                    description: |
+                      Zero is a legitimate value and a bad sign: the document
+                      parsed to nothing. Consumers should treat it as such.
+
+    IngestionFailed:
+      name: IngestionFailed
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.knowledge.ingestion.failed.v1' }
+              data:
+                type: object
+                required: [store_id, document_id, error_code]
+                properties:
+                  store_id: { type: string }
+                  document_id: { type: string }
+                  error_code:
+                    type: string
+                    description: |
+                      A stable code from the @aia/errors catalogue, never a
+                      provider message: the reason travels, the wording does not.
+
+    EvaluationFinished:
+      name: EvaluationFinished
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventEnvelope'
+          - type: object
+            properties:
+              type: { const: 'aia.evaluation.run.finished.v1' }
+              data:
+                type: object
+                required: [run_id, suite, status]
+                properties:
+                  run_id: { type: string }
+                  suite: { type: string }
+                  status: { type: string, enum: [passed, failed, errored] }
+                  gated:
+                    type: boolean
+                    description: Whether this run blocks a merge or a release.
 
   schemas:
     CloudEventEnvelope:

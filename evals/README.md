@@ -17,12 +17,24 @@ evals/
 
 ## When it runs
 
-| Moment                                | What runs                     | Blocking?                         |
-| ------------------------------------- | ----------------------------- | --------------------------------- |
-| A prompt, alias or chunking change    | The affected use case's suite | Yes, below the threshold          |
-| Before swapping an alias's deployment | The model regression suite    | Yes                               |
-| Weekly and before a release           | Red team                      | Yes, if a known case gets through |
-| Production                            | A 1 to 5% traffic sample      | No, it alerts                     |
+Two columns, because they are not the same claim. **Today** is what the
+repository actually does; **intended** is what `docs/ROADMAP.md` M6 builds. A
+table that describes only the intention reads as a guarantee, and a guarantee
+nobody implemented is worse than an admitted gap.
+
+| Moment                                | What runs                     | Today                   | Intended (M6)                     |
+| ------------------------------------- | ----------------------------- | ----------------------- | --------------------------------- |
+| A prompt, alias or chunking change    | The affected use case's suite | Nothing — no CI job     | Yes, below the threshold          |
+| Before swapping an alias's deployment | The model regression suite    | Nothing — no such suite | Yes                               |
+| Weekly and before a release           | Red team                      | **Yes**, on every PR    | Yes, if a known case gets through |
+| Production                            | A 1 to 5% traffic sample      | Nothing — no sampler    | No, it alerts                     |
+
+The red-team row is real and is the only one: the cases run as domain unit tests
+through `apps/guardrails/tests/test_redteam_dataset.py`, which the `test-unit`
+job already executes, at no cost and with no network.
+
+`make eval` runs the judged suites locally, and no workflow calls it. It also
+needs a `platform-ci` project, which `tools/scripts/seed.sh` does not create yet.
 
 ## Why the threshold is not 100%
 

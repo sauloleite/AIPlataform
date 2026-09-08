@@ -123,17 +123,24 @@ browser never holds a platform credential — see [apps/web](apps/web/README.md)
 
 ## Services
 
-| Service                                                                            | Stack   | State                                                     |
-| ---------------------------------------------------------------------------------- | ------- | --------------------------------------------------------- |
-| `aia-inference-router`                                                             | NestJS  | **complete** — 4 providers, budget, SSE, audit            |
-| `aia-identity`                                                                     | NestJS  | **complete** — RS256 JWT, JWKS, PAT, service credentials  |
-| `aia-governance`                                                                   | NestJS  | **complete** — projects, budget, classification, policies |
-| `aia-guardrails`                                                                   | FastAPI | **complete** — Brazilian PII, prompt injection            |
-| `aia-web`                                                                          | Next.js | **complete** — projects, budget, policies, playground     |
-| `aia-agent-runtime`                                                                | FastAPI | skeleton — LangGraph in phase 3                           |
-| `aia-registry`                                                                     | NestJS  | skeleton — phase 2                                        |
-| `aia-evaluation`                                                                   | FastAPI | skeleton — phase 2                                        |
-| `aia-knowledge`, `aia-mcp-gateway`, `aia-document-processing`, `aia-data-platform` | —       | phases 2 to 4                                             |
+| Service                   | Stack   | State                                                                    |
+| ------------------------- | ------- | ------------------------------------------------------------------------ |
+| `aia-inference-router`    | NestJS  | **complete** — 4 providers, budget, SSE, audit                           |
+| `aia-identity`            | NestJS  | **complete** — RS256 JWT, JWKS, PAT, service credentials                 |
+| `aia-governance`          | NestJS  | **complete** — projects, budget, classification, policies                |
+| `aia-guardrails`          | FastAPI | **complete** — Brazilian PII, prompt injection                           |
+| `aia-registry`            | NestJS  | **complete** — agents, tools and prompts, draft/publish/deprecate        |
+| `aia-knowledge`           | NestJS  | **complete** — stores, async ingestion, hybrid search, sharing           |
+| `aia-mcp-gateway`         | NestJS  | **complete** — allow-list, risk, human approval, audit                   |
+| `aia-agent-runtime`       | FastAPI | **complete** — written-out loop, checkpoints, HITL, SSE                  |
+| `aia-evaluation`          | FastAPI | **complete** — suites, judged and deterministic evaluators, CLI          |
+| `aia-web`                 | Next.js | **complete** — projects, agents, stores, tools, traces, evals            |
+| `aia-document-processing` | FastAPI | not built — PDF, DOCX, XLSX and OCR parsing ([roadmap](docs/ROADMAP.md)) |
+| `aia-data-platform`       | Python  | not built — usage analytics, showback, budget reconciliation             |
+
+Until `aia-document-processing` exists, `aia-knowledge` parses text, Markdown and
+JSON; any other upload fails that one job with `unsupported_media_type`.
+[docs/ROADMAP.md](docs/ROADMAP.md) is the living plan.
 
 A new service is born in the right shape through the generator:
 
@@ -200,7 +207,8 @@ Before the production compose, generate the secrets: see
 
 |                                |                                                                   |
 | ------------------------------ | ----------------------------------------------------------------- |
-| [ADRs](docs/adr/)              | The 15 architecture decisions, with alternatives and consequences |
+| [ADRs](docs/adr/)              | The 23 architecture decisions, with alternatives and consequences |
+| [Roadmap](docs/ROADMAP.md)     | What is built, what is next, and why in that order                |
 | [Runbooks](docs/runbooks/)     | What to do when something goes wrong                              |
 | [Checklists](docs/checklists/) | Sprint 0 and production readiness                                 |
 | [Reference](docs/reference/)   | The original architecture documents this project came from        |

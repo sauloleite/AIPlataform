@@ -15,8 +15,17 @@ Knowing this up front saves time and avoids an incomplete answer:
 | `aia_identity.personal_access_tokens`  | token hash, name, usage                   | 30 days after expiry          |
 | `aia_router.inference_audit`           | principal_id, project, tokens, cost, zone | 90 days (TTL)                 |
 | `aia_router.inference_audit` (content) | **redacted** prompt and answer            | only with project opt-in      |
+| `aia_agent_runtime.runs`               | principal_id, project, agent, thread      | none — no TTL yet             |
+| `aia_agent_runtime.checkpoints`        | the run transcript, keyed by `run_id`     | none — no TTL yet             |
+| `aia_mcp_gateway.tool_invocations`     | principalId, tool, arguments hash         | 365 days (TTL)                |
 | Redis Streams                          | events carrying principal_id              | the stream's length cap       |
 | Traces                                 | `aia.principal_id`                        | per the backend's retention   |
+
+The two `aia_agent_runtime` collections have **no TTL**: retention there is not
+configured anywhere, unlike the router's 90 days and the gateway's 365. Moving
+retention onto the project policy, where reference doc 02 §10.2 requires it, is
+roadmap M3. Until then an agent transcript is kept indefinitely, and this
+procedure is the only thing that removes one.
 
 Conversation content exists only if the project enabled `content_capture`, and
 even then it has already been through PII redaction.
@@ -32,7 +41,17 @@ $COMPOSE exec -T mongo mongosh aia_identity --quiet --eval "
 
 $COMPOSE exec -T mongo mongosh aia_router --quiet --eval "
   db.inference_audit.find({ principalId: '$PRINCIPAL_ID' }).toArray()" > subject-usage.json
+
+$COMPOSE exec -T mongo mongosh aia_agent_runtime --quiet --eval "
+  db.runs.find({ principal_id: '$PRINCIPAL_ID' }).toArray()" > subject-runs.json
+
+$COMPOSE exec -T mongo mongosh aia_mcp_gateway --quiet --eval "
+  db.tool_invocations.find({ principalId: '$PRINCIPAL_ID' }).toArray()" > subject-tools.json
 ```
+
+The run transcripts live in `aia_agent_runtime.checkpoints`, keyed by `run_id`
+rather than by person, so they are reached through the run ids in
+`subject-runs.json`.
 
 Deliver it in a machine-readable format (JSON qualifies).
 
@@ -49,11 +68,27 @@ $COMPOSE exec -T mongo mongosh aia_router --quiet --eval "
     { principalId: '$PRINCIPAL_ID' },
     { \$set: { principalId: 'anonymised', redactedPrompt: null, redactedCompletion: null } })"
 
+# The transcripts go FIRST, while the runs still say which ones they are.
+# Deleting the runs before them orphans every checkpoint beyond reach.
+$COMPOSE exec -T mongo mongosh aia_agent_runtime --quiet --eval "
+  const ids = db.runs.find({ principal_id: '$PRINCIPAL_ID' }, { _id: 1 })
+                     .toArray().map(r => r._id);
+  print('checkpoints: ' + db.checkpoints.deleteMany({ run_id: { \$in: ids } }).deletedCount);
+  print('runs: ' + db.runs.deleteMany({ principal_id: '$PRINCIPAL_ID' }).deletedCount)"
+
+$COMPOSE exec -T mongo mongosh aia_mcp_gateway --quiet --eval "
+  db.tool_invocations.updateMany(
+    { principalId: '$PRINCIPAL_ID' },
+    { \$set: { principalId: 'anonymised' } })"
+
 $COMPOSE exec -T mongo mongosh aia_identity --quiet --eval "
   db.principals.deleteOne({ _id: '$PRINCIPAL_ID' })"
 ```
 
-**Why anonymise the audit trail instead of deleting it**: the usage and cost
+**Why the transcripts are deleted but the audit trails are anonymised**: a run
+transcript is content, held under the project's own legal basis and useful to
+nobody once the person is gone. A tool invocation and an inference record are
+accounting: the usage and cost
 record has its own legal basis (regulatory obligation and legitimate interest in
 financial reconciliation). Removing the link to the person satisfies LGPD without
 destroying the project's accounting. Agree it with the DPO before applying.
