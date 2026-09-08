@@ -41,6 +41,7 @@ x-knowledge-base: &knowledge-base
     KNOWLEDGE_BUCKET: ${KNOWLEDGE_BUCKET:-aia-documents}
     INFERENCE_ROUTER_URL: http://inference-router:3000
     EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+    INGESTION_CONCURRENCY: ${INGESTION_CONCURRENCY:-4}
     # Empty until aia-document-processing exists: only text and markdown
     # parse locally, and any other type fails that one job.
     DOCUMENT_PROCESSING_URL: ${DOCUMENT_PROCESSING_URL:-}
@@ -357,7 +358,7 @@ services:
       start_period: 15s
     labels:
       traefik.enable: 'true'
-      traefik.http.routers.mcp-gateway.rule: 'PathPrefix(`/v1/tools`) || PathPrefix(`/v1/bindings`)'
+      traefik.http.routers.mcp-gateway.rule: 'PathPrefix(`/v1/tools`) || PathPrefix(`/v1/bindings`) || PathPrefix(`/v1/connections`)'
       traefik.http.services.mcp-gateway.loadbalancer.server.port: '3006'
 
   # The same image, a second entrypoint. One dependency tree, one SBOM to sign.
@@ -523,6 +524,10 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    labels:
+      traefik.enable: 'true'
+      traefik.http.routers.agent-runtime.rule: 'PathPrefix(`/v1/agents`) || PathPrefix(`/v1/runs`)'
+      traefik.http.services.agent-runtime.loadbalancer.server.port: '8002'
 
   # Quality measured, not assumed. It runs the suites in `evals/suites` against
   # this platform, spending real inference against the caller's project.
@@ -571,6 +576,10 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    labels:
+      traefik.enable: 'true'
+      traefik.http.routers.evaluation.rule: 'PathPrefix(`/v1/evaluations`)'
+      traefik.http.services.evaluation.loadbalancer.server.port: '8003'
 
   # The console. It is the only service the browser talks to: it reads the
   # httpOnly session cookie and attaches the platform token server-side, so a

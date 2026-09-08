@@ -11,7 +11,11 @@ service would only create as many places to forget to update.
   (dict "key" "governance"       "name" "governance"       "values" .Values.governance       "runtime" "node")
   (dict "key" "guardrails"       "name" "guardrails"       "values" .Values.guardrails       "runtime" "python")
   (dict "key" "inferenceRouter"  "name" "inference-router" "values" .Values.inferenceRouter  "runtime" "node")
+  (dict "key" "registry"         "name" "registry"         "values" .Values.registry         "runtime" "node")
+  (dict "key" "knowledge"        "name" "knowledge"        "values" .Values.knowledge        "runtime" "node")
+  (dict "key" "mcpGateway"       "name" "mcp-gateway"      "values" .Values.mcpGateway       "runtime" "node")
   (dict "key" "agentRuntime"     "name" "agent-runtime"    "values" .Values.agentRuntime     "runtime" "python")
+  (dict "key" "evaluation"       "name" "evaluation"       "values" .Values.evaluation       "runtime" "python")
   (dict "key" "web"              "name" "web"              "values" .Values.web              "runtime" "node")
 -}}
 
@@ -27,7 +31,7 @@ metadata:
     {{- include "aia.labels" $ | nindent 4 }}
     app.kubernetes.io/component: {{ $service.name }}
 spec:
-  {{- if not $service.values.autoscaling.enabled }}
+  {{- if not (and $service.values.autoscaling $service.values.autoscaling.enabled) }}
   replicas: {{ $service.values.replicaCount }}
   {{- end }}
   selector:
@@ -195,9 +199,68 @@ spec:
             {{- end }}
             {{- end }}
 
-            {{- if eq $service.key "agentRuntime" }}
+            {{- if eq $service.key "registry" }}
+            - name: MONGO_DATABASE
+              value: aia_registry
             - name: INFERENCE_ROUTER_URL
               value: {{ include "aia.routerUrl" $ | quote }}
+            {{- if $.Values.knowledge.enabled }}
+            {{/*
+              Empty when knowledge is off, and the reference checker then stops
+              validating store references rather than failing every publish.
+            */}}
+            - name: KNOWLEDGE_URL
+              value: {{ include "aia.knowledgeUrl" $ | quote }}
+            {{- end }}
+            {{- end }}
+
+            {{- if eq $service.key "knowledge" }}
+            {{- include "aia.knowledgeEnv" $ | nindent 12 }}
+            {{- end }}
+
+            {{- if eq $service.key "mcpGateway" }}
+            - name: MONGO_DATABASE
+              value: aia_mcp_gateway
+            - name: REGISTRY_URL
+              value: {{ include "aia.registryUrl" $ | quote }}
+            - name: KNOWLEDGE_URL
+              value: {{ include "aia.knowledgeUrl" $ | quote }}
+            - name: AUDIT_RETENTION_DAYS
+              value: {{ $service.values.auditRetentionDays | quote }}
+            {{- if $service.values.toolSecretsSecret }}
+            - name: SECRETS_DIR
+              value: /run/secrets
+            {{- end }}
+            {{- end }}
+
+            {{- if eq $service.key "agentRuntime" }}
+            - name: MONGO_DATABASE
+              value: aia_agent_runtime
+            - name: INFERENCE_ROUTER_URL
+              value: {{ include "aia.routerUrl" $ | quote }}
+            - name: REGISTRY_URL
+              value: {{ include "aia.registryUrl" $ | quote }}
+            - name: MCP_GATEWAY_URL
+              value: {{ include "aia.mcpGatewayUrl" $ | quote }}
+            - name: AGENT_MAX_STEPS
+              value: {{ $service.values.maxSteps | quote }}
+            - name: MODEL_READ_TIMEOUT_SECONDS
+              value: {{ $service.values.modelReadTimeoutSeconds | quote }}
+            {{- end }}
+
+            {{- if eq $service.key "evaluation" }}
+            - name: MONGO_DATABASE
+              value: aia_evaluation
+            - name: INFERENCE_ROUTER_URL
+              value: {{ include "aia.routerUrl" $ | quote }}
+            {{- if $.Values.guardrails.enabled }}
+            - name: GUARDRAILS_URL
+              value: {{ include "aia.guardrailsUrl" $ | quote }}
+            {{- end }}
+            - name: SUITES_PATH
+              value: {{ $service.values.suitesPath | quote }}
+            - name: JUDGE_ALIAS
+              value: {{ $service.values.judgeAlias | quote }}
             {{- end }}
 
             {{- if eq $service.key "web" }}
@@ -236,8 +299,19 @@ spec:
             {{- toYaml $service.values.resources | nindent 12 }}
           volumeMounts:
             {{- include "aia.tmpVolumeMount" $ | nindent 12 }}
+            {{- if and (eq $service.key "mcpGateway") $service.values.toolSecretsSecret }}
+            - name: tool-secrets
+              mountPath: /run/secrets
+              readOnly: true
+            {{- end }}
       volumes:
         {{- include "aia.tmpVolume" $ | nindent 8 }}
+        {{- if and (eq $service.key "mcpGateway") $service.values.toolSecretsSecret }}
+        {{/* A credential is a FILE, never a variable (ADR-015). */}}
+        - name: tool-secrets
+          secret:
+            secretName: {{ $service.values.toolSecretsSecret }}
+        {{- end }}
       {{- with $.Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -265,7 +339,7 @@ spec:
   selector:
     {{- include "aia.selectorLabels" $ | nindent 4 }}
     app.kubernetes.io/component: {{ $service.name }}
-{{- if $service.values.autoscaling.enabled }}
+{{- if and $service.values.autoscaling $service.values.autoscaling.enabled }}
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

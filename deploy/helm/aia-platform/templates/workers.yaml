@@ -1,0 +1,81 @@
+{{/*
+The ingestion worker.
+
+Its own template rather than an entry in `services.yaml`, because that loop
+assumes an HTTP listener: a port, a Service, three probes and an ingress route.
+This process has none of those. It consumes a BullMQ queue and exits when told
+to, and forcing it through the shared loop would mean a Service pointing at a
+port nothing listens on and a readiness probe that can never pass.
+
+Same image as aia-knowledge, different command -- and the same environment,
+through `aia.knowledgeEnv`, because a worker indexing into a different bucket
+than the API reads from is a failure nobody sees until a search comes back empty.
+*/}}
+{{- if and .Values.knowledge.enabled .Values.knowledgeWorker.enabled }}
+{{- $fullname := printf "%s-knowledge-worker" (include "aia.fullname" .) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: knowledge-worker
+spec:
+  replicas: {{ .Values.knowledgeWorker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "aia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: knowledge-worker
+  strategy:
+    # Recreate, not RollingUpdate: two generations consuming the same queue
+    # during a deploy would both claim jobs, and the outgoing one is about to
+    # be killed mid-ingestion. BullMQ retries the interrupted job, so the cost
+    # of stopping first is a pause, and the cost of overlapping is duplicated
+    # embedding spend.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        {{- include "aia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: knowledge-worker
+      annotations:
+        checksum/config: {{ toJson (dict "knowledge" .Values.knowledge "worker" .Values.knowledgeWorker) | sha256sum }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      # Longer than an HTTP service: the grace period has to outlast the job in
+      # flight, or a document is left half-indexed on every deploy.
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: knowledge-worker
+          image: {{ include "aia.image" (dict "root" . "service" "knowledge") }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ['node', 'dist/worker.js']
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            {{- include "aia.commonEnv" . | nindent 12 }}
+            {{- include "aia.knowledgeEnv" . | nindent 12 }}
+            - name: INGESTION_CONCURRENCY
+              value: {{ .Values.knowledgeWorker.concurrency | quote }}
+          # No probe of any kind. A process with no listener has nothing to
+          # answer, and a probe against it would restart a healthy worker.
+          resources:
+            {{- toYaml .Values.knowledgeWorker.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "aia.tmpVolumeMount" . | nindent 12 }}
+      volumes:
+        {{- include "aia.tmpVolume" . | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

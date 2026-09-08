@@ -43,8 +43,10 @@ const worker = new Worker<IngestionJobPayload>(
   {
     connection: { url: config.REDIS_URL },
     // Ingestion is I/O bound on the embedding call, so a few in flight helps;
-    // beyond that the work just queues inside the router instead.
-    concurrency: 4,
+    // beyond that the work just queues inside the router instead. Configurable
+    // because a laptop and a cluster do not want the same number, and the
+    // deployment is where that is known.
+    concurrency: config.INGESTION_CONCURRENCY,
   },
 );
 

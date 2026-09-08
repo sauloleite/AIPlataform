@@ -34,6 +34,7 @@ change of context.
 | [021](ADR-021-an-evaluation-refuses-rather-than-scores-nothing.md) | An evaluation refuses rather than reporting a verdict it did not measure      | accepted (new)                      |
 | [022](ADR-022-search-fuses-two-rankings.md)                        | Search fuses a lexical ranking with the vector one                            | accepted (new)                      |
 | [023](ADR-023-a-store-is-shared-by-two-consents.md)                | A knowledge store is shared by two consents                                   | accepted (new)                      |
+| [024](ADR-024-gateway-api-replaces-ingress.md)                     | The Gateway API replaces the Ingress in the Helm chart                        | accepted (new)                      |
 
 Format: context, decision, alternatives, consequences and review trigger.
 Template in [TEMPLATE.md](TEMPLATE.md).

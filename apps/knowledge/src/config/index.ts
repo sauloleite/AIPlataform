@@ -27,6 +27,12 @@ const schema = z.object({
   INFERENCE_ROUTER_URL: z.string().url().default('http://inference-router:3000'),
   EMBEDDING_BATCH_SIZE: z.coerce.number().int().positive().max(256).default(32),
 
+  // How many documents the ingestion worker embeds at once. Bounded at 32
+  // because past that the work only queues inside the router, and a worker that
+  // holds thirty jobs it cannot start is a worker whose shutdown grace period
+  // is never long enough.
+  INGESTION_CONCURRENCY: z.coerce.number().int().positive().max(32).default(4),
+
   // Empty until aia-document-processing exists: only text and markdown parse
   // locally, and any other type fails that one job rather than the service.
   DOCUMENT_PROCESSING_URL: z.string().default(''),

@@ -278,6 +278,55 @@ jobs:
         with:
           scandir: './tools/scripts'
 
+  # ==========================================================================
+  # Delivery: every service that runs must also be buildable, deployable and
+  # closed to the host in production. Each of these was false for five services
+  # at once, and nothing noticed, because no job compared the four lists.
+  # ==========================================================================
+  delivery:
+    name: Delivery covers every service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose, the image matrix and the production overlay agree
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys, yaml
+
+          # The overlay uses compose's own `!override` tag, which PyYAML has
+          # never heard of. Only the service NAMES matter here, so the tag is
+          # read as whatever it wraps rather than taught to the loader.
+          class Loader(yaml.SafeLoader):
+              pass
+
+          Loader.add_multi_constructor('!', lambda loader, suffix, node: None)
+
+          def load(path):
+              return yaml.load(pathlib.Path(path).read_text(), Loader=Loader)
+
+          compose = load('deploy/compose/docker-compose.yml')
+          prod = load('deploy/compose/docker-compose.prod.yml')
+          build = load('.github/workflows/build.yml')
+
+          infra = {'mongo', 'redis', 'minio', 'qdrant', 'lgtm', 'ollama', 'traefik'}
+          services = {n for n in compose['services'] if n not in infra}
+
+          # knowledge-worker runs the knowledge image with a different command.
+          needs_image = services - {'knowledge-worker'}
+          built = {entry['service'] for entry in build['jobs']['build']['strategy']['matrix']['include']}
+
+          failed = False
+          for missing in sorted(needs_image - built):
+              print(f'::error::{missing} runs under compose and no image is built for it')
+              failed = True
+
+          for missing in sorted(services - set(prod['services'])):
+              print(f'::error::{missing} has no entry in the production overlay, so it keeps its host port')
+              failed = True
+
+          sys.exit(1 if failed else 0)
+          PY
+
   helm:
     name: Helm
     runs-on: ubuntu-latest
@@ -293,4 +342,28 @@ jobs:
           helm template aia deploy/helm/aia-platform \
             --set mongodb.enabled=false --set mongodb.externalUri=mongodb://external:27017 \
             --set redis.enabled=false --set redis.externalUri=redis://external:6379 \
+            --set qdrant.enabled=false --set qdrant.externalUrl=http://external:6333 \
+            --set minio.enabled=false --set minio.externalUrl=http://external:9000 \
             > /dev/null
+
+      # The chart routes with the Gateway API by default; the Ingress manifest
+      # stays for clusters without a Gateway controller, so it stays rendered.
+      - name: Render with the Ingress fallback
+        run: helm template aia deploy/helm/aia-platform --set networking.mode=ingress > /dev/null
+
+      # Every service the compose file runs must be renderable, or `helm install`
+      # silently ships a smaller platform than `docker compose up` does.
+      - name: Every service in compose is in the chart
+        run: |
+          set -euo pipefail
+          rendered=$(helm template aia deploy/helm/aia-platform \
+            | grep -A2 '^kind: Deployment' | grep 'name:' | sed 's/.*aia-platform-//' | sort -u)
+          for service in identity governance guardrails inference-router registry \
+                         knowledge knowledge-worker mcp-gateway agent-runtime \
+                         evaluation web; do
+            if ! grep -qx "$service" <<<"$rendered"; then
+              echo "::error::$service runs under compose and renders in no chart template"
+              exit 1
+            fi
+          done
+          echo "all 11 services render"

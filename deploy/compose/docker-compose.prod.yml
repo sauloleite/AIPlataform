@@ -118,8 +118,55 @@ services:
       resources:
         limits: { cpus: '2', memory: 1G }
 
+  registry:
+    ports: !override []
+    environment: { NODE_ENV: production }
+    deploy:
+      resources:
+        limits: { cpus: '1', memory: 512M }
+
+  knowledge:
+    ports: !override []
+    environment: { NODE_ENV: production }
+    deploy:
+      resources:
+        limits: { cpus: '1', memory: 768M }
+
+  # Its own limits, and deliberately more generous than the API's: a document
+  # being embedded holds its chunks in memory, and a worker starved of it fails
+  # ingestion jobs while the API next to it looks perfectly healthy.
+  knowledge-worker:
+    environment: { NODE_ENV: production }
+    deploy:
+      resources:
+        limits: { cpus: '2', memory: 1G }
+
+  mcp-gateway:
+    ports: !override []
+    environment: { NODE_ENV: production }
+    deploy:
+      resources:
+        limits: { cpus: '1', memory: 512M }
+
   agent-runtime:
     ports: !override []
+    deploy:
+      resources:
+        limits: { cpus: '1', memory: 512M }
+
+  evaluation:
+    ports: !override []
+    deploy:
+      resources:
+        limits: { cpus: '1', memory: 512M }
+
+  # 3005 stays published in development so the console can be opened without
+  # Traefik. In production it is a way IN that skips the TLS redirect this
+  # overlay just configured -- the console answering plain HTTP on 3005 while
+  # 443 enforces HTTPS.
+  web:
+    ports: !override []
+    environment: { NODE_ENV: production }
     deploy:
       resources:
         limits: { cpus: '1', memory: 512M }

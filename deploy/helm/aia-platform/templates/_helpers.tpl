@@ -50,7 +50,7 @@ mongodb://{{ .Release.Name }}-mongodb-headless:27017/?replicaSet=rs0
 {{- if .Values.redis.enabled -}}
 redis://{{ .Release.Name }}-redis-master:6379
 {{- else -}}
-{{ required "Com redis.enabled=false, informe redis.externalUri" .Values.redis.externalUri }}
+{{ required "With redis.enabled=false, set redis.externalUri" .Values.redis.externalUri }}
 {{- end -}}
 {{- end }}
 
@@ -68,6 +68,66 @@ http://{{ include "aia.fullname" . }}-guardrails:{{ .Values.guardrails.port }}
 
 {{- define "aia.routerUrl" -}}
 http://{{ include "aia.fullname" . }}-inference-router:{{ .Values.inferenceRouter.port }}
+{{- end }}
+
+{{- define "aia.registryUrl" -}}
+http://{{ include "aia.fullname" . }}-registry:{{ .Values.registry.port }}
+{{- end }}
+
+{{- define "aia.knowledgeUrl" -}}
+http://{{ include "aia.fullname" . }}-knowledge:{{ .Values.knowledge.port }}
+{{- end }}
+
+{{- define "aia.mcpGatewayUrl" -}}
+http://{{ include "aia.fullname" . }}-mcp-gateway:{{ .Values.mcpGateway.port }}
+{{- end }}
+
+{{- define "aia.qdrantUrl" -}}
+{{- if .Values.qdrant.enabled -}}
+http://{{ include "aia.fullname" . }}-qdrant:6333
+{{- else -}}
+{{ required "With qdrant.enabled=false, set qdrant.externalUrl" .Values.qdrant.externalUrl }}
+{{- end -}}
+{{- end }}
+
+{{- define "aia.minioUrl" -}}
+{{- if .Values.minio.enabled -}}
+http://{{ include "aia.fullname" . }}-minio:9000
+{{- else -}}
+{{ required "With minio.enabled=false, set minio.externalUrl" .Values.minio.externalUrl }}
+{{- end -}}
+{{- end }}
+
+{{/*
+  Environment for aia-knowledge and for its ingestion worker.
+
+  Shared because they are the same image with a different command: a variable
+  present in one and missing from the other is how a worker silently indexes
+  into a different bucket than the API reads from.
+*/}}
+{{- define "aia.knowledgeEnv" -}}
+- name: MONGO_DATABASE
+  value: aia_knowledge
+- name: QDRANT_URL
+  value: {{ include "aia.qdrantUrl" . | quote }}
+- name: MINIO_ENDPOINT
+  value: {{ include "aia.minioUrl" . | quote }}
+- name: KNOWLEDGE_BUCKET
+  value: {{ .Values.minio.bucket | quote }}
+- name: INFERENCE_ROUTER_URL
+  value: {{ include "aia.routerUrl" . | quote }}
+- name: EMBEDDING_BATCH_SIZE
+  value: {{ .Values.knowledge.embeddingBatchSize | quote }}
+- name: DOCUMENT_PROCESSING_URL
+  value: {{ .Values.knowledge.documentProcessingUrl | quote }}
+{{- if .Values.minio.existingSecret }}
+- name: MINIO_ROOT_USER
+  valueFrom:
+    secretKeyRef: { name: {{ .Values.minio.existingSecret }}, key: root-user }
+- name: MINIO_ROOT_PASSWORD
+  valueFrom:
+    secretKeyRef: { name: {{ .Values.minio.existingSecret }}, key: root-password }
+{{- end }}
 {{- end }}
 
 {{- define "aia.ollamaUrl" -}}
