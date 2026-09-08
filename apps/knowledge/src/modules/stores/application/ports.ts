@@ -67,6 +67,13 @@ export interface VectorIndex {
     projectId: string;
     documentId: string;
   }): Promise<void>;
+  /**
+   * Drops every vector a store owns, without touching the collection.
+   *
+   * A collection is shared by every store of the same embedding shape
+   * (ADR-016), so dropping it would take other stores' vectors with it.
+   */
+  deleteStore(input: { collection: string; projectId: string; storeId: string }): Promise<void>;
 }
 export const VECTOR_INDEX = Symbol('VectorIndex');
 

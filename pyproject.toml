@@ -73,6 +73,7 @@ ignore = ["S101"]  # assert is valid in a test
 # A CLI writes to stdout. That is what it is for.
 "**/cli.py" = ["T20"]
 "**/__main__.py" = ["T20"]
+"tools/scripts/*.py" = ["T20"]
 "**/tests/**" = ["S", "ARG", "T20"]
 "**/*_test.py" = ["S", "ARG", "T20"]
 "**/test_*.py" = ["S", "ARG", "T20"]

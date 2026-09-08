@@ -39,6 +39,7 @@ import { CreateStore } from './application/use-cases/create-store.js';
 import { IngestDocument } from './application/use-cases/ingest-document.js';
 import {
   DeleteDocument,
+  DeleteStore,
   GetStore,
   ListDocuments,
   ListStores,
@@ -222,6 +223,7 @@ const useCases: Provider[] = [
   CompleteDocumentUpload,
   ListDocuments,
   DeleteDocument,
+  DeleteStore,
   SearchStore,
   ChangeStoreVisibility,
   SubscribeToStore,

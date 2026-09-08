@@ -120,6 +120,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: uv sync --all-packages --frozen
 
       - name: The OpenAPI and AsyncAPI contracts are valid YAML
         run: |
@@ -141,6 +146,31 @@ jobs:
             echo "::error::The generated types differ from the contracts. Run 'make contracts' and commit."
             exit 1
           fi
+
+      # The two steps above prove the contracts PARSE and that the generated
+      # types match them. Neither says a word about whether the services answer
+      # what they promise -- which is how `deleteStore` stayed declared with no
+      # route behind it, and how `GET /v1/registry` shipped in no contract.
+      - name: Every registered route is declared, and every declared route exists
+        run: uv run python tools/scripts/check_routes.py
+
+      # An assertion that never fails protects nothing, so the check is asked to
+      # catch a route it has not been told about. Same reasoning as the
+      # deliberate violation in the `architecture` job.
+      - name: The route check really fails when a route drifts
+        run: |
+          set -euo pipefail
+          trap 'git checkout -- contracts/openapi/knowledge.v1.yaml' EXIT
+          python3 - <<'PY'
+          import pathlib
+          path = pathlib.Path('contracts/openapi/knowledge.v1.yaml')
+          path.write_text(path.read_text().replace('  /v1/stores/{storeId}/search:', '  /v1/stores/{storeId}/search-renamed:', 1))
+          PY
+          if uv run python tools/scripts/check_routes.py; then
+            echo "::error::check_routes.py passed with a renamed contract path. The check is not checking."
+            exit 1
+          fi
+          echo "the route check fails when it should"
 
   # ==========================================================================
   # Unit tests: domain and application, no I/O.

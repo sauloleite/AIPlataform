@@ -9,7 +9,7 @@ COMPOSE_PROD := docker compose -f deploy/compose/docker-compose.yml -f deploy/co
 
 .DEFAULT_GOAL := help
 .PHONY: help bootstrap dev dev-infra down clean logs lint lint-fix arch test test-unit test-integration \
-        contracts typecheck e2e eval seed models build images helm-lint check
+        contracts routes typecheck e2e eval seed models build images helm-lint check
 
 help: ## Lists the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -93,6 +93,9 @@ test: test-unit test-integration ## The whole test suite
 contracts: ## Regenerates the types from contracts/openapi and contracts/asyncapi
 	node tools/scripts/generate-contracts.mjs
 
+routes: ## Every registered route is declared in a contract, and the reverse
+	uv run python tools/scripts/check_routes.py
+
 e2e: ## Flow 7.1 end to end against the local environment
 	bash tools/scripts/e2e.sh
 
@@ -109,4 +112,4 @@ helm-lint: ## Validates the Helm chart
 	helm lint deploy/helm/aia-platform
 	helm template aia deploy/helm/aia-platform >/dev/null && echo "helm template OK"
 
-check: lint typecheck arch test ## What CI runs on every PR
+check: lint typecheck arch routes test ## What CI runs on every PR

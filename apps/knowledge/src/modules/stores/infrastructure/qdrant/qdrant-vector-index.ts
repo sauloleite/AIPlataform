@@ -142,6 +142,26 @@ export class QdrantVectorIndex implements VectorIndex {
       },
     });
   }
+
+  async deleteStore(input: {
+    collection: string;
+    projectId: string;
+    storeId: string;
+  }): Promise<void> {
+    // `project_id` as well as `store_id`, even though a store id is already
+    // unique: the tenant clause is never omitted on a write that deletes, and a
+    // filter that matched a store id alone would be one typo from another
+    // tenant's vectors.
+    await this.client.delete(input.collection, {
+      wait: true,
+      filter: {
+        must: [
+          { key: 'project_id', match: { value: input.projectId } },
+          { key: 'store_id', match: { value: input.storeId } },
+        ],
+      },
+    });
+  }
 }
 
 /** A payload value is whatever was stored; only a string is a document id. */
