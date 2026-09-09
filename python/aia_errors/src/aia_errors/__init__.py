@@ -182,6 +182,33 @@ class ProjectRequiredError(DomainError):
         )
 
 
+class ConflictError(DomainError):
+    def __init__(self, message: str, **details: Any) -> None:
+        super().__init__(message, code=ErrorCode.CONFLICT, status=409, details=details)
+
+
+class InternalError(DomainError):
+    """Something went wrong that the caller can do nothing about.
+
+    The message is for the LOG. `problem_from_unknown` never puts it in the
+    response, because a 500 that explains itself explains it to whoever is
+    probing.
+    """
+
+    def __init__(self, message: str = "Internal error", **details: Any) -> None:
+        super().__init__(message, code=ErrorCode.INTERNAL_ERROR, status=500, details=details)
+
+
+def is_domain_error(error: object) -> bool:
+    """Whether this is one of ours, and therefore safe to return as it is."""
+    return isinstance(error, DomainError)
+
+
+def problem_type_for(code: str) -> str:
+    """The `type` URI for a code, which is what RFC 9457 asks clients to branch on."""
+    return f"{PROBLEM_TYPE_BASE}/{code}"
+
+
 def problem_from_unknown(
     error: BaseException, *, instance: str | None = None, trace_id: str | None = None
 ) -> dict[str, Any]:
@@ -198,6 +225,10 @@ def problem_from_unknown(
 __all__ = [
     "PROBLEM_CONTENT_TYPE",
     "PROBLEM_TYPE_BASE",
+    "ConflictError",
+    "InternalError",
+    "is_domain_error",
+    "problem_type_for",
     "DomainError",
     "ErrorCode",
     "ForbiddenError",
