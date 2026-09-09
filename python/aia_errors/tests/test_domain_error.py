@@ -9,15 +9,15 @@ from __future__ import annotations
 import pytest
 
 from aia_errors import (
+    ConflictError,
     DomainError,
     ErrorCode,
     ForbiddenError,
+    InternalError,
     NotFoundError,
     ProjectRequiredError,
     UnauthenticatedError,
     ValidationError,
-    ConflictError,
-    InternalError,
     is_domain_error,
     problem_from_unknown,
     problem_type_for,
