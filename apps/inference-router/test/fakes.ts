@@ -245,6 +245,14 @@ export class FakeAuditRepository implements AuditRepository {
     this.records.push(entry);
   }
 
+  async find(projectId: string, requestId: string): Promise<AuditRecord | null> {
+    return (
+      this.records.find(
+        (entry) => entry.requestId === requestId && entry.projectId === projectId,
+      ) ?? null
+    );
+  }
+
   last(): AuditRecord | undefined {
     return this.records.at(-1);
   }

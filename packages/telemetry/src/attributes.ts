@@ -9,6 +9,16 @@
 /** Business attributes required on every span. */
 export const AIA_ATTR = {
   PROJECT_ID: 'aia.project_id',
+  /**
+   * The platform's own id for the call, and the only way back from a trace to
+   * what was actually said.
+   *
+   * A span carries timings and token counts; the redacted content lives in the
+   * router's audit record, keyed by this. Without it on the span, somebody
+   * looking at a slow or wrong call in the console can see everything about it
+   * except the thing they came for.
+   */
+  REQUEST_ID: 'aia.request_id',
   PRINCIPAL_ID: 'aia.principal_id',
   PRINCIPAL_TYPE: 'aia.principal_type',
   ALIAS: 'aia.alias',

@@ -26,6 +26,10 @@ class AiaAttr:
     """Business attributes. `project_id` is on every span."""
 
     PROJECT_ID: Final = "aia.project_id"
+    #: The platform's id for the call, and the only way back from a trace to
+    #: what was actually said: the redacted content lives in the router's audit
+    #: record, keyed by this.
+    REQUEST_ID: Final = "aia.request_id"
     PRINCIPAL_ID: Final = "aia.principal_id"
     PRINCIPAL_TYPE: Final = "aia.principal_type"
     ALIAS: Final = "aia.alias"

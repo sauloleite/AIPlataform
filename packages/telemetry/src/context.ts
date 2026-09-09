@@ -8,6 +8,14 @@ export interface BusinessContext {
   principalType?: 'user' | 'application' | 'service';
   alias?: string;
   dataClassification?: string;
+  /**
+   * The platform's id for the call.
+   *
+   * What makes a trace and an audit record findable from each other. Without
+   * it, the console can show that a call was slow and never what it said, and
+   * the two halves of the same call sit in two systems with no join.
+   */
+  requestId?: string;
 }
 
 export function businessAttributes(context: BusinessContext): Attributes {
@@ -15,6 +23,7 @@ export function businessAttributes(context: BusinessContext): Attributes {
   if (context.principalId) attributes[AIA_ATTR.PRINCIPAL_ID] = context.principalId;
   if (context.principalType) attributes[AIA_ATTR.PRINCIPAL_TYPE] = context.principalType;
   if (context.alias) attributes[AIA_ATTR.ALIAS] = context.alias;
+  if (context.requestId) attributes[AIA_ATTR.REQUEST_ID] = context.requestId;
   if (context.dataClassification) {
     attributes[AIA_ATTR.DATA_CLASSIFICATION] = context.dataClassification;
   }

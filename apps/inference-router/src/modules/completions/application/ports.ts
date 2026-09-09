@@ -227,6 +227,15 @@ export interface AuditRecord {
 
 export interface AuditRepository {
   record(entry: AuditRecord): Promise<void>;
+
+  /**
+   * One record, for the project that owns it.
+   *
+   * The project id is a parameter rather than a filter the caller applies
+   * afterwards: this returns redacted conversation content, and a query that
+   * could be scoped by its caller is a query that one day will not be.
+   */
+  find(projectId: string, requestId: string): Promise<AuditRecord | null>;
 }
 export const AUDIT_REPOSITORY = Symbol('AuditRepository');
 

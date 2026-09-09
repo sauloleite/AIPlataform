@@ -94,6 +94,44 @@ paths:
         '401': { $ref: './_shared.yaml#/components/responses/Unauthorized' }
         '429': { $ref: './_shared.yaml#/components/responses/TooManyRequests' }
 
+  /v1/completions/{requestId}:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      - name: requestId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: readCompletionRecord
+      tags: [inference]
+      summary: What one call recorded, including the content the project kept
+      description: |
+        The audit trail has existed since the first release and nothing could
+        read it, so the only way to see what a call actually said was a database
+        prompt. That is the missing half of every quality conversation: a trace
+        can say a call took 2.4 seconds and cost 300 micros, and cannot say
+        whether the answer was any good.
+
+        Requires `project_owner` or `auditor`, unlike everything else here —
+        this is one person reading what another person's conversation
+        contained, not a caller using the platform.
+
+        Content appears only if the project opted into capture, and only as it
+        was REDACTED when written. `content_captured` distinguishes "this
+        project does not keep content" from "there was nothing to keep": read
+        as the same thing, they send somebody to change a setting that is
+        already right.
+
+        A record belonging to another project answers 404, never 403.
+      responses:
+        '200':
+          description: The record
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompletionRecord' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+        '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
+
   /v1/models:
     get:
       operationId: listModels
@@ -358,6 +396,45 @@ components:
         model: { type: string }
         usage: { $ref: '#/components/schemas/Usage' }
         aia: { $ref: '#/components/schemas/RoutingMetadata' }
+
+    CompletionRecord:
+      type: object
+      required: [request_id, project_id, principal_id, alias, status, content_captured, occurred_at]
+      properties:
+        request_id: { type: string }
+        project_id: { type: string }
+        principal_id: { type: string }
+        alias: { type: string }
+        deployment_id: { type: string }
+        provider: { type: string }
+        data_zone: { type: string }
+        status: { type: string }
+        prompt_tokens: { type: integer, minimum: 0 }
+        completion_tokens: { type: integer, minimum: 0 }
+        cost_micros: { type: integer, minimum: 0 }
+        currency: { type: string }
+        duration_ms: { type: integer, minimum: 0 }
+        error_code: { type: [string, 'null'] }
+        guardrails_unverified:
+          type: boolean
+          description: The content left without being inspected (ADR-026).
+        content_captured:
+          type: boolean
+          description: |
+            Whether this project keeps conversation content at all. False means
+            `prompt` and `completion` are null BY POLICY, not because the call
+            said nothing.
+        prompt:
+          type: [string, 'null']
+          description: Redacted when it was written, never at read time.
+        completion: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+        expires_at:
+          type: string
+          format: date-time
+          description: |
+            When this record disappears. Per document, because retention is a
+            project decision (reference doc 02 §10.2).
 
     ModelAlias:
       type: object

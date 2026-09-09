@@ -12,6 +12,7 @@ import { POLICIES, RedisBulkhead } from '@aia/resilience';
 import { CreateChatCompletion } from './application/use-cases/create-chat-completion.js';
 import { CreateEmbeddings } from './application/use-cases/create-embeddings.js';
 import { ListModels } from './application/use-cases/list-models.js';
+import { ReadCompletionRecord } from './application/use-cases/read-completion-record.js';
 import { DeploymentExecutor } from './application/services/deployment-executor.js';
 import {
   ALIAS_REGISTRY,
@@ -222,6 +223,13 @@ const adapters: Provider[] = [
 
 @Module({
   controllers: [CompletionsController, HealthController],
-  providers: [CreateChatCompletion, CreateEmbeddings, ListModels, DeploymentExecutor, ...adapters],
+  providers: [
+    CreateChatCompletion,
+    CreateEmbeddings,
+    ListModels,
+    ReadCompletionRecord,
+    DeploymentExecutor,
+    ...adapters,
+  ],
 })
 export class CompletionsModule {}

@@ -100,7 +100,7 @@ function useCaseYielding(events: () => AsyncGenerator<StreamEvent>): CreateChatC
 }
 
 function controllerFor(useCase: CreateChatCompletion): CompletionsController {
-  return new CompletionsController(useCase, {} as never, {} as never);
+  return new CompletionsController(useCase, {} as never, {} as never, {} as never);
 }
 
 beforeEach(() => {

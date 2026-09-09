@@ -52,6 +52,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/completions/{requestId}": {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path: {
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * What one call recorded, including the content the project kept
+         * @description The audit trail has existed since the first release and nothing could
+         *     read it, so the only way to see what a call actually said was a database
+         *     prompt. That is the missing half of every quality conversation: a trace
+         *     can say a call took 2.4 seconds and cost 300 micros, and cannot say
+         *     whether the answer was any good.
+         *
+         *     Requires `project_owner` or `auditor`, unlike everything else here —
+         *     this is one person reading what another person's conversation
+         *     contained, not a caller using the platform.
+         *
+         *     Content appears only if the project opted into capture, and only as it
+         *     was REDACTED when written. `content_captured` distinguishes "this
+         *     project does not keep content" from "there was nothing to keep": read
+         *     as the same thing, they send somebody to change a setting that is
+         *     already right.
+         *
+         *     A record belonging to another project answers 404, never 403.
+         */
+        get: operations["readCompletionRecord"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/models": {
         parameters: {
             query?: never;
@@ -261,6 +305,41 @@ export interface components {
             usage?: components["schemas"]["Usage"];
             aia?: components["schemas"]["RoutingMetadata"];
         };
+        CompletionRecord: {
+            request_id: string;
+            project_id: string;
+            principal_id: string;
+            alias: string;
+            deployment_id?: string;
+            provider?: string;
+            data_zone?: string;
+            status: string;
+            prompt_tokens?: number;
+            completion_tokens?: number;
+            cost_micros?: number;
+            currency?: string;
+            duration_ms?: number;
+            error_code?: string | null;
+            /** @description The content left without being inspected (ADR-026). */
+            guardrails_unverified?: boolean;
+            /**
+             * @description Whether this project keeps conversation content at all. False means
+             *     `prompt` and `completion` are null BY POLICY, not because the call
+             *     said nothing.
+             */
+            content_captured: boolean;
+            /** @description Redacted when it was written, never at read time. */
+            prompt?: string | null;
+            completion?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            /**
+             * Format: date-time
+             * @description When this record disappears. Per document, because retention is a
+             *     project decision (reference doc 02 §10.2).
+             */
+            expires_at?: string;
+        };
         ModelAlias: {
             /** @example chat-fast */
             id: string;
@@ -370,6 +449,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetails"];
             };
         };
+        /** @description Resource not found */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
     };
     parameters: {
         /**
@@ -399,6 +487,7 @@ export type SchemaChatCompletion = components['schemas']['ChatCompletion'];
 export type SchemaRoutingMetadata = components['schemas']['RoutingMetadata'];
 export type SchemaEmbeddingsRequest = components['schemas']['EmbeddingsRequest'];
 export type SchemaEmbeddingsResponse = components['schemas']['EmbeddingsResponse'];
+export type SchemaCompletionRecord = components['schemas']['CompletionRecord'];
 export type SchemaModelAlias = components['schemas']['ModelAlias'];
 export type SchemaReadiness = components['schemas']['Readiness'];
 export type SchemaDataZone = components['schemas']['DataZone'];
@@ -409,6 +498,7 @@ export type ResponseUnauthorized = components['responses']['Unauthorized'];
 export type ResponseForbidden = components['responses']['Forbidden'];
 export type ResponseTooManyRequests = components['responses']['TooManyRequests'];
 export type ResponseServiceUnavailable = components['responses']['ServiceUnavailable'];
+export type ResponseNotFound = components['responses']['NotFound'];
 export type ParameterProjectId = components['parameters']['ProjectId'];
 export type ParameterTraceParent = components['parameters']['TraceParent'];
 export type ParameterRequestId = components['parameters']['RequestId'];
@@ -506,6 +596,36 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
+        };
+    };
+    readCompletionRecord: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path: {
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompletionRecord"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listModels: {

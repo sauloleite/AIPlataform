@@ -68,6 +68,14 @@ export class MongoAuditRepository implements AuditRepository {
     }
   }
 
+  async find(projectId: string, requestId: string): Promise<AuditRecord | null> {
+    const document = await this.collection.findOne({ _id: requestId, projectId });
+    if (document === null) return null;
+
+    const { _id, costMicros, ...rest } = document;
+    return { ...rest, requestId: _id, costMicros: Number(costMicros) };
+  }
+
   async record(entry: AuditRecord): Promise<void> {
     const { costMicros, ...rest } = entry;
     await this.collection.insertOne({

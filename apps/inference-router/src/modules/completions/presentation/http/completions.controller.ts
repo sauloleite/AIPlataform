@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { principalOf, projectIdOf, type AuthenticatedRequest } from '@aia/nest';
 import { POLICY, authorize } from '@aia/auth';
@@ -8,9 +8,11 @@ import { annotateActiveSpan, currentTraceId } from '@aia/telemetry';
 import { CreateChatCompletion } from '../../application/use-cases/create-chat-completion.js';
 import { CreateEmbeddings } from '../../application/use-cases/create-embeddings.js';
 import { ListModels } from '../../application/use-cases/list-models.js';
+import { ReadCompletionRecord } from '../../application/use-cases/read-completion-record.js';
 import { chatCompletionSchema, embeddingsSchema } from './dto.schema.js';
 import { SseWriter } from './sse.js';
 import { toChatCompletionResponse, toEmbeddingsResponse } from '../mappers/openai.mapper.js';
+import { toCompletionRecordResponse } from '../mappers/audit.mapper.js';
 
 /**
  * How long the response may stay silent before committing to a 200.
@@ -34,6 +36,7 @@ export class CompletionsController {
     private readonly createChatCompletion: CreateChatCompletion,
     private readonly createEmbeddings: CreateEmbeddings,
     private readonly listModels: ListModels,
+    private readonly readCompletionRecord: ReadCompletionRecord,
   ) {}
 
   @Post('chat/completions')
@@ -100,6 +103,7 @@ export class CompletionsController {
       principalId: principal.id,
       principalType: principal.type,
       alias: command.alias,
+      requestId: command.requestId,
     });
 
     if (!command.stream) {
@@ -228,6 +232,30 @@ export class CompletionsController {
     authorize(POLICY.READ_PROJECT, { principal: principalOf(request), projectId });
 
     return { object: 'list', data: await this.listModels.execute(projectId) };
+  }
+
+  /**
+   * What one call actually said, as far as the project chose to keep it.
+   *
+   * `READ_AUDIT` rather than `READ_PROJECT`: everything else on this controller
+   * is a caller using the platform, and this is somebody reading what another
+   * person's conversation contained. The policy has existed since ADR-004 and
+   * nothing had ever applied it.
+   */
+  @Get('completions/:requestId')
+  async record(
+    @Req() request: AuthenticatedRequest,
+    @Param('requestId') requestId: string,
+  ): Promise<Record<string, unknown>> {
+    const projectId = projectIdOf(request);
+    authorize(POLICY.READ_AUDIT, { principal: principalOf(request), projectId });
+
+    return toCompletionRecordResponse(
+      await this.readCompletionRecord.execute({
+        projectId,
+        requestId,
+      }),
+    );
   }
 }
 
