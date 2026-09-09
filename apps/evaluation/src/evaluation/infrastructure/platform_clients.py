@@ -21,6 +21,7 @@ from aia_errors import DomainError, ErrorCode
 from aia_resilience import Policies, ResilienceExecutor
 from evaluation.domain.entities import Answer, DatasetCase
 from evaluation.domain.errors import JudgeUnreadableError
+from evaluation.domain.judging import JUDGE_INSTRUCTION, judge_prompt
 
 #: A judge is asked for a number and answers with a sentence often enough that
 #: parsing it is part of the job, not an edge case.
@@ -32,11 +33,6 @@ _SCORE = re.compile(r"(?:^|[^\d.])(0(?:\.\d+)?|1(?:\.0+)?)(?:$|[^\d])")
 #: ceiling -- a documented deviation rather than a hand-rolled timeout.
 EVALUATION_INFERENCE = replace(
     Policies.INFERENCE.with_total_timeout(300_000), name="evaluation-inference"
-)
-
-JUDGE_INSTRUCTION = (
-    "You grade an answer. Reply with a single number between 0.0 and 1.0 and "
-    "nothing else. No explanation, no punctuation, no words."
 )
 
 
@@ -182,15 +178,12 @@ class ModelJudge:
         project_id: str,
         access_token: str,
     ) -> float:
-        prompt = "\n".join(
-            [
-                criterion,
-                "",
-                f"QUESTION: {question}",
-                f"ANSWER: {answer}",
-                *([f"REFERENCE ANSWER: {reference}"] if reference else []),
-                *([f"CONTEXT:\n{chr(10).join(context)}"] if context else []),
-            ]
+        prompt = judge_prompt(
+            criterion=criterion,
+            question=question,
+            answer=answer,
+            reference=reference,
+            context=context,
         )
 
         async def call() -> float:
