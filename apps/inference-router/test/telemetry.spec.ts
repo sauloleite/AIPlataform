@@ -6,7 +6,10 @@ import { AIA_ATTR, GEN_AI_ATTR } from '@aia/telemetry';
 
 import { CreateChatCompletion } from '../src/modules/completions/application/use-cases/create-chat-completion.js';
 import { DeploymentExecutor } from '../src/modules/completions/application/services/deployment-executor.js';
-import type { CreateChatCompletionCommand } from '../src/modules/completions/application/dto.js';
+import type {
+  CreateChatCompletionCommand,
+  StreamEvent,
+} from '../src/modules/completions/application/dto.js';
 import { aDeployment, anAlias } from './builders.js';
 import {
   CountingBulkhead,
@@ -175,5 +178,49 @@ describe('what the platform decided about the request', () => {
     // against calls that never spend it.
     expect(request[AIA_ATTR.BUDGET_RESERVED_MICROS]).toBe(4 + 2000);
     expect(request[AIA_ATTR.BUDGET_COMMITTED_MICROS]).toBe(100 + 100);
+  });
+});
+
+describe('the span of a STREAMED call', () => {
+  async function drain(stream: AsyncGenerator<StreamEvent>): Promise<void> {
+    // The tokens themselves are asserted elsewhere; this is about the span.
+    for await (const event of stream) void event;
+  }
+
+  it('stays open until the generation finishes, not until the first token', async () => {
+    const { useCase } = build();
+    await underAServerSpan(() => drain(useCase.stream(aCommand({ stream: true }))));
+
+    const model = attributesOf('chat');
+    // A span that ended at the first token could not carry these: the token
+    // counts are only known when the provider closes the stream. Their
+    // presence IS the proof that the span covered the generation.
+    expect(model[GEN_AI_ATTR.USAGE_INPUT_TOKENS]).toBe(100);
+    expect(model[GEN_AI_ATTR.USAGE_OUTPUT_TOKENS]).toBe(50);
+    expect(model[GEN_AI_ATTR.RESPONSE_FINISH_REASONS]).toEqual(['stop']);
+  });
+
+  it('ends the span even when the caller walks away mid-stream', async () => {
+    const { useCase } = build();
+
+    await underAServerSpan(async () => {
+      // A client hanging up. The generator's `return()` runs, and nothing else.
+      for await (const event of useCase.stream(aCommand({ stream: true }))) {
+        void event;
+        break;
+      }
+    });
+
+    // An unfinished span is never exported, so a leak here shows up as an
+    // absence -- and interrupted answers are exactly the ones worth looking at.
+    const names = exporter.getFinishedSpans().map((candidate) => candidate.name);
+    expect(names.some((name) => name.startsWith('chat'))).toBe(true);
+  });
+
+  it('carries the tenant on a streamed call too', async () => {
+    const { useCase } = build();
+    await underAServerSpan(() => drain(useCase.stream(aCommand({ stream: true }))));
+
+    expect(attributesOf('chat')[AIA_ATTR.PROJECT_ID]).toBe('proj-1');
   });
 });
