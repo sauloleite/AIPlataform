@@ -55,7 +55,7 @@ routing, because none of those can be judged without a measurement.
 | M3  | ~~Connect what is already built~~ **done**       | The bulkhead, the tool-argument schema and the TTFT heartbeat need wiring, not design |
 | M4  | ~~Python parity and the two SDKs~~ **done**      | The next two services are Python, and `_authenticate` is already written three times  |
 | M5  | ~~Telemetry that emits~~ **done**                | Six metrics are declared and no instrument exists, so no SLO dashboard can            |
-| M6  | Evaluation that gates                            | Everything after this must be provable, not asserted                                  |
+| M6  | ~~Evaluation that gates~~ **done**               | Everything after this must be provable, not asserted                                  |
 | M7  | `aia-document-processing`                        | Unblocks every document that is not plain text                                        |
 | M8  | `aia-data-platform` and FinOps                   | Gives the published events a consumer                                                 |
 | M9  | `aia-memory`                                     | Agent memory does not exist; `thread_id` is carried and never used                    |
@@ -66,6 +66,24 @@ routing, because none of those can be judged without a measurement.
 
 Each milestone is independently shippable. Stopping after any of them leaves a
 coherent platform rather than a half-finished one.
+
+## What M6 left in place
+
+The gate is now two halves that measure different things, which is the honest
+split rather than a compromise:
+
+- **Per pull request, at no cost**: red team, agent trajectories over recorded
+  runs, and `ci-smoke` against a mock provider — plus a negative control that
+  breaks each of them on purpose and fails if the gate does not notice.
+- **Nightly and before a release**: the judged suites against a real model on
+  `platform-ci`, and only with a judge that has been measured against human
+  labels on a held-out split (ADR-028). Out of the box there is no such record,
+  so a judged suite refuses and says which command fixes it.
+- **Continuously, when it is switched on**: a deterministic fraction of real
+  production calls, scored after the fact (ADR-030). Off by default.
+- **Whenever somebody reads a trace**: an annotation saying what went wrong,
+  accumulating into the failure taxonomy the next evaluator comes from
+  (ADR-029), and into the labels the judge is calibrated against.
 
 ## Deliberately not doing
 
