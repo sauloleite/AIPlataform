@@ -385,7 +385,8 @@ jobs:
       # is `tools/mock-provider`, which answers the literal string `ok`, so
       # `exact_match` and `safety` mean something against it and groundedness
       # would not -- grading `ok` against a reference answer produces a number
-      # that measures nothing. The judged suites run on a schedule instead.
+      # that measures nothing. The judged suites run nightly instead, in
+      # `judged-evals.yml`, against a real model on `platform-ci`.
       #
       # It reuses this job's four-minute bring-up rather than paying for a
       # second one.
@@ -401,17 +402,7 @@ jobs:
       - name: Evaluation gate (no judge)
         run: |
           set -euo pipefail
-          TOKEN=$(curl -sS -X POST http://localhost:8080/v1/auth/token \
-            -H 'Content-Type: application/json' \
-            -d '{"grant_type":"password","username":"admin@aia.local","password":"change-me-now"}' \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-
-          PROJECT=$(curl -sS http://localhost:8080/v1/projects \
-            -H "Authorization: Bearer $TOKEN" \
-            | python3 -c '
-          import json, sys
-          found = next(p for p in json.load(sys.stdin)["items"] if p["slug"] == "platform-ci")
-          print(found["id"])')
+          read -r TOKEN PROJECT < <(bash tools/scripts/eval-credentials.sh platform-ci)
 
           AIA_ACCESS_TOKEN="$TOKEN" AIA_PROJECT_ID="$PROJECT" \
             INFERENCE_ROUTER_URL=http://localhost:3003 \
@@ -431,16 +422,7 @@ jobs:
           sed -i 's/"expected": "ok"/"expected": "a different answer entirely"/' \
             evals/datasets/ci-smoke.jsonl
 
-          TOKEN=$(curl -sS -X POST http://localhost:8080/v1/auth/token \
-            -H 'Content-Type: application/json' \
-            -d '{"grant_type":"password","username":"admin@aia.local","password":"change-me-now"}' \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-          PROJECT=$(curl -sS http://localhost:8080/v1/projects \
-            -H "Authorization: Bearer $TOKEN" \
-            | python3 -c '
-          import json, sys
-          found = next(p for p in json.load(sys.stdin)["items"] if p["slug"] == "platform-ci")
-          print(found["id"])')
+          read -r TOKEN PROJECT < <(bash tools/scripts/eval-credentials.sh platform-ci)
 
           set +e
           AIA_ACCESS_TOKEN="$TOKEN" AIA_PROJECT_ID="$PROJECT" \

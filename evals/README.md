@@ -34,6 +34,7 @@ nobody implemented is worse than an admitted gap.
 | Before swapping an alias's deployment | The model regression suite       | Nothing — no such suite                | Yes                               |
 | Production                            | A 1 to 5% traffic sample         | Nothing — no sampler                   | No, it alerts                     |
 | Before a judged suite runs, at all    | The judge's own calibration      | **Yes** — it refuses without one       | Yes                               |
+| Nightly, and on demand                | The judged suites                | **Yes**, if a provider key is set      | Yes, gating a release             |
 
 The third row is not "every pull request", and the distinction is the honest
 one: `ci-smoke` needs a router and guardrails running, so it lives in the `e2e`
@@ -55,8 +56,13 @@ Groundedness needs a judge, a judge needs a real model, and a real model costs
 money and time on every push. It belongs to a scheduled run against
 `platform-ci`, gating a release rather than a pull request.
 
-`make eval` runs the judged suites locally, and no workflow calls it yet.
-`tools/scripts/seed.sh` does create the `platform-ci` project it needs, with its
+The judged half runs in `.github/workflows/judged-evals.yml`: nightly at 04:17
+UTC and on demand, against `platform-ci`, with the alias under test graded by a
+different one. It gates a release rather than a merge. Without a provider key
+configured it runs nothing and **says so in the run summary** — a scheduled job
+that passes green because it could not reach a model is this repository's
+favourite failure, one level up. `make eval` runs the same suites locally, and
+`tools/scripts/seed.sh` creates the `platform-ci` project they need, with its
 own budget.
 
 ## The judge is measured too
