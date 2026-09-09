@@ -4,21 +4,12 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter
 
-from aia_auth import (
-    POLICY,
-    AccessRequest,
-    JwtVerifier,
-    Principal,
-    authorize,
-    bearer_token,
-    is_internal_service,
-)
-from aia_errors import ProjectRequiredError
+from aia_fastapi import AuthenticatedCaller, authenticated, health_router
 from aia_telemetry import AiaAttr, annotate_active_span
 from guardrails.application.dto import InspectCommand, RedactCommand
-from guardrails.container import Container, get_container
+from guardrails.container import get_container
 from guardrails.domain.entities import InspectionResult
 from guardrails.domain.policy import RedactionStrategy
 from guardrails.presentation.http.schemas import (
@@ -32,40 +23,9 @@ from guardrails.presentation.http.schemas import (
 )
 
 router = APIRouter(prefix="/v1/guardrails", tags=["guardrails"])
-health_router = APIRouter(prefix="/health", tags=["health"])
 
 
-def _authenticate(
-    authorization: Annotated[str | None, Header()] = None,
-    x_project_id: Annotated[str | None, Header()] = None,
-) -> tuple[Principal, str]:
-    """`Depends` exists only in presentation (reference doc 03 §3.3)."""
-    container: Container = get_container()
-    verifier: JwtVerifier = container.verifier
-
-    principal = verifier.verify(bearer_token(authorization))
-    if not x_project_id:
-        raise ProjectRequiredError()
-
-    # Named, rather than an unnamed `if`: the decision records which branch
-    # allowed the call, so a trace shows a service-to-service bypass firing
-    # instead of showing nothing.
-    authorize(
-        is_internal_service | POLICY.READ_PROJECT,
-        AccessRequest(principal=principal, project_id=x_project_id),
-    )
-
-    annotate_active_span(
-        **{
-            AiaAttr.PROJECT_ID: x_project_id,
-            AiaAttr.PRINCIPAL_ID: principal.id,
-            AiaAttr.PRINCIPAL_TYPE: principal.type,
-        }
-    )
-    return principal, x_project_id
-
-
-Authenticated = Annotated[tuple[Principal, str], Depends(_authenticate)]
+Authenticated = Annotated[AuthenticatedCaller, authenticated(lambda: get_container().verifier)]
 
 
 def _injection_of(result: InspectionResult) -> InjectionModel:
@@ -93,7 +53,7 @@ def _findings_of(result: InspectionResult) -> list[FindingModel]:
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze(body: AnalyzeRequest, auth: Authenticated) -> AnalyzeResponse:
-    _, project_id = auth
+    project_id = auth.project_id
     result = get_container().inspect.execute(
         InspectCommand(
             text=body.text,
@@ -114,7 +74,7 @@ def analyze(body: AnalyzeRequest, auth: Authenticated) -> AnalyzeResponse:
 
 @router.post("/redact", response_model=RedactResponse)
 def redact(body: RedactRequest, auth: Authenticated) -> RedactResponse:
-    _, project_id = auth
+    project_id = auth.project_id
     result = get_container().redact.execute(
         RedactCommand(
             text=body.text,
@@ -141,13 +101,9 @@ def redact(body: RedactRequest, auth: Authenticated) -> RedactResponse:
     )
 
 
-@health_router.get("/live")
-def live() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@health_router.get("/ready")
-def ready() -> dict[str, str]:
-    container = get_container()
+def _ready() -> dict[str, str]:
     # The detector is loaded at boot; if it exists, the service can serve.
-    return {"status": "ok", "detector": container.detector_name}
+    return {"status": "ok", "detector": get_container().detector_name}
+
+
+health = health_router(ready=_ready)

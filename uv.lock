@@ -13,6 +13,7 @@ members = [
     "aia-auth",
     "aia-contracts",
     "aia-errors",
+    "aia-fastapi",
     "aia-messaging",
     "aia-platform-python",
     "aia-resilience",
@@ -29,6 +30,7 @@ source = { editable = "apps/agent-runtime" }
 dependencies = [
     { name = "aia-auth" },
     { name = "aia-errors" },
+    { name = "aia-fastapi" },
     { name = "aia-messaging" },
     { name = "aia-resilience" },
     { name = "aia-telemetry" },
@@ -45,6 +47,7 @@ dependencies = [
 requires-dist = [
     { name = "aia-auth", editable = "python/aia_auth" },
     { name = "aia-errors", editable = "python/aia_errors" },
+    { name = "aia-fastapi", editable = "python/aia_fastapi" },
     { name = "aia-messaging", editable = "python/aia_messaging" },
     { name = "aia-resilience", editable = "python/aia_resilience" },
     { name = "aia-telemetry", editable = "python/aia_telemetry" },
@@ -95,6 +98,27 @@ version = "0.1.0"
 source = { editable = "python/aia_errors" }
 
 [[package]]
+name = "aia-fastapi"
+version = "0.1.0"
+source = { editable = "python/aia_fastapi" }
+dependencies = [
+    { name = "aia-auth" },
+    { name = "aia-errors" },
+    { name = "aia-telemetry" },
+    { name = "fastapi" },
+    { name = "pydantic-settings" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aia-auth", editable = "python/aia_auth" },
+    { name = "aia-errors", editable = "python/aia_errors" },
+    { name = "aia-telemetry", editable = "python/aia_telemetry" },
+    { name = "fastapi", specifier = ">=0.115.6" },
+    { name = "pydantic-settings", specifier = ">=2.7.1" },
+]
+
+[[package]]
 name = "aia-messaging"
 version = "0.1.0"
 source = { editable = "python/aia_messaging" }
@@ -119,6 +143,7 @@ dependencies = [
     { name = "aia-auth" },
     { name = "aia-contracts" },
     { name = "aia-errors" },
+    { name = "aia-fastapi" },
     { name = "aia-messaging" },
     { name = "aia-resilience" },
     { name = "aia-sdk" },
@@ -145,6 +170,7 @@ requires-dist = [
     { name = "aia-auth", editable = "python/aia_auth" },
     { name = "aia-contracts", editable = "python/aia_contracts" },
     { name = "aia-errors", editable = "python/aia_errors" },
+    { name = "aia-fastapi", editable = "python/aia_fastapi" },
     { name = "aia-messaging", editable = "python/aia_messaging" },
     { name = "aia-resilience", editable = "python/aia_resilience" },
     { name = "aia-sdk", editable = "python/aia_sdk" },
@@ -851,6 +877,7 @@ source = { editable = "apps/evaluation" }
 dependencies = [
     { name = "aia-auth" },
     { name = "aia-errors" },
+    { name = "aia-fastapi" },
     { name = "aia-messaging" },
     { name = "aia-resilience" },
     { name = "aia-telemetry" },
@@ -868,6 +895,7 @@ dependencies = [
 requires-dist = [
     { name = "aia-auth", editable = "python/aia_auth" },
     { name = "aia-errors", editable = "python/aia_errors" },
+    { name = "aia-fastapi", editable = "python/aia_fastapi" },
     { name = "aia-messaging", editable = "python/aia_messaging" },
     { name = "aia-resilience", editable = "python/aia_resilience" },
     { name = "aia-telemetry", editable = "python/aia_telemetry" },
@@ -998,6 +1026,7 @@ source = { editable = "apps/guardrails" }
 dependencies = [
     { name = "aia-auth" },
     { name = "aia-errors" },
+    { name = "aia-fastapi" },
     { name = "aia-resilience" },
     { name = "aia-telemetry" },
     { name = "fastapi" },
@@ -1012,6 +1041,7 @@ dependencies = [
 requires-dist = [
     { name = "aia-auth", editable = "python/aia_auth" },
     { name = "aia-errors", editable = "python/aia_errors" },
+    { name = "aia-fastapi", editable = "python/aia_fastapi" },
     { name = "aia-resilience", editable = "python/aia_resilience" },
     { name = "aia-telemetry", editable = "python/aia_telemetry" },
     { name = "fastapi", specifier = ">=0.115.6" },

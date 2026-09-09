@@ -4,26 +4,17 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 
-from aia_auth import (
-    POLICY,
-    AccessRequest,
-    Principal,
-    authorize,
-    bearer_token,
-    is_internal_service,
-)
-from aia_errors import ProjectRequiredError
-from aia_telemetry import AiaAttr, annotate_active_span
+from aia_auth import Principal
+from aia_fastapi import AuthenticatedCaller, authenticated, health_router
 from evaluation.application.dto import Caller, RunSuiteCommand
 from evaluation.container import get_container
 from evaluation.domain.entities import EvaluationRun
 from evaluation.domain.errors import RunNotFoundError
 
 router = APIRouter(prefix="/v1/evaluations", tags=["evaluation"])
-health_router = APIRouter(prefix="/health", tags=["health"])
 
 MAX_LIMIT = 100
 
@@ -31,28 +22,6 @@ MAX_LIMIT = 100
 class StartRunBody(BaseModel):
     suite: str | None = Field(default=None, description="A suite file or a directory.")
     alias: str | None = Field(default=None, description="Overrides the alias each suite names.")
-
-
-def _authenticate(
-    authorization: Annotated[str | None, Header()] = None,
-    x_project_id: Annotated[str | None, Header()] = None,
-) -> Caller:
-    """`Depends` exists only in presentation (reference doc 03 §3.3)."""
-    container = get_container()
-    token = bearer_token(authorization)
-    principal = container.verifier.verify(token)
-    if not x_project_id:
-        raise ProjectRequiredError()
-    # Named, rather than an unnamed `if`: the decision records which branch
-    # allowed the call, so a trace shows a service-to-service bypass firing
-    # instead of showing nothing.
-    authorize(
-        is_internal_service | POLICY.READ_PROJECT,
-        AccessRequest(principal=principal, project_id=x_project_id),
-    )
-
-    annotate_active_span(**{AiaAttr.PROJECT_ID: x_project_id, AiaAttr.PRINCIPAL_ID: principal.id})
-    return _caller_of(principal, x_project_id, token)
 
 
 def _caller_of(principal: Principal, project_id: str, token: str) -> Caller:
@@ -65,7 +34,13 @@ def _caller_of(principal: Principal, project_id: str, token: str) -> Caller:
     )
 
 
-Authenticated = Annotated[Caller, Depends(_authenticate)]
+def _caller(
+    identity: Annotated[AuthenticatedCaller, authenticated(lambda: get_container().verifier)],
+) -> Caller:
+    return _caller_of(identity.principal, identity.project_id, identity.token)
+
+
+Authenticated = Annotated[Caller, Depends(_caller)]
 
 
 def _run_response(run: EvaluationRun, *, with_cases: bool = False) -> dict[str, Any]:
@@ -152,12 +127,9 @@ async def get_run(run_id: str, caller: Authenticated) -> dict[str, Any]:
     return _run_response(run, with_cases=True)
 
 
-@health_router.get("/live")
-def live() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@health_router.get("/ready")
-async def ready() -> dict[str, str]:
+async def _ready() -> dict[str, str]:
     await get_container().ready()
     return {"status": "ok"}
+
+
+health = health_router(ready=_ready)

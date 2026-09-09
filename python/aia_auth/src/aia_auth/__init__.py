@@ -30,8 +30,9 @@ from aia_auth.authorization import (
     is_member_of_project,
     spec,
 )
+from aia_auth.service_token import ServiceTokenProvider
 from aia_contracts import MAX_ZONES_BY_CLASSIFICATION
-from aia_errors import DomainError, ErrorCode, ForbiddenError, UnauthenticatedError
+from aia_errors import DomainError, ErrorCode, UnauthenticatedError
 
 ROLES: Final[frozenset[str]] = frozenset(
     {
@@ -198,12 +199,6 @@ def bearer_token(authorization_header: str | None) -> str:
     return token
 
 
-def require_membership(principal: Principal, project_id: str) -> None:
-    if principal.is_platform_admin or principal.belongs_to(project_id):
-        return
-    raise ForbiddenError("principal does not belong to the project", project_id=project_id)
-
-
 def zone_is_compatible(classification: str, zone: str) -> bool:
     """ADR-010. An unknown classification fails CLOSED."""
     return zone in ZONES_BY_CLASSIFICATION.get(classification, ())
@@ -223,6 +218,7 @@ __all__ = [
     "JwtVerifier",
     "Principal",
     "ProjectMembership",
+    "ServiceTokenProvider",
     "Specification",
     "TokenExpiredError",
     "allow",
@@ -236,7 +232,6 @@ __all__ = [
     "is_expired",
     "is_internal_service",
     "is_member_of_project",
-    "require_membership",
     "spec",
     "zone_is_compatible",
 ]

@@ -26,8 +26,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 METHODS = ("get", "post", "put", "delete", "patch")
 
-#: The health routes come from @aia/nest, not from the service's own files.
-NEST_HEALTH = [("get", "/health/live"), ("get", "/health/ready")]
+#: Health comes from a shared library in both languages -- `HealthController`
+#: in @aia/nest, `health_router()` in aia_fastapi -- so it is declared in every
+#: contract and written in no service. A parser that reads only the service's
+#: own files has to be told, or it reports every service as missing both.
+SHARED_HEALTH = [("get", "/health/live"), ("get", "/health/ready")]
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +118,7 @@ def nest_routes(service: str) -> set[tuple[str, str]]:
     # HealthController is registered in a module, not written in the service.
     for file in list(source_root.rglob("*.module.ts")) + list(source_root.rglob("*.controller.ts")):
         if "HealthController" in file.read_text():
-            routes.update(NEST_HEALTH)
+            routes.update(SHARED_HEALTH)
             break
 
     return routes
@@ -124,6 +127,9 @@ def nest_routes(service: str) -> set[tuple[str, str]]:
 _APIROUTER = re.compile(r"(\w+)\s*=\s*APIRouter\(([^)]*)\)")
 _PREFIX = re.compile(r"""prefix\s*=\s*(['"])([^'"]*)\1""")
 _FASTAPI_ROUTE = re.compile(rf"@(\w+)\.({'|'.join(METHODS)})\(([^)]*)\)")
+#: The import itself, not the mere mention: a comment naming `health_router`
+#: must not be enough to convince this that the routes are served.
+_FASTAPI_HEALTH = re.compile(r"^from aia_fastapi import [^\n]*\bhealth_router\b", re.MULTILINE)
 
 
 def fastapi_routes(service: str) -> set[tuple[str, str]]:
@@ -139,6 +145,9 @@ def fastapi_routes(service: str) -> set[tuple[str, str]]:
             match.group(1): (prefix.group(2) if (prefix := _PREFIX.search(match.group(2))) else "")
             for match in _APIROUTER.finditer(source)
         }
+
+        if _FASTAPI_HEALTH.search(source) is not None:
+            routes.update(SHARED_HEALTH)
 
         for match in _FASTAPI_ROUTE.finditer(source):
             name, method, arguments = match.groups()
