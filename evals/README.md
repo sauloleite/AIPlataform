@@ -23,16 +23,23 @@ repository actually does; **intended** is what `docs/ROADMAP.md` M6 builds. A
 table that describes only the intention reads as a guarantee, and a guarantee
 nobody implemented is worse than an admitted gap.
 
-| Moment                                | What runs                     | Today                   | Intended (M6)                     |
-| ------------------------------------- | ----------------------------- | ----------------------- | --------------------------------- |
-| Every pull request                    | Red team                      | **Yes**                 | Yes, if a known case gets through |
-| Every pull request                    | Agent trajectories            | **Yes**                 | Yes                               |
-| A prompt, alias or chunking change    | The affected use case's suite | Nothing — no CI job     | Yes, below the threshold          |
-| Before swapping an alias's deployment | The model regression suite    | Nothing — no such suite | Yes                               |
-| Production                            | A 1 to 5% traffic sample      | Nothing — no sampler    | No, it alerts                     |
+| Moment                                | What runs                        | Today                                  | Intended (M6)                     |
+| ------------------------------------- | -------------------------------- | -------------------------------------- | --------------------------------- |
+| Every pull request                    | Red team                         | **Yes**                                | Yes, if a known case gets through |
+| Every pull request                    | Agent trajectories               | **Yes**                                | Yes                               |
+| Push, or a PR labelled `e2e`          | `ci-smoke` (exact match, safety) | **Yes**, with its own negative control | Yes                               |
+| A prompt, alias or chunking change    | The affected use case's suite    | Nothing — no CI job                    | Yes, below the threshold          |
+| Before swapping an alias's deployment | The model regression suite       | Nothing — no such suite                | Yes                               |
+| Production                            | A 1 to 5% traffic sample         | Nothing — no sampler                   | No, it alerts                     |
 
-The two rows marked **Yes** are the ones that cost nothing, and that is why they
-are the ones that run per PR. The red-team cases go through
+The third row is not "every pull request", and the distinction is the honest
+one: `ci-smoke` needs a router and guardrails running, so it lives in the `e2e`
+job, which is skipped on an unlabelled pull request because it starts six
+containers. The two rows above it cost nothing and really do run on every
+change.
+
+The first two rows cost nothing, which is why they run per PR. The red-team
+cases go through
 `apps/guardrails/tests/test_redteam_dataset.py` and the trajectory cases through
 `apps/evaluation/tests/test_trajectory_dataset.py`; the `test-unit` job executes
 both, with no model, no containers and no network.

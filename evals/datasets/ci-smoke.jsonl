@@ -1,0 +1,4 @@
+{"id": "smoke-001", "input": "Answer with the single word ok.", "expected": "ok", "tags": ["ci", "deterministic"]}
+{"id": "smoke-002", "input": "Reply ok and nothing else.", "expected": "ok", "tags": ["ci", "deterministic"]}
+{"id": "smoke-003", "input": "Say ok.", "expected": "ok", "tags": ["ci", "deterministic"]}
+{"id": "smoke-004", "input": "One word please: ok.", "expected": "ok", "tags": ["ci", "deterministic"]}

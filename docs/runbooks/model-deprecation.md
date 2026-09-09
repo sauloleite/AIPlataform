@@ -31,8 +31,10 @@ production is an incident.
 
 3. **Run the regression suite** against the candidate.
 
-   > **Not available yet.** `make eval` takes no `SUITE` argument and
-   > `evals/suites/model-regression` does not exist; the eval gate is roadmap M6.
+   > `make eval SUITE=path` works now and takes a file or a directory. What is
+   > still missing is `evals/suites/model-regression` itself: gate on
+   > `evals/suites/platform-runbook.yaml` in the meantime, and note that it
+   > needs a judge alias, so it measures nothing without one.
    > Until then, compare by hand against a suite you write for the occasion and
    > record the numbers in the change ticket. Do not skip the comparison because
    > the automation is missing — a model swap without one is the incident this

@@ -113,8 +113,12 @@ routes: ## Every registered route is declared in a contract, and the reverse
 e2e: ## Flows 7.1, 7.2 and 7.3 end to end against the local environment
 	bash tools/scripts/e2e.sh
 
-eval: ## Evaluation suites, gated by threshold
-	uv run python -m evaluation.cli run --suite evals/suites
+# `SUITE` takes a file or a directory, so a runbook can gate on ONE suite before
+# an alias swap rather than running every judged case to answer one question.
+SUITE ?= evals/suites
+
+eval: ## Evaluation suites, gated by threshold. Override with SUITE=path
+	uv run python -m evaluation.cli run --suite $(SUITE)
 
 build: ## Compiles the TypeScript packages and services
 	pnpm exec nx run-many -t build --all

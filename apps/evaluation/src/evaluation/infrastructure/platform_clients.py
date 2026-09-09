@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -59,6 +61,38 @@ def _raise_problem(response: httpx.Response, fallback: str) -> None:
     raise DomainError(detail, code=code, status=response.status_code)
 
 
+@asynccontextmanager
+async def _reachable(service: str) -> AsyncIterator[None]:
+    """Turns a transport failure into a refusal the run can report.
+
+    Without this an unreachable service escaped as a raw `httpx.ConnectError`:
+    it is not a `DomainError`, so it went past the handler that turns a broken
+    case into an `errored` run and out of the CLI as a sixty-line traceback. The
+    run recorded nothing, and ADR-021's whole subject -- a measurement that did
+    not happen must SAY it did not happen -- was answered by a stack trace.
+
+    It fires most often for the least exotic reason: `make eval` on a laptop,
+    where `http://inference-router:3000` is a container hostname that resolves
+    nowhere.
+    """
+    try:
+        yield
+    except httpx.TimeoutException as error:
+        raise DomainError(
+            f"{service} did not answer in time",
+            code=ErrorCode.UPSTREAM_TIMEOUT,
+            status=504,
+            details={"service": service},
+        ) from error
+    except httpx.HTTPError as error:
+        raise DomainError(
+            f"{service} could not be reached ({error})",
+            code=ErrorCode.PROVIDER_UNAVAILABLE,
+            status=503,
+            details={"service": service},
+        ) from error
+
+
 @dataclass(slots=True)
 class RouterTargetClient:
     """The thing under test: a chat completion through the router."""
@@ -93,7 +127,10 @@ class RouterTargetClient:
 
         async def call() -> Answer:
             started = time.monotonic()
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with (
+                _reachable("the inference router"),
+                httpx.AsyncClient(timeout=self.timeout_seconds) as client,
+            ):
                 response = await client.post(
                     f"{self.base_url}/v1/chat/completions",
                     headers=_headers(access_token, project_id),
@@ -157,7 +194,10 @@ class ModelJudge:
         )
 
         async def call() -> float:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with (
+                _reachable("the judge"),
+                httpx.AsyncClient(timeout=self.timeout_seconds) as client,
+            ):
                 response = await client.post(
                     f"{self.base_url}/v1/chat/completions",
                     headers=_headers(access_token, project_id),
@@ -217,7 +257,10 @@ class GuardrailsSafetyInspector:
 
     async def is_safe(self, *, text: str, project_id: str, access_token: str) -> bool:
         async def call() -> bool:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with (
+                _reachable("guardrails"),
+                httpx.AsyncClient(timeout=self.timeout_seconds) as client,
+            ):
                 response = await client.post(
                     f"{self.base_url}/v1/guardrails/analyze",
                     headers=_headers(access_token, project_id),

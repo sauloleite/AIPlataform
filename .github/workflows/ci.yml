@@ -381,6 +381,81 @@ jobs:
         env:
           COMPOSE_FILES: '-f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.ci.yml'
 
+      # The evaluation gate, on the half that can honestly run here. The model
+      # is `tools/mock-provider`, which answers the literal string `ok`, so
+      # `exact_match` and `safety` mean something against it and groundedness
+      # would not -- grading `ok` against a reference answer produces a number
+      # that measures nothing. The judged suites run on a schedule instead.
+      #
+      # It reuses this job's four-minute bring-up rather than paying for a
+      # second one.
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: uv sync --all-packages --frozen
+
+      - name: Seed the project the suites run against
+        run: bash tools/scripts/seed.sh
+
+      - name: Evaluation gate (no judge)
+        run: |
+          set -euo pipefail
+          TOKEN=$(curl -sS -X POST http://localhost:8080/v1/auth/token \
+            -H 'Content-Type: application/json' \
+            -d '{"grant_type":"password","username":"admin@aia.local","password":"change-me-now"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+
+          PROJECT=$(curl -sS http://localhost:8080/v1/projects \
+            -H "Authorization: Bearer $TOKEN" \
+            | python3 -c '
+          import json, sys
+          found = next(p for p in json.load(sys.stdin)["items"] if p["slug"] == "platform-ci")
+          print(found["id"])')
+
+          AIA_ACCESS_TOKEN="$TOKEN" AIA_PROJECT_ID="$PROJECT" \
+            INFERENCE_ROUTER_URL=http://localhost:3003 \
+            GUARDRAILS_URL=http://localhost:8001 \
+            make eval SUITE=evals/suites/ci-smoke.yaml
+
+      # A gate that cannot fail is not a gate. The dataset is given an answer
+      # the platform does not produce, and the run has to go red -- with exit 1
+      # for a quality regression, which ADR-021 keeps distinct from the 2 an
+      # unmeasurable run returns.
+      - name: The gate really fails on a regression
+        run: |
+          set -euo pipefail
+          cp evals/datasets/ci-smoke.jsonl /tmp/ci-smoke.bak
+          trap 'mv /tmp/ci-smoke.bak evals/datasets/ci-smoke.jsonl' EXIT
+
+          sed -i 's/"expected": "ok"/"expected": "a different answer entirely"/' \
+            evals/datasets/ci-smoke.jsonl
+
+          TOKEN=$(curl -sS -X POST http://localhost:8080/v1/auth/token \
+            -H 'Content-Type: application/json' \
+            -d '{"grant_type":"password","username":"admin@aia.local","password":"change-me-now"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          PROJECT=$(curl -sS http://localhost:8080/v1/projects \
+            -H "Authorization: Bearer $TOKEN" \
+            | python3 -c '
+          import json, sys
+          found = next(p for p in json.load(sys.stdin)["items"] if p["slug"] == "platform-ci")
+          print(found["id"])')
+
+          set +e
+          AIA_ACCESS_TOKEN="$TOKEN" AIA_PROJECT_ID="$PROJECT" \
+            INFERENCE_ROUTER_URL=http://localhost:3003 \
+            GUARDRAILS_URL=http://localhost:8001 \
+            uv run python -m evaluation.cli run --suite evals/suites/ci-smoke.yaml
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -ne 1 ]; then
+            echo "::error::a quality regression should exit 1, and this exited ${STATUS}."
+            exit 1
+          fi
+          echo "  evaluation gate: caught"
+
       - name: Logs on failure
         if: failure()
         run: |
