@@ -490,8 +490,10 @@ jobs:
           infra = {'mongo', 'redis', 'minio', 'qdrant', 'lgtm', 'ollama', 'traefik'}
           services = {n for n in compose['services'] if n not in infra}
 
-          # knowledge-worker runs the knowledge image with a different command.
-          needs_image = services - {'knowledge-worker'}
+          # Two workers run a sibling's image with a different command:
+          # knowledge-worker is the knowledge image, evaluation-sampler the
+          # evaluation one. Everything else needs an image of its own.
+          needs_image = services - {'knowledge-worker', 'evaluation-sampler'}
           built = {entry['service'] for entry in build['jobs']['build']['strategy']['matrix']['include']}
 
           failed = False
