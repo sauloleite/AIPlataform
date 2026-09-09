@@ -32,7 +32,14 @@ from aia_auth import (
     is_internal_service,
 )
 from aia_errors import PROBLEM_CONTENT_TYPE, DomainError, ProjectRequiredError, problem_from_unknown
-from aia_telemetry import AiaAttr, annotate_active_span, current_trace_id, start_telemetry
+from aia_telemetry import (
+    AiaAttr,
+    annotate_active_span,
+    current_trace_id,
+    instrument_fastapi,
+    instrument_httpx,
+    start_telemetry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -196,18 +203,31 @@ def create_app(
     configured logging differently, or forgot `start_telemetry`, would be
     invisible in Grafana while looking perfectly healthy. `on_startup` is where
     a service does what only it knows — warming a model, opening a queue.
+
+    Telemetry is set up HERE rather than in the lifespan, and the failure mode
+    is the reason it is worth a line. Starlette builds its middleware stack when
+    the application starts, so an instrumentor installed from a lifespan is not
+    in that stack -- and it neither raises nor warns. Every request afterwards
+    produces nothing, which in a dashboard reads exactly like a service nobody
+    is calling. `start_telemetry` sits beside it only so telemetry is arranged
+    in one place: OpenTelemetry hands out a lazy `ProxyTracer`, so a provider
+    installed later would in fact still work.
     """
+    start_telemetry(service_name)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         logging.basicConfig(level=settings.log_level.upper())
-        start_telemetry(service_name)
         if on_startup is not None:
             await on_startup()
         yield
 
     app = FastAPI(title=title, description=description, version=version, lifespan=lifespan)
     install_problem_details(app)
+    instrument_fastapi(app)
+    # Outbound calls become children of the request that caused them, so a run
+    # that crosses agent-runtime, the router and the gateway reads as one trace.
+    instrument_httpx()
     for router in routers:
         app.include_router(router)
     return app

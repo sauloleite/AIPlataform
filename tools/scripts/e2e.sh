@@ -150,6 +150,44 @@ NO_AUTH=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${BASE_URL}/v1/chat/c
   -d '{"model":"chat-local","messages":[{"role":"user","content":"hello"}]}')
 assert_eq "$NO_AUTH" "401" "a request with no token is refused"
 
+# Two problems with the assertions step 12 used to make, and the second only
+# showed up once the first was fixed.
+#
+# These stores only ever GROW, so "there is at least one record" is true on any
+# machine that ever ran this suite successfully -- including a run where every
+# call failed. It was: with the local provider disabled every chat answered 503,
+# and step 12 reported four green ticks.
+#
+# Counting the growth is not enough either. A REFUSED call is audited too, and
+# it publishes a usage event carrying `status: "failed"` -- correctly, because
+# an audit that omits the refusals is the one you cannot investigate with. So a
+# run where nothing worked still grows every counter. The filters below are what
+# make the difference: a completed call, for this project.
+mongo_count() {
+  $COMPOSE exec -T mongo mongosh "$1" --quiet --eval "db.$2.countDocuments($3)" \
+    2>/dev/null | tr -d '\r' || echo "0"
+}
+
+stream_length() {
+  $COMPOSE exec -T redis redis-cli XLEN "$1" 2>/dev/null | tr -d '\r' || echo "0"
+}
+
+assert_grew() {
+  local before="$1" after="$2" what="$3"
+  if [ "${after:-0}" -gt "${before:-0}" ] 2>/dev/null; then
+    ok "${what} (${before} -> ${after})"
+  else
+    fail "${what}: nothing was written by this run (still ${after:-0})"
+  fi
+}
+
+AUDIT_FILTER="{projectId: '${PROJECT_INTERNAL}', status: 'completed'}"
+OUTBOX_FILTER="{'event.data.project_id': '${PROJECT_INTERNAL}', 'event.data.status': 'completed'}"
+
+AUDIT_BEFORE=$(mongo_count aia_router inference_audit "$AUDIT_FILTER")
+OUTBOX_BEFORE=$(mongo_count aia_router outbox "$OUTBOX_FILTER")
+STREAM_BEFORE=$(stream_length aia:events:aia.inference.usage.recorded.v1)
+
 # ---------------------------------------------------------------------------
 step "5. Chat through Ollama (zero cost, no API key at all)"
 
@@ -232,10 +270,26 @@ fi
 # ---------------------------------------------------------------------------
 step "9. External providers (skipped when there is no key)"
 
+# Gemini takes its keys in four forms and uses every one of them together, so
+# testing the bare `GEMINI_API_KEY` alone reports "not configured" on a machine
+# where the provider works -- which is what this said while step 10 was billing
+# a Gemini call two screens further down.
+configured_key() {
+  case "$1" in
+    GEMINI)
+      printf '%s%s%s%s%s' "${GEMINI_API_KEY:-}" "${GEMINI_API_KEYS:-}" \
+        "${GEMINI_API_KEY_1:-}" "${GEMINI_API_KEY_2:-}" "${GEMINI_API_KEY_3:-}"
+      ;;
+    *)
+      local key_var="$1_API_KEY"
+      printf '%s' "${!key_var:-}"
+      ;;
+  esac
+}
+
 for provider in OPENAI GEMINI ANTHROPIC; do
-  key_var="${provider}_API_KEY"
-  if [ -z "${!key_var:-}" ]; then
-    skip "${provider}: no ${key_var} configured"
+  if [ -z "$(configured_key "$provider")" ]; then
+    skip "${provider}: no key configured"
     continue
   fi
 
@@ -353,30 +407,24 @@ fi
 # ---------------------------------------------------------------------------
 step "12. Audit trail and usage event"
 
-AUDIT_COUNT=$($COMPOSE exec -T mongo mongosh aia_router --quiet --eval \
-  "db.inference_audit.countDocuments({projectId: '${PROJECT_INTERNAL}'})" 2>/dev/null | tr -d '\r' || echo "0")
+assert_grew "$AUDIT_BEFORE" "$(mongo_count aia_router inference_audit "$AUDIT_FILTER")" \
+  "a completed call was audited"
 
-if [ "${AUDIT_COUNT:-0}" -gt 0 ] 2>/dev/null; then
-  ok "audit written (${AUDIT_COUNT} records for the project)"
-else
-  fail "no audit record found"
-fi
+assert_grew "$OUTBOX_BEFORE" "$(mongo_count aia_router outbox "$OUTBOX_FILTER")" \
+  "its UsageRecorded went through the outbox"
 
-OUTBOX_TOTAL=$($COMPOSE exec -T mongo mongosh aia_router --quiet --eval \
-  "db.outbox.countDocuments({})" 2>/dev/null | tr -d '\r' || echo "0")
-if [ "${OUTBOX_TOTAL:-0}" -gt 0 ] 2>/dev/null; then
-  ok "UsageRecorded events went through the outbox (${OUTBOX_TOTAL})"
-else
-  fail "outbox empty: the usage event was not written"
-fi
+# The stream is not filtered, and that is the honest reading: XLEN counts
+# entries and cannot ask about their contents. What this proves is the
+# transport -- that the relay drained the outbox onto the bus. Whether the call
+# succeeded is what the two assertions above are for.
+assert_grew "$STREAM_BEFORE" \
+  "$(stream_length aia:events:aia.inference.usage.recorded.v1)" \
+  "the relay published onto Redis Streams"
 
-STREAM_LEN=$($COMPOSE exec -T redis redis-cli XLEN aia:events:aia.inference.usage.recorded.v1 2>/dev/null | tr -d '\r' || echo "0")
-if [ "${STREAM_LEN:-0}" -gt 0 ] 2>/dev/null; then
-  ok "events published on the bus (${STREAM_LEN} in the stream)"
-else
-  fail "no event reached Redis Streams"
-fi
-
+# Existence, not growth, and the difference is worth stating: the counter is one
+# key per project and period, so a second call increments a value rather than
+# adding a key -- and against a zero-cost local deployment it increments by
+# nothing. What this proves is that the reservation path ran at all.
 BUDGET_KEYS=$($COMPOSE exec -T redis redis-cli --scan --pattern "aia:budget:${PROJECT_INTERNAL}:*" 2>/dev/null | tr -d '\r' | wc -l | tr -d ' ')
 if [ "${BUDGET_KEYS:-0}" -gt 0 ] 2>/dev/null; then
   ok "budget counters exist in Redis"

@@ -12,6 +12,8 @@ from typing import Any, Final
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
@@ -57,7 +59,22 @@ class GenAiAttr:
     USAGE_OUTPUT_TOKENS: Final = "gen_ai.usage.output_tokens"
 
 
+class GenAiSpan:
+    """Operation names, which the conventions make part of the SPAN NAME.
+
+    A GenAI span is named `<operation> <model>`, so these are not decoration:
+    a backend groups by span name, and an agent run named anything else does
+    not appear beside the model calls it made.
+    """
+
+    CHAT: Final = "chat"
+    EMBEDDINGS: Final = "embeddings"
+    INVOKE_AGENT: Final = "invoke_agent"
+    EXECUTE_TOOL: Final = "execute_tool"
+
+
 _started = False
+_httpx_instrumented = False
 
 
 def start_telemetry(service_name: str, *, service_version: str = "0.1.0") -> None:
@@ -109,6 +126,42 @@ def start_telemetry(service_name: str, *, service_version: str = "0.1.0") -> Non
     _started = True
 
 
+def instrument_fastapi(app: Any, *, excluded_urls: str = "health/live,health/ready") -> None:
+    """Gives a FastAPI application a server span per request.
+
+    Without this there is no active span at all, and everything downstream is
+    silently thrown away: `annotate_active_span` writes onto the non-recording
+    span the API returns when nothing is in context, and it neither fails nor
+    warns. `opentelemetry-instrumentation-fastapi` was a declared dependency of
+    this package, shipped in every Python image, and imported by nothing --
+    so guardrails set `aia.guardrail.decision` on every inspection and not one
+    of them ever reached a backend.
+
+    It has to run when the application is CONSTRUCTED, not from the lifespan:
+    the instrumentor adds middleware, and Starlette refuses middleware once an
+    application has started.
+
+    Health is excluded because a liveness probe every ten seconds is the
+    highest-volume route in the platform and says nothing about it.
+    """
+    FastAPIInstrumentor.instrument_app(app, excluded_urls=excluded_urls)
+
+
+def instrument_httpx() -> None:
+    """Makes an outbound call a child of the request that caused it.
+
+    Without it a trace stops at the service boundary: agent-runtime's call to
+    the router opens a new trace instead of continuing the caller's, and the
+    two cannot be read as one run. Global rather than per-client, because a
+    client constructed deep in an adapter is not reachable from here.
+    """
+    global _httpx_instrumented
+    if _httpx_instrumented:
+        return
+    HTTPXClientInstrumentor().instrument()
+    _httpx_instrumented = True
+
+
 def get_tracer(name: str) -> trace.Tracer:
     return trace.get_tracer(name)
 
@@ -145,10 +198,13 @@ def record_span_error(span: Span, error: BaseException, code: str | None = None)
 __all__ = [
     "AiaAttr",
     "GenAiAttr",
+    "GenAiSpan",
     "annotate_active_span",
     "current_trace_id",
     "get_meter",
     "get_tracer",
+    "instrument_fastapi",
+    "instrument_httpx",
     "record_span_error",
     "start_telemetry",
 ]

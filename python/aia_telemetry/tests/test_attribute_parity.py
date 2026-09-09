@@ -5,7 +5,9 @@ the router and agent-runtime does not fail anywhere — it produces a Grafana
 query that silently returns half the traffic. `aia.project_id` is on every span
 by ADR-009, and a Python service spelling it differently would be invisible.
 
-Python was short of five `aia.*` and four `gen_ai.*` when this was written.
+Python was short of five `aia.*` and four `gen_ai.*` when this was written, and
+short of the four span-operation names entirely -- which is why agent-runtime
+had no way to name a span the conventions would recognise.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from aia_telemetry import AiaAttr, GenAiAttr
+from aia_telemetry import AiaAttr, GenAiAttr, GenAiSpan
 
 ROOT = Path(__file__).resolve().parents[3]
 ATTRIBUTES_TS = ROOT / "packages/telemetry/src/attributes.ts"
@@ -54,6 +56,21 @@ class TestGenAiAttributes:
         # These follow the OpenTelemetry GenAI conventions, which is what keeps
         # the telemetry portable to a backend that has never heard of us.
         assert all(value.startswith("gen_ai.") for value in _python(GenAiAttr).values())
+
+
+class TestSpanNames:
+    """The operation name is part of the SPAN NAME, not just an attribute.
+
+    A GenAI span is named `<operation> <model>`, so a Python service naming its
+    agent span anything else does not group with the model calls it made --
+    which is the whole reason the run is worth looking at.
+    """
+
+    def test_python_declares_the_same_operations(self) -> None:
+        assert set(_python(GenAiSpan)) == set(_typescript("GEN_AI_SPAN"))
+
+    def test_every_value_is_identical(self) -> None:
+        assert _python(GenAiSpan) == _typescript("GEN_AI_SPAN")
 
 
 class TestWhatIsDeliberatelyAbsent:
