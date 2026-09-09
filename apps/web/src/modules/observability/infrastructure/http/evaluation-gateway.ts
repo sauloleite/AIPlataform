@@ -1,5 +1,9 @@
 import { PlatformError, type ProblemDetails } from '../../../console/domain/errors';
 import type {
+  Annotation,
+  AnnotationDraft,
+  AnnotationPage,
+  AnnotationVerdict,
   EvaluationGateway,
   EvaluationMetric,
   EvaluationRunSummary,
@@ -69,6 +73,119 @@ export class HttpEvaluationGateway implements EvaluationGateway {
       clearTimeout(timer);
     }
   }
+
+  async listAnnotations(
+    accessToken: string,
+    projectId: string,
+    options: { traceId?: string; limit?: number },
+  ): Promise<AnnotationPage> {
+    const query = new URLSearchParams({ limit: (options.limit ?? 25).toString() });
+    if (options.traceId !== undefined) query.set('trace_id', options.traceId);
+
+    const body = await this.call<{ items?: RawAnnotation[]; taxonomy?: RawFailureMode[] }>(
+      `/v1/annotations?${query.toString()}`,
+      accessToken,
+      projectId,
+    );
+
+    return {
+      items: (body.items ?? []).map(toAnnotation),
+      taxonomy: (body.taxonomy ?? []).map((raw) => ({
+        failureMode: raw.failure_mode,
+        count: raw.count,
+      })),
+    };
+  }
+
+  async recordAnnotation(
+    accessToken: string,
+    projectId: string,
+    draft: AnnotationDraft,
+  ): Promise<Annotation> {
+    const raw = await this.call<RawAnnotation>('/v1/annotations', accessToken, projectId, {
+      method: 'POST',
+      body: JSON.stringify({
+        trace_id: draft.traceId,
+        verdict: draft.verdict,
+        failure_mode: draft.failureMode ?? '',
+        note: draft.note ?? '',
+        evaluator: draft.evaluator ?? '',
+        question: draft.question ?? '',
+        answer: draft.answer ?? '',
+        context: draft.context ?? [],
+      }),
+    });
+    return toAnnotation(raw);
+  }
+
+  /**
+   * One request, with the timeout the whole class uses.
+   *
+   * Extracted when the third caller appeared: the abort controller and its
+   * `clearTimeout` are the kind of thing that gets copied with the timer left
+   * running, and a leaked timer in a server component holds the request open.
+   */
+  private async call<T>(
+    path: string,
+    accessToken: string,
+    projectId: string,
+    init: RequestInit = {},
+  ): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, this.timeoutMs);
+
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        ...init,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          'X-Project-Id': projectId,
+        },
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+
+      if (!response.ok) throw await problemFrom(response);
+      return (await response.json()) as T;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+interface RawAnnotation {
+  id: string;
+  trace_id: string;
+  verdict: AnnotationVerdict;
+  failure_mode: string | null;
+  note: string | null;
+  evaluator: string | null;
+  principal_id: string;
+  created_at: string;
+  is_label?: boolean;
+}
+
+interface RawFailureMode {
+  failure_mode: string;
+  count: number;
+}
+
+function toAnnotation(raw: RawAnnotation): Annotation {
+  return {
+    id: raw.id,
+    traceId: raw.trace_id,
+    verdict: raw.verdict,
+    failureMode: raw.failure_mode,
+    note: raw.note,
+    evaluator: raw.evaluator,
+    principalId: raw.principal_id,
+    createdAt: raw.created_at,
+    isLabel: raw.is_label ?? false,
+  };
 }
 
 function toRun(raw: RawRun): EvaluationRunSummary {

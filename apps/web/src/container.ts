@@ -20,6 +20,10 @@ import type { EvaluationGateway } from './modules/observability/application/eval
 import { HttpEvaluationGateway } from './modules/observability/infrastructure/http/evaluation-gateway';
 import { ListEvaluations } from './modules/observability/application/use-cases/inspect-evaluations';
 import {
+  AnnotateTrace,
+  ReadAnnotations,
+} from './modules/observability/application/use-cases/annotate-trace';
+import {
   BindTool,
   ListTools,
   UnbindTool,
@@ -163,6 +167,8 @@ export interface Container {
   listTraces: ListTraces;
   inspectTrace: InspectTrace;
   listEvaluations: ListEvaluations;
+  readAnnotations: ReadAnnotations;
+  annotateTrace: AnnotateTrace;
 }
 
 /**
@@ -209,5 +215,7 @@ export async function getContainer(): Promise<Container> {
     listTraces: new ListTraces(traces),
     inspectTrace: new InspectTrace(traces),
     listEvaluations: new ListEvaluations(evaluations),
+    readAnnotations: new ReadAnnotations(evaluations),
+    annotateTrace: new AnnotateTrace(evaluations),
   };
 }
