@@ -207,9 +207,14 @@ jobs:
         with: { python-version: '3.12' }
       - run: uv sync --all-packages --frozen
 
+      # `uv run python`, not `python3`. This job gained `setup-python` when the
+      # contracts grew a Python track, and that puts a clean 3.12 ahead of the
+      # runner's own interpreter -- the one that carries PyYAML. The step then
+      # failed on `import yaml` while the identical code in the `delivery` job,
+      # which has no `setup-python`, kept passing.
       - name: The OpenAPI and AsyncAPI contracts are valid YAML
         run: |
-          python3 - <<'PY'
+          uv run python - <<'PY'
           import pathlib, sys, yaml
           for path in sorted(pathlib.Path('contracts').rglob('*.yaml')):
               try:
