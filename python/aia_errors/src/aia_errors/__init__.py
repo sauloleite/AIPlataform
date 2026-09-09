@@ -25,6 +25,7 @@ class ErrorCode:
     ALL_DEPLOYMENTS_FAILED: Final = "all_deployments_failed"
     STREAM_INTERRUPTED: Final = "stream_interrupted"
     GUARDRAIL_BLOCKED: Final = "guardrail_blocked"
+    GUARDRAIL_UNAVAILABLE: Final = "guardrail_unavailable"
     PROMPT_INJECTION_SUSPECTED: Final = "prompt_injection_suspected"
     UNAUTHENTICATED: Final = "unauthenticated"
     FORBIDDEN: Final = "forbidden"
@@ -71,6 +72,7 @@ _TITLES: Final[dict[str, str]] = {
     ErrorCode.ALL_DEPLOYMENTS_FAILED: "Every deployment for the alias failed",
     ErrorCode.STREAM_INTERRUPTED: "Stream interrupted",
     ErrorCode.GUARDRAIL_BLOCKED: "Content blocked by a guardrail",
+    ErrorCode.GUARDRAIL_UNAVAILABLE: "Content cannot be inspected right now",
     ErrorCode.PROMPT_INJECTION_SUSPECTED: "Suspected prompt injection",
     ErrorCode.UNAUTHENTICATED: "Not authenticated",
     ErrorCode.FORBIDDEN: "Access denied",

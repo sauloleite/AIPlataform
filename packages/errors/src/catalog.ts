@@ -21,6 +21,7 @@ export const ERROR_CODES = {
 
   // Guardrails (OWASP LLM01, LLM02)
   GUARDRAIL_BLOCKED: 'guardrail_blocked',
+  GUARDRAIL_UNAVAILABLE: 'guardrail_unavailable',
   PROMPT_INJECTION_SUSPECTED: 'prompt_injection_suspected',
 
   // Identity and authorisation

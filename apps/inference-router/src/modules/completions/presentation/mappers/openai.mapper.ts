@@ -47,6 +47,7 @@ export function toChatCompletionResponse(result: ChatCompletionResult): Record<s
       cache_hit: result.routing.cacheHit,
       policy_stale: result.routing.policyStale,
       budget_unverified: result.routing.budgetUnverified,
+      guardrails_unverified: result.routing.guardrailsUnverified,
       attempts: result.routing.attempts,
     },
   };

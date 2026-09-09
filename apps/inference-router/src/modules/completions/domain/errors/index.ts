@@ -112,6 +112,31 @@ export class GuardrailBlockedError extends DomainError {
   }
 }
 
+/**
+ * A restricted project, and no working guardrail to redact with.
+ *
+ * Failing open is the right default almost everywhere: refusing every request
+ * because a guardrail is down trades a risk for an outage. `restricted` is the
+ * exception, and the classification exists to say so -- a project whose whole
+ * promise is that its data does not leave unredacted cannot honour that promise
+ * with the redactor unreachable.
+ *
+ * 503, not 400: nothing is wrong with the request, and the same request will
+ * work again once the dependency is back. `retryable` says so.
+ */
+export class GuardrailUnavailableError extends DomainError {
+  readonly code: ErrorCode = ERROR_CODES.GUARDRAIL_UNAVAILABLE;
+  readonly status = 503;
+  override readonly retryable = true;
+
+  constructor(projectId: string) {
+    super('This project is classified restricted and its content cannot be inspected right now', {
+      project_id: projectId,
+      retry_after: 5,
+    });
+  }
+}
+
 export class PromptInjectionSuspectedError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.PROMPT_INJECTION_SUSPECTED;
   readonly status = 400;

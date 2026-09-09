@@ -320,6 +320,13 @@ components:
         budget_unverified:
           type: boolean
           description: Budget not verified because Redis was down.
+        guardrails_unverified:
+          type: boolean
+          description: |
+            The content reached the provider without being inspected, because
+            aia-guardrails was unreachable or is not deployed. A project
+            classified `restricted` never sees this: it is refused with
+            `guardrail_unavailable` instead (ADR-026).
         attempts: { type: integer, description: How many deployments were tried. }
 
     EmbeddingsRequest:

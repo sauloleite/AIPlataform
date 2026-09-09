@@ -280,8 +280,14 @@ export class FakeGuardrail implements Guardrail {
       injectionScore: 0,
       injectionSignals: [],
       decision: 'allow',
+      unverified: false,
       ...this.verdict,
     };
+  }
+
+  /** Simulates aia-guardrails being unreachable: it fails open, and says so. */
+  goDown(): void {
+    this.verdict = { ...this.verdict, unverified: true };
   }
 }
 

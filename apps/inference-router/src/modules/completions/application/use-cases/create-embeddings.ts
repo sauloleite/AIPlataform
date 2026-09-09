@@ -85,6 +85,7 @@ export class CreateEmbeddings {
         cacheHit: false,
         status: 'completed',
         budgetUnverified: !this.ledger.isAvailable(),
+        guardrailsUnverified: false,
         policyStale: policyResult.stale,
         occurredAt: now,
       });
@@ -104,6 +105,11 @@ export class CreateEmbeddings {
           dataZone: attempt.deployment.dataZone,
           cost,
           cacheHit: false,
+          // Embeddings do not go through the guardrail pipeline: the text is
+          // already redacted by whoever indexed it, and re-inspecting a corpus
+          // chunk by chunk would double the cost of every ingestion. Reported
+          // as verified rather than left out, so the field means one thing.
+          guardrailsUnverified: false,
           policyStale: policyResult.stale,
           budgetUnverified: !this.ledger.isAvailable(),
           attempts: attempt.attempts,

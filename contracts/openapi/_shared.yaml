@@ -69,6 +69,7 @@ components:
             - all_deployments_failed
             - stream_interrupted
             - guardrail_blocked
+            - guardrail_unavailable
             - prompt_injection_suspected
             - unauthenticated
             - forbidden

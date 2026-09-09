@@ -1,9 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Bulkhead, BulkheadLease } from '@aia/resilience';
-import { AliasNotFoundError, StreamInterruptedError } from '../../domain/errors/index.js';
+import {
+  AliasNotFoundError,
+  GuardrailUnavailableError,
+  StreamInterruptedError,
+} from '../../domain/errors/index.js';
 import { BudgetReservation } from '../../domain/entities/budget-reservation.js';
 import { ModelSelectionPolicy } from '../../domain/services/model-selection-policy.js';
 import { Cost } from '../../domain/value-objects/index.js';
+import type { DataClassification } from '../../domain/value-objects/index.js';
 import type { Deployment } from '../../domain/entities/deployment.js';
 import type { UsageRecorded, UsageStatus } from '../../domain/events/usage-recorded.js';
 import {
@@ -305,7 +310,8 @@ export class CreateChatCompletion {
       command.alias,
     );
 
-    const messages = await this.applyGuardrails(command);
+    const guarded = await this.applyGuardrails(command, policyResult.policy.classification);
+    const messages = guarded.messages;
     const promptForCache = messages.map((message) => message.content ?? '').join('\n');
 
     const request: ChatRequestInput = {
@@ -329,6 +335,7 @@ export class CreateChatCompletion {
 
     return {
       policyResult,
+      guardrailsUnverified: guarded.unverified,
       deployments,
       request,
       promptForCache,
@@ -348,10 +355,16 @@ export class CreateChatCompletion {
    */
   private async applyGuardrails(
     command: CreateChatCompletionCommand,
-  ): Promise<CreateChatCompletionCommand['messages']> {
-    if (!this.guardrail.available) return command.messages;
+    classification: DataClassification,
+  ): Promise<{ messages: CreateChatCompletionCommand['messages']; unverified: boolean }> {
+    if (!this.guardrail.available) {
+      this.refuseUnverifiedRestricted(classification, command.projectId);
+      return { messages: command.messages, unverified: true };
+    }
 
     const inspected: CreateChatCompletionCommand['messages'] = [];
+    let unverified = false;
+
     for (const message of command.messages) {
       if (message.content === null || message.content === '') {
         inspected.push(message);
@@ -359,11 +372,30 @@ export class CreateChatCompletion {
       }
 
       const verdict = await this.guardrail.inspect(message.content, command.projectId);
+      // One unverified message makes the whole request unverified: what matters
+      // downstream is whether anything reached a provider uninspected.
+      if (verdict.unverified) {
+        this.refuseUnverifiedRestricted(classification, command.projectId);
+        unverified = true;
+      }
       // The pipeline decides whether to block; the text that proceeds is redacted.
       const context = await this.guardrailPipeline.run(verdict.text, command.projectId, verdict);
       inspected.push({ ...message, content: context.text });
     }
-    return inspected;
+    return { messages: inspected, unverified };
+  }
+
+  /**
+   * ADR-026: a restricted project fails closed.
+   *
+   * Everywhere else the platform keeps answering with the content uninspected,
+   * because refusing every request over a downed guardrail trades a risk for an
+   * outage. `restricted` is the classification that says the trade is not
+   * available: a project whose promise is that its data never leaves unredacted
+   * cannot keep that promise with the redactor unreachable.
+   */
+  private refuseUnverifiedRestricted(classification: DataClassification, projectId: string): void {
+    if (classification === 'restricted') throw new GuardrailUnavailableError(projectId);
   }
 
   private async reserve(
@@ -445,6 +477,7 @@ export class CreateChatCompletion {
       cacheHit,
       policyStale: plan.policyResult.stale,
       budgetUnverified: !this.ledger.isAvailable(),
+      guardrailsUnverified: plan.guardrailsUnverified,
       attempts,
     };
   }
@@ -485,6 +518,7 @@ export class CreateChatCompletion {
       status,
       ...(extra.errorCode !== undefined && { errorCode: extra.errorCode }),
       budgetUnverified: routing.budgetUnverified,
+      guardrailsUnverified: routing.guardrailsUnverified,
       policyStale: routing.policyStale,
       occurredAt: now,
     };
@@ -505,6 +539,7 @@ export class CreateChatCompletion {
         currency: routing.cost.currency,
         durationMs,
         ...(extra.errorCode !== undefined && { errorCode: extra.errorCode }),
+        guardrailsUnverified: routing.guardrailsUnverified,
         // Content is stored only with the project's opt-in, and it arrives
         // already redacted from the guardrail pipeline (doc 02 §10.2).
         ...(plan.policyResult.contentCapture && {
@@ -568,6 +603,7 @@ function fold(chunk: ChatChunk, totals: StreamTotals): StreamTotals {
 
 interface Plan {
   policyResult: PolicyResult;
+  guardrailsUnverified: boolean;
   deployments: Deployment[];
   request: ChatRequestInput;
   promptForCache: string;

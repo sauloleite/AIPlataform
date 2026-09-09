@@ -199,6 +199,15 @@ export interface AuditRecord {
   currency: string;
   durationMs: number;
   errorCode?: string;
+  /**
+   * The content left without being inspected.
+   *
+   * On the audit record rather than only on the event, for the same reason
+   * `dataZone` is here: this is the residency evidence, and a record that says
+   * where the data was processed while staying silent about whether it was
+   * redacted first answers half the question an auditor asks.
+   */
+  guardrailsUnverified: boolean;
   /** Only populated with the project's opt-in and AFTER PII redaction. */
   redactedPrompt?: string;
   redactedCompletion?: string;
@@ -234,6 +243,16 @@ export interface GuardrailVerdict {
   injectionScore: number;
   injectionSignals: string[];
   decision: 'allow' | 'redact' | 'block';
+  /**
+   * The content was NOT inspected, and `decision: 'allow'` means only that
+   * nothing stood in the way.
+   *
+   * Required rather than optional: an adapter that fails open has to say so,
+   * and a field it can forget is a field it will. The distinction matters
+   * because `allow` from a working guardrail and `allow` from an unreachable
+   * one are the same value with opposite meanings.
+   */
+  unverified: boolean;
 }
 
 export interface Guardrail {

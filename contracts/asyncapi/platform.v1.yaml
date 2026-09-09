@@ -494,4 +494,7 @@ components:
             what was counted up to the cut and reconciliation adjusts it later.
         error_code: { type: [string, 'null'] }
         budget_unverified: { type: boolean }
+        guardrails_unverified:
+          type: boolean
+          description: The content was not inspected before it left the platform.
         policy_stale: { type: boolean }

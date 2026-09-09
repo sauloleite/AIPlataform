@@ -553,3 +553,92 @@ describe('concurrency limit per project', () => {
     expect(bulkhead.acquired).toHaveLength(1);
   });
 });
+
+/**
+ * Degrading loudly instead of quietly.
+ *
+ * `HttpGuardrail` catches every error and returns `decision: 'allow'` with the
+ * original text, logging a warning. The content still reaches the provider,
+ * unredacted, and the caller was never told: an `allow` from a working
+ * guardrail and an `allow` from an unreachable one were the same value.
+ *
+ * Compare Redis, which already had this right: an unavailable budget ledger
+ * degrades to `budget_unverified`, the response carries it and the console
+ * renders it.
+ */
+describe('when the guardrail cannot inspect the content', () => {
+  it('answers, and says the content was not inspected', async () => {
+    const { useCase, guardrail } = build();
+    guardrail.goDown();
+
+    const result = await useCase.execute(aCommand());
+
+    // Failing open is the right default: refusing every request because a
+    // guardrail is down trades a risk for an outage.
+    expect(result.content).not.toBe('');
+    expect(result.routing.guardrailsUnverified).toBe(true);
+  });
+
+  it('says so when no guardrail is deployed at all', async () => {
+    const { useCase, guardrail } = build();
+    guardrail.available = false;
+
+    const result = await useCase.execute(aCommand());
+
+    // Switched off by configuration rather than broken, and the answer the
+    // caller needs is the same: this content was not inspected.
+    expect(result.routing.guardrailsUnverified).toBe(true);
+  });
+
+  it('reports a working guardrail as verified', async () => {
+    const { useCase } = build();
+
+    const result = await useCase.execute(aCommand());
+
+    expect(result.routing.guardrailsUnverified).toBe(false);
+  });
+
+  it('refuses a RESTRICTED project rather than sending it unredacted', async () => {
+    const { useCase, guardrail } = build({ snapshot: { classification: 'restricted' } });
+    guardrail.goDown();
+
+    // The classification exists to say the fail-open trade is not available
+    // here: a project whose promise is that its data never leaves unredacted
+    // cannot keep that promise with the redactor unreachable (ADR-026).
+    await expect(useCase.execute(aCommand())).rejects.toMatchObject({
+      code: 'guardrail_unavailable',
+      status: 503,
+    });
+  });
+
+  it('refuses a restricted project when no guardrail is deployed', async () => {
+    const { useCase, guardrail } = build({ snapshot: { classification: 'restricted' } });
+    guardrail.available = false;
+
+    await expect(useCase.execute(aCommand())).rejects.toMatchObject({
+      code: 'guardrail_unavailable',
+    });
+  });
+
+  it('still serves a restricted project while the guardrail works', async () => {
+    const { useCase } = build({ snapshot: { classification: 'restricted' } });
+
+    const result = await useCase.execute(aCommand());
+
+    // The refusal is about the guardrail being down, not about the
+    // classification: restricted projects are the point of the platform.
+    expect(result.routing.guardrailsUnverified).toBe(false);
+  });
+
+  it('carries the fact into the audit record and the usage event', async () => {
+    const { useCase, guardrail, audit, usage } = build();
+    guardrail.goDown();
+
+    await useCase.execute(aCommand());
+
+    // Residency evidence has to record that a control was not working, or the
+    // record says the call was inspected when it was not.
+    expect(audit.records[0]).toMatchObject({ guardrailsUnverified: true });
+    expect(usage.published[0]).toMatchObject({ guardrailsUnverified: true });
+  });
+});

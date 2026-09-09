@@ -37,6 +37,7 @@ const TITLES: Record<string, string> = {
   [ERROR_CODES.ALL_DEPLOYMENTS_FAILED]: 'Every deployment for the alias failed',
   [ERROR_CODES.STREAM_INTERRUPTED]: 'Stream interrupted',
   [ERROR_CODES.GUARDRAIL_BLOCKED]: 'Content blocked by a guardrail',
+  [ERROR_CODES.GUARDRAIL_UNAVAILABLE]: 'Content cannot be inspected right now',
   [ERROR_CODES.PROMPT_INJECTION_SUSPECTED]: 'Suspected prompt injection',
   [ERROR_CODES.UNAUTHENTICATED]: 'Not authenticated',
   [ERROR_CODES.FORBIDDEN]: 'Access denied',

@@ -70,6 +70,7 @@ export class HttpGuardrail implements Guardrail {
         injectionScore: payload.injection?.score ?? 0,
         injectionSignals: (payload.injection?.signals ?? []).map((signal) => signal.rule),
         decision: payload.decision ?? 'allow',
+        unverified: false,
       };
     } catch (error) {
       this.logger.warn(
@@ -82,7 +83,12 @@ export class HttpGuardrail implements Guardrail {
         injectionSuspected: false,
         injectionScore: 0,
         injectionSignals: [],
+        // Failing open keeps the platform answering, which is the right default
+        // for most projects. What was missing is that nobody was told: a log
+        // line at warn level is invisible to the caller, to the audit record
+        // and to the trace, so an outage looked exactly like a clean pass.
         decision: 'allow',
+        unverified: true,
       };
     }
   }
@@ -101,6 +107,9 @@ export class DisabledGuardrail implements Guardrail {
       injectionScore: 0,
       injectionSignals: [],
       decision: 'allow',
+      // Switched off by configuration rather than broken, and the caller still
+      // needs the same answer: this content was not inspected.
+      unverified: true,
     };
   }
 }

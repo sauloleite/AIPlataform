@@ -232,6 +232,13 @@ export interface components {
             policy_stale?: boolean;
             /** @description Budget not verified because Redis was down. */
             budget_unverified?: boolean;
+            /**
+             * @description The content reached the provider without being inspected, because
+             *     aia-guardrails was unreachable or is not deployed. A project
+             *     classified `restricted` never sees this: it is refused with
+             *     `guardrail_unavailable` instead (ADR-026).
+             */
+            guardrails_unverified?: boolean;
             /** @description How many deployments were tried. */
             attempts?: number;
         };
@@ -308,7 +315,7 @@ export interface components {
             detail?: string;
             instance?: string;
             /** @enum {string} */
-            code: "budget_exhausted" | "quota_exceeded" | "concurrency_limit" | "no_compatible_deployment" | "alias_not_found" | "provider_unavailable" | "all_deployments_failed" | "stream_interrupted" | "guardrail_blocked" | "prompt_injection_suspected" | "unauthenticated" | "forbidden" | "token_expired" | "invalid_token" | "project_required" | "project_not_found" | "validation_failed" | "idempotency_conflict" | "not_found" | "conflict" | "asset_not_found" | "asset_not_published" | "asset_version_conflict" | "store_not_found" | "document_not_found" | "unsupported_media_type" | "embedding_dimension_mismatch" | "ingestion_failed" | "tool_not_found" | "tool_not_allowed" | "tool_arguments_invalid" | "tool_rate_limited" | "approval_required" | "tool_execution_failed" | "agent_step_limit" | "upstream_timeout" | "circuit_open" | "internal_error";
+            code: "budget_exhausted" | "quota_exceeded" | "concurrency_limit" | "no_compatible_deployment" | "alias_not_found" | "provider_unavailable" | "all_deployments_failed" | "stream_interrupted" | "guardrail_blocked" | "guardrail_unavailable" | "prompt_injection_suspected" | "unauthenticated" | "forbidden" | "token_expired" | "invalid_token" | "project_required" | "project_not_found" | "validation_failed" | "idempotency_conflict" | "not_found" | "conflict" | "asset_not_found" | "asset_not_published" | "asset_version_conflict" | "store_not_found" | "document_not_found" | "unsupported_media_type" | "embedding_dimension_mismatch" | "ingestion_failed" | "tool_not_found" | "tool_not_allowed" | "tool_arguments_invalid" | "tool_rate_limited" | "approval_required" | "tool_execution_failed" | "agent_step_limit" | "upstream_timeout" | "circuit_open" | "internal_error";
             trace_id?: string;
             /** @description Seconds until a retry is worth attempting. */
             retry_after?: number;
