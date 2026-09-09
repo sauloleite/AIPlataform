@@ -54,7 +54,7 @@ routing, because none of those can be judged without a measurement.
 | M2  | ~~Delivery is real, and CI defends it~~ **done** | Helm ships 6 of 11 services; nothing in CI compares a route to its contract           |
 | M3  | ~~Connect what is already built~~ **done**       | The bulkhead, the tool-argument schema and the TTFT heartbeat need wiring, not design |
 | M4  | ~~Python parity and the two SDKs~~ **done**      | The next two services are Python, and `_authenticate` is already written three times  |
-| M5  | Telemetry that emits                             | Six metrics are declared and no instrument exists, so no SLO dashboard can            |
+| M5  | ~~Telemetry that emits~~ **done**                | Six metrics are declared and no instrument exists, so no SLO dashboard can            |
 | M6  | Evaluation that gates                            | Everything after this must be provable, not asserted                                  |
 | M7  | `aia-document-processing`                        | Unblocks every document that is not plain text                                        |
 | M8  | `aia-data-platform` and FinOps                   | Gives the published events a consumer                                                 |
