@@ -1,6 +1,15 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
+import type { Span } from '@opentelemetry/api';
 import { EVENT_TYPES, newEvent } from '@aia/messaging';
+import {
+  AIA_ATTR,
+  GEN_AI_ATTR,
+  GEN_AI_SPAN,
+  currentTraceId,
+  getTracer,
+  recordSpanError,
+} from '@aia/telemetry';
 import type { Principal } from '@aia/auth';
 
 import {
@@ -68,7 +77,62 @@ export class InvokeTool {
     @Inject(ID_GENERATOR) private readonly ids: IdGenerator,
   ) {}
 
+  private readonly tracer = getTracer('aia-mcp-gateway');
+
+  /**
+   * Runs the tool inside a span named by the GenAI conventions.
+   *
+   * The gateway performs the platform's highest-risk operation -- a call with a
+   * risk level, a human approval gate and an audit row -- and produced no span
+   * at all. A refusal was a row in Mongo and nothing a trace could show, so the
+   * question "what did this run try to do, and what stopped it" had two halves
+   * that could not be joined.
+   */
   async execute(command: InvokeToolCommand, principal: Principal): Promise<InvocationResultView> {
+    return this.tracer.startActiveSpan(
+      `${GEN_AI_SPAN.EXECUTE_TOOL} ${command.toolId}`,
+      {
+        attributes: {
+          [GEN_AI_ATTR.OPERATION_NAME]: GEN_AI_SPAN.EXECUTE_TOOL,
+          'gen_ai.tool.call.id': command.toolId,
+          [AIA_ATTR.PROJECT_ID]: command.projectId,
+          [AIA_ATTR.PRINCIPAL_ID]: command.principalId,
+          // Whether the caller arrived holding an approval. The gateway's own
+          // decision -- whether one was REQUIRED -- is set below, once the tool
+          // is resolved and the binding is known.
+          'aia.tool.approval_presented': command.approvalId !== undefined,
+        },
+      },
+      async (span) => {
+        try {
+          const result = await this.invoke(command, principal, span);
+          span.setAttribute('aia.tool.outcome', result.status);
+          return result;
+        } catch (error) {
+          const code = (error as { code?: string }).code;
+          span.setAttribute('aia.tool.outcome', code ?? 'failed');
+
+          // An approval request is NOT an error, and marking it as one would
+          // make the platform look broken every time it did its job: a project
+          // whose tools all require approval would show a hundred per cent
+          // error rate on the one control that is working. It is recorded as an
+          // outcome instead, the same distinction the budget rejections make.
+          if (!(error instanceof ApprovalRequiredError)) {
+            recordSpanError(span, error, code);
+          }
+          throw error;
+        } finally {
+          span.end();
+        }
+      },
+    );
+  }
+
+  private async invoke(
+    command: InvokeToolCommand,
+    principal: Principal,
+    span: Span,
+  ): Promise<InvocationResultView> {
     const tool = await this.catalog.find({
       projectId: command.projectId,
       accessToken: command.accessToken,
@@ -108,6 +172,12 @@ export class InvokeTool {
       await this.recordDenial(command, tool, error);
       throw error;
     }
+
+    span.setAttributes({
+      'aia.tool.risk_level': tool.riskLevel,
+      'aia.tool.type': tool.toolType,
+      'aia.tool.requires_approval': decision.requiresApproval,
+    });
 
     if (decision.requiresApproval) {
       await this.assertApproved(command, tool);
@@ -266,6 +336,7 @@ export class InvokeTool {
         toolType: tool.toolType,
         riskLevel: tool.riskLevel,
         status: outcome.status,
+        ...(currentTraceId() !== undefined && { traceId: currentTraceId() }),
         ...(outcome.errorCode !== undefined && { errorCode: outcome.errorCode }),
         ...(outcome.approvalId !== undefined && { approvalId: outcome.approvalId }),
         durationMs: outcome.durationMs,

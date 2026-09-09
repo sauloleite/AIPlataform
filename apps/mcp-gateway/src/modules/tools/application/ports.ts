@@ -116,6 +116,15 @@ export interface InvocationRecord {
   errorCode?: string;
   durationMs: number;
   approvalId?: string;
+  /**
+   * The trace this invocation belonged to.
+   *
+   * Without it the audit and the trace are two accounts of the same event with
+   * nothing joining them: an auditor reading a refused high-risk call has no
+   * way to reach the run that asked for it, and somebody looking at the run has
+   * no way to reach the audit row that says who approved it.
+   */
+  traceId?: string;
   occurredAt: Date;
 }
 
