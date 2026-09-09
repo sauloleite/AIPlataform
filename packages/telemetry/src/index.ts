@@ -16,3 +16,11 @@ export {
   stopTelemetry,
   type TelemetryOptions,
 } from './bootstrap.js';
+export {
+  recordBudgetRejection,
+  recordCircuitStateChange,
+  recordInference,
+  resetInstruments,
+  type InferenceLabels,
+  type InferenceMeasurement,
+} from './metrics.js';

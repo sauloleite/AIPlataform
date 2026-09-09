@@ -1,8 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Bulkhead, BulkheadLease } from '@aia/resilience';
-import { annotateOutcome, type BusinessContext } from '@aia/telemetry';
+import {
+  annotateOutcome,
+  recordBudgetRejection,
+  recordInference,
+  type BusinessContext,
+} from '@aia/telemetry';
 import {
   AliasNotFoundError,
+  BudgetExhaustedError,
   GuardrailUnavailableError,
   StreamInterruptedError,
 } from '../../domain/errors/index.js';
@@ -433,14 +439,26 @@ export class CreateChatCompletion {
       return BudgetReservation.unverified(command.projectId, plan.policyResult.currency);
     }
 
-    const reservation = await this.ledger.reserve({
-      projectId: command.projectId,
-      estimated,
-      periodKey: plan.policyResult.periodKey,
-      periodEndsInSeconds: plan.policyResult.periodEndsInSeconds,
-      limitMicros: plan.policyResult.limitMicros,
-      blockAtLimit: plan.policyResult.blockAtLimit,
-    });
+    let reservation: BudgetReservation;
+    try {
+      reservation = await this.ledger.reserve({
+        projectId: command.projectId,
+        estimated,
+        periodKey: plan.policyResult.periodKey,
+        periodEndsInSeconds: plan.policyResult.periodEndsInSeconds,
+        limitMicros: plan.policyResult.limitMicros,
+        blockAtLimit: plan.policyResult.blockAtLimit,
+      });
+    } catch (error) {
+      // Counted apart from the failures, because a refusal on budget is not
+      // one: the platform did exactly what it was told to. A rising rejection
+      // rate is a conversation with a customer; a rising error rate is an
+      // incident, and a dashboard that mixes them tells you neither.
+      if (error instanceof BudgetExhaustedError) {
+        recordBudgetRejection({ projectId: command.projectId, alias: command.alias });
+      }
+      throw error;
+    }
 
     // The estimate, not the cost: the gap between the two is what says whether
     // the ceiling this platform holds against a project's balance is anywhere
@@ -549,6 +567,25 @@ export class CreateChatCompletion {
       policyStale: routing.policyStale,
       budgetUnverified: routing.budgetUnverified,
       guardrailsUnverified: routing.guardrailsUnverified,
+    });
+
+    // The same numbers as the event below, as METRICS. The event is the record
+    // of one call and the audit is the evidence; neither can answer "what is
+    // the p95 this hour" without a scan per panel refresh, which is what a
+    // dashboard would need on every reload.
+    recordInference({
+      projectId: command.projectId,
+      alias: command.alias,
+      provider: routing.provider,
+      dataZone: routing.dataZone,
+      status,
+      durationMs,
+      ...(extra.timeToFirstTokenMs !== undefined && {
+        timeToFirstTokenMs: extra.timeToFirstTokenMs,
+      }),
+      promptTokens: usage.promptTokens,
+      completionTokens: usage.completionTokens,
+      costMicros: Number(routing.cost.micros),
     });
 
     const record: UsageRecorded = {

@@ -75,11 +75,20 @@ class TestSpanNames:
 
 class TestWhatIsDeliberatelyAbsent:
     def test_python_declares_no_metric_names(self) -> None:
-        """`AIA_METRIC` is not mirrored, and that is the honest choice.
+        """`AIA_METRIC` is not mirrored, and the reason has changed.
 
-        TypeScript declares six metric names and creates an instrument for none
-        of them. Copying the list here would double a claim neither language
-        keeps. The names arrive with the instruments (roadmap M5).
+        It used to be that TypeScript declared six metric names and created an
+        instrument for none of them, so copying the list here would have
+        doubled a claim neither language kept. TypeScript keeps it now: the six
+        instruments exist and the router records into them.
+
+        Python still declares none, for a different reason. Metric names, unlike
+        span attributes, are only worth agreeing on where both languages emit
+        the same measurement -- and no Python service performs inference. The
+        three that exist inspect content, run an agent loop and score
+        evaluations. When one of them has something of its own to measure, the
+        name arrives with the instrument that emits it, which is the rule that
+        stopped this list being a wish in the first place.
         """
         import aia_telemetry
 

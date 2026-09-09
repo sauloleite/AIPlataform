@@ -7,6 +7,7 @@ import {
   GEN_AI_SPAN,
   businessAttributes,
   getTracer,
+  recordCircuitStateChange,
   recordSpanError,
   type BusinessContext,
 } from '@aia/telemetry';
@@ -85,6 +86,10 @@ export class DeploymentExecutor {
       to: string;
     }): void => {
       this.logger.warn(`circuit for ${key}: ${from} -> ${to}`);
+      // The log says it happened; the counter is what a dashboard can chart and
+      // an alert can fire on. Doc 02 §11 asks for circuit state as an SLI, and
+      // a line in a log is not one.
+      recordCircuitStateChange({ key, from, to });
     };
 
     this.chatExecutor = new ResilienceExecutor(POLICIES.INFERENCE, {}, { onCircuitStateChange });
