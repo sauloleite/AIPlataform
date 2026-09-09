@@ -149,6 +149,19 @@ export interface IngestionJobPayload {
   documentId: string;
   /** Embeddings are charged to the project, as the uploader. */
   accessToken: string;
+  /**
+   * The trace the upload belonged to, so the ingestion joins it.
+   *
+   * A queue is where a trace normally stops: the request that enqueued the job
+   * ends, the worker picks it up minutes later in another process, and parse,
+   * chunk, embed and index happen under no span at all. Nothing about a slow
+   * ingestion was answerable from a trace.
+   *
+   * A carrier rather than a `traceparent` string, because the propagator owns
+   * that format -- and a deployment that adds baggage should not have to change
+   * this contract to carry it.
+   */
+  carrier?: Record<string, string>;
 }
 
 export interface IngestionQueue {
