@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Bulkhead, BulkheadLease } from '@aia/resilience';
+import { annotateOutcome, type BusinessContext } from '@aia/telemetry';
 import {
   AliasNotFoundError,
   GuardrailUnavailableError,
@@ -116,15 +117,18 @@ export class CreateChatCompletion {
     const reservation = await this.reserve(command, plan);
 
     try {
-      const attempt = await this.executor.chat(plan.request, plan.deployments, {
-        stream: false,
-      });
+      const attempt = await this.executor.chat(
+        plan.request,
+        plan.deployments,
+        { stream: false },
+        this.callerOf(command, plan),
+      );
       const cost = attempt.deployment.costOf(
         attempt.result.usage.promptTokens,
         attempt.result.usage.completionTokens,
       );
 
-      await this.ledger.commit(reservation, cost);
+      await this.commit(reservation, cost);
       if (plan.cacheable) {
         await this.cache.store(command.projectId, command.alias, plan.promptForCache, {
           content: attempt.result.content,
@@ -202,7 +206,11 @@ export class CreateChatCompletion {
     let toolCalls: ToolCallOutput[] = [];
 
     try {
-      const opened = await this.executor.openStream(plan.request, plan.deployments);
+      const opened = await this.executor.openStream(
+        plan.request,
+        plan.deployments,
+        this.callerOf(command, plan),
+      );
       deployment = opened.deployment;
       attempts = opened.attempts;
 
@@ -222,7 +230,7 @@ export class CreateChatCompletion {
       }
 
       const cost = deployment.costOf(usage.promptTokens, usage.completionTokens);
-      await this.ledger.commit(reservation, cost);
+      await this.commit(reservation, cost);
 
       const routing = this.routingOf({ deployment, cost, plan, attempts, cacheHit: false });
       const result: ChatCompletionResult = {
@@ -260,7 +268,7 @@ export class CreateChatCompletion {
           completionTokens: this.estimator.countText(emitted),
         };
         const cost = deployment.costOf(partialUsage.promptTokens, partialUsage.completionTokens);
-        await this.ledger.commit(reservation, cost);
+        await this.commit(reservation, cost);
 
         const routing = this.routingOf({ deployment, cost, plan, attempts, cacheHit: false });
         await this.settle({
@@ -398,6 +406,18 @@ export class CreateChatCompletion {
     if (classification === 'restricted') throw new GuardrailUnavailableError(projectId);
   }
 
+  /**
+   * Commits the real cost, and records it on the span.
+   *
+   * A method rather than three annotated call sites: the blocking path, the
+   * streaming path and the partial-delivery path all commit, and a fourth
+   * added later would otherwise be the one that forgets.
+   */
+  private async commit(reservation: BudgetReservation, cost: Cost): Promise<void> {
+    await this.ledger.commit(reservation, cost);
+    annotateOutcome({ budgetCommittedMicros: Number(cost.micros) });
+  }
+
   private async reserve(
     command: CreateChatCompletionCommand,
     plan: Plan,
@@ -413,7 +433,7 @@ export class CreateChatCompletion {
       return BudgetReservation.unverified(command.projectId, plan.policyResult.currency);
     }
 
-    return this.ledger.reserve({
+    const reservation = await this.ledger.reserve({
       projectId: command.projectId,
       estimated,
       periodKey: plan.policyResult.periodKey,
@@ -421,6 +441,12 @@ export class CreateChatCompletion {
       limitMicros: plan.policyResult.limitMicros,
       blockAtLimit: plan.policyResult.blockAtLimit,
     });
+
+    // The estimate, not the cost: the gap between the two is what says whether
+    // the ceiling this platform holds against a project's balance is anywhere
+    // near what its calls actually spend.
+    annotateOutcome({ budgetReservedMicros: Number(reservation.estimated.micros) });
+    return reservation;
   }
 
   private async finishFromCache(
@@ -460,6 +486,22 @@ export class CreateChatCompletion {
     };
   }
 
+  /**
+   * Who the model call is for, for the span the executor opens.
+   *
+   * The provider-facing request deliberately carries no tenant -- it is what
+   * goes on the wire to OpenAI -- so the identity travels beside it instead of
+   * inside it.
+   */
+  private callerOf(command: CreateChatCompletionCommand, plan: Plan): BusinessContext {
+    return {
+      projectId: command.projectId,
+      principalId: command.principalId,
+      alias: command.alias,
+      dataClassification: plan.policyResult.policy.classification,
+    };
+  }
+
   private routingOf(input: {
     deployment: Deployment;
     cost: Cost;
@@ -496,6 +538,18 @@ export class CreateChatCompletion {
     const extra = input.extra ?? {};
     const now = this.clock.now();
     const durationMs = now.getTime() - startedAt.getTime();
+
+    // Onto the request's own span, because `settle` is the one place that runs
+    // on every path -- cache hit, success and failure alike. Every one of these
+    // was already computed here for the audit and the event, and reached no
+    // span: "how much traffic did we serve on a stale policy last Tuesday" was
+    // a question only answerable by reading a database.
+    annotateOutcome({
+      cacheHit: routing.cacheHit,
+      policyStale: routing.policyStale,
+      budgetUnverified: routing.budgetUnverified,
+      guardrailsUnverified: routing.guardrailsUnverified,
+    });
 
     const record: UsageRecorded = {
       requestId: command.requestId,

@@ -232,8 +232,28 @@ export function isPlumbing(span: SpanView): boolean {
   return PLUMBING.test(span.name) && span.durationMs === 0;
 }
 
+/**
+ * The attribute names this console reads.
+ *
+ * A THIRD copy of names ADR-009 says live in `@aia/telemetry` — the console
+ * does not depend on that package, because a Server Component pulling in the
+ * Node SDK would drag an OTel bootstrap into the browser bundle's dependency
+ * graph. The copy is the accepted price; getting one wrong is silent, and that
+ * is the part worth knowing. `detailOf` returns `undefined` for a name nothing
+ * matches, `Pair` renders nothing for an undefined value, and the row simply
+ * disappears from the card — which reads as "the platform did not record it".
+ * The tests below pin every name for that reason.
+ */
 const GEN_AI = {
-  provider: 'gen_ai.system',
+  /**
+   * Both names, oldest first.
+   *
+   * The GenAI conventions renamed `gen_ai.system` to `gen_ai.provider.name`.
+   * The router emits both through the transition, and reading both means this
+   * console keeps working against a trace recorded before the change and
+   * against one recorded by a service that has already dropped the old name.
+   */
+  provider: ['gen_ai.system', 'gen_ai.provider.name'],
   requestModel: 'gen_ai.request.model',
   responseModel: 'gen_ai.response.model',
   inputTokens: 'gen_ai.usage.input_tokens',
@@ -264,10 +284,13 @@ export function detailOf(traceId: string, spans: SpanView[]): TraceDetail {
   // Read from EVERY span, including the ones not shown: a hidden span still
   // carries attributes, and losing `aia.project_id` because a middleware was
   // filtered out would blank the panel that says whose request this was.
-  const first = (key: string): string | undefined => {
+  const first = (key: string | readonly string[]): string | undefined => {
+    const keys = typeof key === 'string' ? [key] : key;
     for (const span of ordered) {
-      const value = span.attributes[key];
-      if (value !== undefined && value !== '') return value;
+      for (const candidate of keys) {
+        const value = span.attributes[candidate];
+        if (value !== undefined && value !== '') return value;
+      }
     }
     return undefined;
   };

@@ -1,7 +1,15 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { SpanKind, type Span } from '@opentelemetry/api';
 import { POLICIES, ResilienceExecutor } from '@aia/resilience';
-import { AIA_ATTR, GEN_AI_ATTR, GEN_AI_SPAN, getTracer, recordSpanError } from '@aia/telemetry';
+import {
+  AIA_ATTR,
+  GEN_AI_ATTR,
+  GEN_AI_SPAN,
+  businessAttributes,
+  getTracer,
+  recordSpanError,
+  type BusinessContext,
+} from '@aia/telemetry';
 import { AllDeploymentsFailedError } from '../../domain/errors/index.js';
 import { sameWidth } from '../../domain/services/model-selection-policy.js';
 import type { Deployment } from '../../domain/entities/deployment.js';
@@ -102,19 +110,29 @@ export class DeploymentExecutor {
    * readable by any observability tool without a translator (ADR-009).
    */
   private async traced<T>(
-    operation: string,
-    deployment: Deployment,
-    request: ChatRequestInput | undefined,
+    call: {
+      operation: string;
+      deployment: Deployment;
+      request?: ChatRequestInput;
+      caller: BusinessContext;
+    },
     fn: (span: Span) => Promise<T>,
   ): Promise<T> {
+    const { operation, deployment, request, caller } = call;
     // `{operation} {model}` is the name the GenAI conventions recommend.
     return this.tracer.startActiveSpan(
       `${operation} ${deployment.model}`,
       {
         kind: SpanKind.CLIENT,
         attributes: {
+          // The tenant, on the span as on every other (ADR-009). It was missing
+          // here, and this is the one span in the platform that says what a
+          // model call cost -- so the cost per project could be read from the
+          // audit and from nowhere a trace query could reach.
+          ...businessAttributes(caller),
           [GEN_AI_ATTR.OPERATION_NAME]: operation,
           [GEN_AI_ATTR.SYSTEM]: deployment.provider,
+          [GEN_AI_ATTR.PROVIDER_NAME]: deployment.provider,
           [GEN_AI_ATTR.REQUEST_MODEL]: deployment.model,
           [AIA_ATTR.DEPLOYMENT_ID]: deployment.id,
           [AIA_ATTR.DATA_ZONE]: deployment.dataZone,
@@ -169,6 +187,7 @@ export class DeploymentExecutor {
     request: ChatRequestInput,
     deployments: readonly Deployment[],
     options: { stream: false },
+    caller: BusinessContext,
   ): Promise<ChatAttempt> {
     void options;
     const candidates = this.usable(deployments);
@@ -181,34 +200,36 @@ export class DeploymentExecutor {
       attempts += 1;
 
       try {
-        const result = await this.traced(GEN_AI_SPAN.CHAT, deployment, request, (span) =>
-          this.executorFor(deployment, false)
-            .execute(
-              (signal) =>
-                provider.chat(
-                  {
-                    ...request,
-                    maxOutputTokens: deployment.clampOutputTokens(request.maxOutputTokens),
-                  },
-                  deployment,
-                  signal,
-                ),
-              { key: deployment.id },
-            )
-            .then((chatResult) => {
-              span.setAttributes({
-                [GEN_AI_ATTR.RESPONSE_MODEL]: deployment.model,
-                [GEN_AI_ATTR.USAGE_INPUT_TOKENS]: chatResult.usage.promptTokens,
-                [GEN_AI_ATTR.USAGE_OUTPUT_TOKENS]: chatResult.usage.completionTokens,
-                ...(chatResult.finishReason !== null && {
-                  [GEN_AI_ATTR.RESPONSE_FINISH_REASONS]: [chatResult.finishReason],
-                }),
-                ...(chatResult.providerResponseId !== undefined && {
-                  [GEN_AI_ATTR.RESPONSE_ID]: chatResult.providerResponseId,
-                }),
-              });
-              return chatResult;
-            }),
+        const result = await this.traced(
+          { operation: GEN_AI_SPAN.CHAT, deployment, request, caller },
+          (span) =>
+            this.executorFor(deployment, false)
+              .execute(
+                (signal) =>
+                  provider.chat(
+                    {
+                      ...request,
+                      maxOutputTokens: deployment.clampOutputTokens(request.maxOutputTokens),
+                    },
+                    deployment,
+                    signal,
+                  ),
+                { key: deployment.id },
+              )
+              .then((chatResult) => {
+                span.setAttributes({
+                  [GEN_AI_ATTR.RESPONSE_MODEL]: deployment.model,
+                  [GEN_AI_ATTR.USAGE_INPUT_TOKENS]: chatResult.usage.promptTokens,
+                  [GEN_AI_ATTR.USAGE_OUTPUT_TOKENS]: chatResult.usage.completionTokens,
+                  ...(chatResult.finishReason !== null && {
+                    [GEN_AI_ATTR.RESPONSE_FINISH_REASONS]: [chatResult.finishReason],
+                  }),
+                  ...(chatResult.providerResponseId !== undefined && {
+                    [GEN_AI_ATTR.RESPONSE_ID]: chatResult.providerResponseId,
+                  }),
+                });
+                return chatResult;
+              }),
         );
         return { deployment, result, attempts };
       } catch (error) {
@@ -236,6 +257,7 @@ export class DeploymentExecutor {
   async openStream(
     request: ChatRequestInput,
     deployments: readonly Deployment[],
+    caller: BusinessContext,
   ): Promise<OpenedStream> {
     const candidates = this.usable(deployments);
     let attempts = 0;
@@ -247,25 +269,27 @@ export class DeploymentExecutor {
       attempts += 1;
 
       try {
-        const chunks = await this.traced(GEN_AI_SPAN.CHAT, deployment, request, () =>
-          this.executorFor(deployment, true).execute(
-            async (signal) => {
-              const iterator = provider
-                .chatStream(
-                  {
-                    ...request,
-                    maxOutputTokens: deployment.clampOutputTokens(request.maxOutputTokens),
-                  },
-                  deployment,
-                  signal,
-                )
-                [Symbol.asyncIterator]();
+        const chunks = await this.traced(
+          { operation: GEN_AI_SPAN.CHAT, deployment, request, caller },
+          () =>
+            this.executorFor(deployment, true).execute(
+              async (signal) => {
+                const iterator = provider
+                  .chatStream(
+                    {
+                      ...request,
+                      maxOutputTokens: deployment.clampOutputTokens(request.maxOutputTokens),
+                    },
+                    deployment,
+                    signal,
+                  )
+                  [Symbol.asyncIterator]();
 
-              const first = await iterator.next();
-              return { iterator, first };
-            },
-            { key: deployment.id },
-          ),
+                const first = await iterator.next();
+                return { iterator, first };
+              },
+              { key: deployment.id },
+            ),
         );
 
         return { deployment, chunks: replay(chunks.first, chunks.iterator), attempts };
@@ -287,6 +311,7 @@ export class DeploymentExecutor {
   async embed(
     input: string[],
     deployments: readonly Deployment[],
+    caller: BusinessContext,
   ): Promise<{ deployment: Deployment; result: EmbeddingsResult; attempts: number }> {
     // Only across deployments of the SAME vector width. A chat answer from
     // another model is still an answer; an embedding of another width is a
@@ -302,13 +327,17 @@ export class DeploymentExecutor {
       attempts += 1;
 
       try {
-        const result = await this.traced(GEN_AI_SPAN.EMBEDDINGS, deployment, undefined, (span) =>
-          this.embeddingsExecutor
-            .execute((signal) => provider.embed(input, deployment, signal), { key: deployment.id })
-            .then((embedResult) => {
-              span.setAttribute(GEN_AI_ATTR.USAGE_INPUT_TOKENS, embedResult.usage.promptTokens);
-              return embedResult;
-            }),
+        const result = await this.traced(
+          { operation: GEN_AI_SPAN.EMBEDDINGS, deployment, caller },
+          (span) =>
+            this.embeddingsExecutor
+              .execute((signal) => provider.embed(input, deployment, signal), {
+                key: deployment.id,
+              })
+              .then((embedResult) => {
+                span.setAttribute(GEN_AI_ATTR.USAGE_INPUT_TOKENS, embedResult.usage.promptTokens);
+                return embedResult;
+              }),
         );
         return { deployment, result, attempts };
       } catch (error) {

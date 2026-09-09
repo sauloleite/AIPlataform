@@ -19,6 +19,15 @@ export const AIA_ATTR = {
   POLICY_STALE: 'aia.policy_stale',
   /** Budget not verified because Redis was unreachable. */
   BUDGET_UNVERIFIED: 'aia.budget_unverified',
+  /**
+   * Content went out uninspected because guardrails were unreachable.
+   *
+   * The response has carried this since ADR-026 and no trace could show it,
+   * which is the wrong way round: the caller is told once, and the platform
+   * needs to be able to answer "how much traffic went out unredacted last
+   * Tuesday" long afterwards.
+   */
+  GUARDRAILS_UNVERIFIED: 'aia.guardrails_unverified',
   BUDGET_RESERVED_MICROS: 'aia.budget.reserved_micros',
   BUDGET_COMMITTED_MICROS: 'aia.budget.committed_micros',
   CACHE_HIT: 'aia.cache_hit',
@@ -29,7 +38,16 @@ export const AIA_ATTR = {
 
 /** The subset of the GenAI conventions this platform emits. */
 export const GEN_AI_ATTR = {
+  /**
+   * Superseded by `PROVIDER_NAME`, and emitted anyway.
+   *
+   * The GenAI conventions renamed this to `gen_ai.provider.name`. Both are set
+   * during the transition because a dashboard, a saved query or a backend's own
+   * GenAI view may know either one, and a span that carries only the new name
+   * silently drops out of anything built on the old.
+   */
   SYSTEM: 'gen_ai.system',
+  PROVIDER_NAME: 'gen_ai.provider.name',
   OPERATION_NAME: 'gen_ai.operation.name',
   REQUEST_MODEL: 'gen_ai.request.model',
   REQUEST_MAX_TOKENS: 'gen_ai.request.max_tokens',

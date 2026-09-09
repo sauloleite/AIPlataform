@@ -36,6 +36,8 @@ class AiaAttr:
     POLICY_STALE: Final = "aia.policy_stale"
     #: Budget not verified because Redis was unreachable.
     BUDGET_UNVERIFIED: Final = "aia.budget_unverified"
+    #: Content went out uninspected because guardrails were unreachable.
+    GUARDRAILS_UNVERIFIED: Final = "aia.guardrails_unverified"
     BUDGET_RESERVED_MICROS: Final = "aia.budget.reserved_micros"
     BUDGET_COMMITTED_MICROS: Final = "aia.budget.committed_micros"
     CACHE_HIT: Final = "aia.cache_hit"
@@ -47,7 +49,10 @@ class AiaAttr:
 class GenAiAttr:
     """OpenTelemetry Semantic Conventions for Generative AI."""
 
+    #: Superseded by `PROVIDER_NAME`, and emitted anyway: a dashboard built on
+    #: the old name goes empty otherwise.
     SYSTEM: Final = "gen_ai.system"
+    PROVIDER_NAME: Final = "gen_ai.provider.name"
     OPERATION_NAME: Final = "gen_ai.operation.name"
     REQUEST_MODEL: Final = "gen_ai.request.model"
     REQUEST_MAX_TOKENS: Final = "gen_ai.request.max_tokens"

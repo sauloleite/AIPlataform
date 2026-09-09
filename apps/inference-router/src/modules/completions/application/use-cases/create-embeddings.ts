@@ -63,7 +63,12 @@ export class CreateEmbeddings {
     const startedAt = this.clock.now();
 
     try {
-      const attempt = await this.executor.embed(command.input, deployments);
+      const attempt = await this.executor.embed(command.input, deployments, {
+        projectId: command.projectId,
+        principalId: command.principalId,
+        alias: command.alias,
+        dataClassification: policyResult.policy.classification,
+      });
       const cost = attempt.deployment.costOf(attempt.result.usage.promptTokens, 0);
       await this.ledger.commit(reservation, cost);
 

@@ -58,15 +58,15 @@ export default tseslint.config(
         'error',
         {
           selector: 'FunctionDeclaration[params.length>4]',
-          message: 'Mais de quatro parametros: use um objeto de comando.',
+          message: 'More than four parameters: use a command object.',
         },
         {
           selector: 'ArrowFunctionExpression[params.length>4]',
-          message: 'Mais de quatro parametros: use um objeto de comando.',
+          message: 'More than four parameters: use a command object.',
         },
         {
           selector: "MethodDefinition[kind!='constructor'] > FunctionExpression[params.length>4]",
-          message: 'Mais de quatro parametros: use um objeto de comando.',
+          message: 'More than four parameters: use a command object.',
         },
       ],
       complexity: ['error', 15],
