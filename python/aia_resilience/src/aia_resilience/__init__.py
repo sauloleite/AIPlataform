@@ -7,11 +7,13 @@ that router and agent-runtime behave alike in the face of the same failure.
 from __future__ import annotations
 
 import asyncio
+import os
 import random
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
-from typing import Any, Final, TypeVar
+from dataclasses import dataclass, field, replace
+from typing import Any, Final, Protocol, TypeVar
+from uuid import uuid4
 
 from aia_errors import DomainError, ErrorCode
 
@@ -60,37 +62,138 @@ class CircuitBreakerPolicy:
 
 
 @dataclass(frozen=True, slots=True)
+class TimeoutPolicy:
+    """Two budgets, because they fail differently.
+
+    `connect_ms` is time to reach the other end; `total_ms` is time for the
+    whole call. A provider that is DOWN fails the first in a second, while a
+    provider that is merely slow needs the second to be generous. Collapsing
+    them into one number -- which this package used to do -- means either
+    declaring a dead dependency healthy for sixty seconds, or cutting off a
+    model that was about to answer.
+
+    httpx takes both natively, which is why the shape is worth carrying.
+    """
+
+    connect_ms: int
+    total_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class BulkheadPolicy:
+    """Concurrent calls allowed per key, normally the project."""
+
+    max_concurrent: int
+    acquire_timeout_ms: int
+    #: Slot lifetime, so a dead process cannot wedge the semaphore.
+    lease_ttl_ms: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ResiliencePolicy:
     name: str
-    timeout_ms: int | None = None
+    timeout: TimeoutPolicy | None = None
     retry: RetryPolicy | None = None
     circuit_breaker: CircuitBreakerPolicy | None = None
+    bulkhead: BulkheadPolicy | None = None
+
+    def with_total_timeout(self, total_ms: int) -> ResiliencePolicy:
+        """The same policy with a longer ceiling, and the same time to connect.
+
+        A deliberate deviation for a caller nobody is waiting on -- an offline
+        batch, say -- expressed as one. `replace(policy, timeout=...)` would
+        rebuild the whole timeout and quietly reset `connect_ms` to whatever the
+        caller happened to type, so a provider that is DOWN would stop failing
+        in a second and start failing in five minutes.
+        """
+        if self.timeout is None:
+            raise ValueError(f"{self.name} declares no timeout to extend")
+        return replace(self, timeout=replace(self.timeout, total_ms=total_ms))
 
 
 class Policies:
-    """Policies from the table in reference doc 02 §8."""
+    """The named policies from the table in reference doc 02 §8.
 
+    Every value here matches `POLICIES` in `packages/resilience`, and a test
+    asserts it. They used to differ quietly: this side had four of the eight,
+    `INTERNAL` opened its circuit for thirty seconds where TypeScript used ten,
+    and `GUARDRAIL` had no circuit breaker at all -- so the same named policy
+    meant two different things depending on which language made the call.
+    """
+
+    #: Non-streaming inference: 3 s to connect, 60 s total, up to 2 retries.
     INFERENCE: Final = ResiliencePolicy(
-        "inference", timeout_ms=60_000, retry=RetryPolicy(), circuit_breaker=CircuitBreakerPolicy()
+        "inference",
+        timeout=TimeoutPolicy(connect_ms=3_000, total_ms=60_000),
+        retry=RetryPolicy(),
+        circuit_breaker=CircuitBreakerPolicy(),
+        bulkhead=BulkheadPolicy(max_concurrent=20, acquire_timeout_ms=2_000, lease_ttl_ms=90_000),
     )
-    INTERNAL: Final = ResiliencePolicy(
-        "internal",
-        timeout_ms=2_000,
-        retry=RetryPolicy(max_attempts=1, base_delay_ms=100, max_delay_ms=500),
+
+    #: Streaming: 10 s to the first token. No retry after it -- the caller has
+    #: already seen part of the answer, and the failure becomes
+    #: `stream_interrupted`.
+    INFERENCE_STREAMING: Final = ResiliencePolicy(
+        "inference_streaming",
+        timeout=TimeoutPolicy(connect_ms=3_000, total_ms=10_000),
+        retry=RetryPolicy(max_attempts=1, base_delay_ms=300, max_delay_ms=3_000),
+        circuit_breaker=CircuitBreakerPolicy(),
+        bulkhead=BulkheadPolicy(max_concurrent=20, acquire_timeout_ms=2_000, lease_ttl_ms=300_000),
+    )
+
+    #: A LOCAL model reads itself from disk on the first call. Failing for that
+    #: reason would break precisely the zero-cost path.
+    INFERENCE_STREAMING_LOCAL: Final = ResiliencePolicy(
+        "inference_streaming_local",
+        timeout=TimeoutPolicy(connect_ms=2_000, total_ms=120_000),
+        retry=RetryPolicy(max_attempts=0, base_delay_ms=0, max_delay_ms=0),
         circuit_breaker=CircuitBreakerPolicy(),
     )
-    # A tool does not retry: the action may not be idempotent (doc 02 §8).
+
+    INFERENCE_LOCAL: Final = ResiliencePolicy(
+        "inference_local",
+        timeout=TimeoutPolicy(connect_ms=2_000, total_ms=180_000),
+        retry=RetryPolicy(max_attempts=1, base_delay_ms=500, max_delay_ms=2_000),
+        circuit_breaker=CircuitBreakerPolicy(),
+    )
+
+    #: Batched embeddings: 30 s per batch, up to 3 retries.
+    EMBEDDINGS: Final = ResiliencePolicy(
+        "embeddings",
+        timeout=TimeoutPolicy(connect_ms=3_000, total_ms=30_000),
+        retry=RetryPolicy(max_attempts=3, base_delay_ms=500, max_delay_ms=10_000),
+        circuit_breaker=CircuitBreakerPolicy(),
+    )
+
+    #: Internal call (governance, registry). The fallback is the caller's own
+    #: cache with a TTL, which is why the circuit reopens quickly.
+    INTERNAL: Final = ResiliencePolicy(
+        "internal",
+        timeout=TimeoutPolicy(connect_ms=1_000, total_ms=2_000),
+        retry=RetryPolicy(max_attempts=1, base_delay_ms=100, max_delay_ms=500),
+        circuit_breaker=CircuitBreakerPolicy(failure_threshold=5, open_ms=10_000),
+    )
+
+    #: A tool does not retry: the action may not be idempotent (doc 02 §8). The
+    #: error goes back to the agent as an observation.
     TOOL: Final = ResiliencePolicy(
         "tool",
-        timeout_ms=20_000,
+        timeout=TimeoutPolicy(connect_ms=2_000, total_ms=20_000),
         circuit_breaker=CircuitBreakerPolicy(
             failure_threshold=3, open_ms=60_000, success_threshold=1
         ),
+        bulkhead=BulkheadPolicy(max_concurrent=5, acquire_timeout_ms=1_000, lease_ttl_ms=30_000),
     )
+
+    #: Guardrails: fast and mandatory. Failing open is a security decision, and
+    #: it belongs to the caller rather than to a timeout (ADR-026).
     GUARDRAIL: Final = ResiliencePolicy(
         "guardrail",
-        timeout_ms=3_000,
+        timeout=TimeoutPolicy(connect_ms=500, total_ms=3_000),
         retry=RetryPolicy(max_attempts=1, base_delay_ms=100, max_delay_ms=400),
+        circuit_breaker=CircuitBreakerPolicy(
+            failure_threshold=10, open_ms=15_000, success_threshold=3
+        ),
     )
 
 
@@ -188,6 +291,156 @@ class CircuitBreaker:
         entry.state = "open"
 
 
+class ConcurrencyLimitError(DomainError):
+    def __init__(self, key: str, max_concurrent: int) -> None:
+        super().__init__(
+            f"Reached the limit of {max_concurrent} concurrent calls",
+            code=ErrorCode.CONCURRENCY_LIMIT,
+            status=429,
+            details={"key": key, "max_concurrent": max_concurrent, "retry_after": 1},
+        )
+
+
+class BulkheadLease(Protocol):
+    """A slot taken from the semaphore. Always released in a `finally`."""
+
+    async def release(self) -> None: ...
+
+
+class Bulkhead(Protocol):
+    """Caps concurrency per key, so one project cannot consume every slot.
+
+    `max_concurrent` overrides the policy's default for this key. It exists
+    because the limit is a GOVERNANCE decision -- `max_concurrent_requests` is
+    set per project and changes without a deploy -- while the policy carries the
+    shape that does not vary: how long to wait, and how long a lease may outlive
+    the process holding it.
+    """
+
+    async def acquire(self, key: str, max_concurrent: int | None = None) -> BulkheadLease: ...
+
+
+@dataclass(slots=True)
+class _InMemoryLease:
+    _release: Callable[[], None]
+    _released: bool = False
+
+    async def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        self._release()
+
+
+@dataclass(slots=True)
+class InMemoryBulkhead:
+    """Per-process semaphore. Enough for a single replica, or for a test.
+
+    NOT enough for the real thing: three replicas each allowing twenty is sixty,
+    and the limit is meant to be what a project may run at once.
+    """
+
+    policy: BulkheadPolicy
+    _in_flight: dict[str, int] = field(default_factory=dict)
+    _waiting: dict[str, list[asyncio.Future[None]]] = field(default_factory=dict)
+
+    async def acquire(self, key: str, max_concurrent: int | None = None) -> BulkheadLease:
+        limit = self.policy.max_concurrent if max_concurrent is None else max_concurrent
+
+        if self._in_flight.get(key, 0) >= limit:
+            await self._wait_for_slot(key, limit)
+
+        self._in_flight[key] = self._in_flight.get(key, 0) + 1
+        return _InMemoryLease(lambda: self._release(key))
+
+    async def _wait_for_slot(self, key: str, limit: int) -> None:
+        waiter: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        queue = self._waiting.setdefault(key, [])
+        queue.append(waiter)
+        try:
+            await asyncio.wait_for(waiter, self.policy.acquire_timeout_ms / 1000)
+        except TimeoutError as error:
+            if waiter in queue:
+                queue.remove(waiter)
+            raise ConcurrencyLimitError(key, limit) from error
+
+    def _release(self, key: str) -> None:
+        self._in_flight[key] = max(0, self._in_flight.get(key, 1) - 1)
+        queue = self._waiting.get(key)
+        while queue:
+            waiter = queue.pop(0)
+            if not waiter.done():
+                waiter.set_result(None)
+                return
+
+
+class RedisLike(Protocol):
+    """The minimal Redis surface the bulkhead needs. Avoids coupling to a client."""
+
+    async def eval(self, script: str, numkeys: int, *args: str | int) -> Any: ...
+
+
+@dataclass(slots=True)
+class _RedisLease:
+    _redis: RedisLike
+    _key: str
+    _member: str
+    _released: bool = False
+
+    async def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        await self._redis.eval(_RELEASE_SCRIPT, 1, self._key, self._member)
+
+
+#: Each slot is a sorted-set member scored with its expiry, so a process that
+#: dies without releasing does not wedge the semaphore forever.
+_ACQUIRE_SCRIPT = """
+    local key, now, ttl, limit, member = KEYS[1], tonumber(ARGV[1]), tonumber(ARGV[2]),
+                                         tonumber(ARGV[3]), ARGV[4]
+    redis.call('ZREMRANGEBYSCORE', key, '-inf', now)
+    if redis.call('ZCARD', key) >= limit then return 0 end
+    redis.call('ZADD', key, now + ttl, member)
+    redis.call('PEXPIRE', key, ttl)
+    return 1
+"""
+
+_RELEASE_SCRIPT = "return redis.call('ZREM', KEYS[1], ARGV[1])"
+
+
+@dataclass(slots=True)
+class RedisBulkhead:
+    """Distributed semaphore: the limit applies across every replica."""
+
+    redis: RedisLike
+    policy: BulkheadPolicy
+    key_prefix: str = "aia:bulkhead"
+
+    async def acquire(self, key: str, max_concurrent: int | None = None) -> BulkheadLease:
+        limit = self.policy.max_concurrent if max_concurrent is None else max_concurrent
+        redis_key = f"{self.key_prefix}:{key}"
+        ttl = self.policy.lease_ttl_ms or 60_000
+        deadline = time.monotonic() + self.policy.acquire_timeout_ms / 1000
+
+        while True:
+            now_ms = int(time.time() * 1000)
+            member = f"{os.getpid()}-{now_ms}-{uuid4().hex[:8]}"
+            acquired = await self.redis.eval(
+                _ACQUIRE_SCRIPT, 1, redis_key, now_ms, ttl, limit, member
+            )
+
+            if acquired == 1:
+                return _RedisLease(self.redis, redis_key, member)
+
+            if time.monotonic() >= deadline:
+                raise ConcurrencyLimitError(key, limit)
+            # Polling rather than a Redis notification: the wait is bounded by
+            # `acquire_timeout_ms`, and a keyspace subscription per caller costs
+            # more than the few polls that fit inside it.
+            await asyncio.sleep(0.05)
+
+
 @dataclass(slots=True)
 class ResilienceExecutor:
     """Layers, outermost first: retry -> circuit breaker -> timeout."""
@@ -222,13 +475,17 @@ class ResilienceExecutor:
         if self._breaker is not None:
             self._breaker.ensure_closed(key)
         try:
-            if self.policy.timeout_ms is None:
+            timeout = self.policy.timeout
+            if timeout is None:
                 result = await operation()
             else:
+                # `total_ms` is the budget for the whole call. `connect_ms` is
+                # the client's business -- httpx takes it directly -- because
+                # only the client knows when a connection was established.
                 try:
-                    result = await asyncio.wait_for(operation(), self.policy.timeout_ms / 1000)
+                    result = await asyncio.wait_for(operation(), timeout.total_ms / 1000)
                 except TimeoutError as error:
-                    raise UpstreamTimeoutError(key, self.policy.timeout_ms) from error
+                    raise UpstreamTimeoutError(key, timeout.total_ms) from error
         except BaseException as error:
             if self._breaker is not None:
                 self._breaker.record_failure(key, error)
@@ -239,13 +496,20 @@ class ResilienceExecutor:
 
 
 __all__: list[str] = [
+    "Bulkhead",
+    "BulkheadLease",
+    "BulkheadPolicy",
     "CircuitBreaker",
     "CircuitBreakerPolicy",
     "CircuitOpenError",
+    "ConcurrencyLimitError",
+    "InMemoryBulkhead",
     "Policies",
+    "RedisBulkhead",
     "ResilienceExecutor",
     "ResiliencePolicy",
     "RetryPolicy",
+    "TimeoutPolicy",
     "UpstreamTimeoutError",
     "is_retryable",
     "next_delay_ms",

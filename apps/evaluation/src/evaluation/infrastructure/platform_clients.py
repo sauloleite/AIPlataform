@@ -28,7 +28,9 @@ _SCORE = re.compile(r"(?:^|[^\d.])(0(?:\.\d+)?|1(?:\.0+)?)(?:$|[^\d])")
 #: waiting and wrong for an offline batch: nobody is watching, and a local model
 #: on a cold start routinely takes longer. Same retry, same breaker, longer
 #: ceiling -- a documented deviation rather than a hand-rolled timeout.
-EVALUATION_INFERENCE = replace(Policies.INFERENCE, name="evaluation-inference", timeout_ms=300_000)
+EVALUATION_INFERENCE = replace(
+    Policies.INFERENCE.with_total_timeout(300_000), name="evaluation-inference"
+)
 
 JUDGE_INSTRUCTION = (
     "You grade an answer. Reply with a single number between 0.0 and 1.0 and "
