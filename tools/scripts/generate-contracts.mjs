@@ -17,7 +17,7 @@ const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const openapiDir = join(root, 'contracts/openapi');
 const outDir = join(root, 'packages/contracts/src/generated');
-const pythonOutDir = join(root, 'python/aia_contracts/src/aia_contracts/_generated');
+const pythonOutDir = join(root, 'python/aia_contracts/src/aia_contracts/generated');
 
 const HEADER = `/**
  * AUTOMATICALLY GENERATED. Do not edit.

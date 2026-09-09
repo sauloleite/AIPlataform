@@ -113,9 +113,11 @@ name = shared libraries know no service
 type = forbidden
 source_modules =
     aia_auth
+    aia_contracts
     aia_errors
     aia_messaging
     aia_resilience
+    aia_sdk
     aia_telemetry
 forbidden_modules =
     guardrails

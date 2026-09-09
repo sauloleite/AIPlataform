@@ -180,8 +180,30 @@ jobs:
           # exists to prevent.
           if ! git diff --exit-code --stat \
                packages/contracts/src/generated \
-               python/aia_contracts/src/aia_contracts/_generated; then
+               python/aia_contracts/src/aia_contracts/generated; then
             echo "::error::The generated output differs from the contracts. Run 'make contracts' and commit."
+            exit 1
+          fi
+
+      # An assertion that never fails protects nothing, so the diff above is
+      # asked to catch a drift. Editing the generated Python by hand is exactly
+      # what the single source exists to prevent (ADR-027), and it is the case
+      # a diff over TypeScript alone would have missed.
+      - name: The generated-output check really fails when a language drifts
+        run: |
+          set -euo pipefail
+          GENERATED=python/aia_contracts/src/aia_contracts/generated/data_zones.py
+          trap 'git checkout -- "$GENERATED"' EXIT
+          sed -i 's/"restricted": ("local",)/"restricted": ("local", "us")/' "$GENERATED"
+          if git diff --exit-code --stat "$GENERATED" >/dev/null; then
+            echo "::error::the drift was not even applied; this check is not checking"
+            exit 1
+          fi
+          node tools/scripts/generate-contracts.mjs >/dev/null
+          if ! git diff --exit-code --stat "$GENERATED" >/dev/null; then
+            echo "regenerating restored the file, as it should"
+          else
+            echo "::error::the generator did not overwrite a hand-edited file"
             exit 1
           fi
 

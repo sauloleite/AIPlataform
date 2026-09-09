@@ -11,7 +11,7 @@ the console's -- which is four chances for the rule that decides whether
 restricted data may leave the machine to disagree with itself (ADR-027).
 """
 
-from aia_contracts._generated.data_zones import (
+from aia_contracts.generated.data_zones import (
     CLASSIFICATIONS,
     DATA_ZONES,
     MAX_ZONES_BY_CLASSIFICATION,
