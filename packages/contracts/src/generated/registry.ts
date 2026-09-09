@@ -267,9 +267,15 @@ export interface components {
             /**
              * @description Built-in tools are executed by the platform; the rest reach an
              *     endpoint you configure.
+             *
+             *     `function` was removed: it named a tool the platform would never
+             *     call, so publishing one succeeded and invoking it failed with what
+             *     looked like a misconfiguration. A client-executed tool needs the
+             *     runtime to pause and hand the call back, which does not exist; the
+             *     type returns with it.
              * @enum {string}
              */
-            tool_type: "mcp" | "openapi" | "function" | "builtin";
+            tool_type: "mcp" | "openapi" | "builtin";
             risk_level: components["schemas"]["RiskLevel"];
             /** @description MCP server URL, or the OpenAPI document URL. */
             endpoint?: string;
@@ -278,7 +284,11 @@ export interface components {
              * @enum {string}
              */
             builtin_id?: "file_search" | "code_interpreter" | "web_search";
-            /** @description JSON Schema for the arguments, for a `function` tool. */
+            /**
+             * @description JSON Schema for the arguments. Optional, and worth declaring: the
+             *     gateway validates a call against it before dispatch (ADR-025), so a
+             *     tool without one is a tool whose arguments nobody checks.
+             */
             parameters?: {
                 [key: string]: unknown;
             };

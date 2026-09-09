@@ -205,7 +205,7 @@ export interface components {
          */
         RiskLevel: "low" | "medium" | "high";
         /** @enum {string} */
-        ToolType: "mcp" | "openapi" | "function" | "builtin";
+        ToolType: "mcp" | "openapi" | "builtin";
         ToolBinding: {
             project_id: string;
             tool_id: string;

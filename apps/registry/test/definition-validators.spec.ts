@@ -105,16 +105,20 @@ describe('tool', () => {
     }).toThrow();
   });
 
-  it('requires a parameters schema for a function tool', () => {
-    expect(() => {
-      validateDefinition('tool', tool({ toolType: 'function', builtinId: undefined }));
-    }).toThrow();
+  it('refuses a function tool, which the platform can never call', () => {
+    // It used to publish and then fail at the gateway with "no executor is
+    // configured", which reads as a deployment problem rather than as a tool
+    // nothing could ever run.
     expect(() => {
       validateDefinition(
         'tool',
-        tool({ toolType: 'function', builtinId: undefined, parameters: { type: 'object' } }),
+        tool({
+          toolType: 'function' as unknown as ToolDefinition['toolType'],
+          builtinId: undefined,
+          parameters: { type: 'object' },
+        }),
       );
-    }).not.toThrow();
+    }).toThrow();
   });
 
   it('refuses an unknown risk level', () => {

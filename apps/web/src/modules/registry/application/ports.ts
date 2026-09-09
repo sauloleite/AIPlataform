@@ -34,7 +34,7 @@ export interface AgentDefinition {
 
 export interface ToolDefinition {
   kind: 'tool';
-  toolType: 'mcp' | 'openapi' | 'function' | 'builtin';
+  toolType: 'mcp' | 'openapi' | 'builtin';
   riskLevel: RiskLevel;
   endpoint?: string;
   builtinId?: string;

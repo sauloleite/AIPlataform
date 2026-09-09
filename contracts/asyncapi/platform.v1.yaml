@@ -222,7 +222,7 @@ components:
                 required: [tool_id, tool_type, risk_level, principal_id]
                 properties:
                   tool_id: { type: string }
-                  tool_type: { type: string, enum: [mcp, openapi, function, builtin] }
+                  tool_type: { type: string, enum: [mcp, openapi, builtin] }
                   risk_level: { type: string, enum: [low, medium, high] }
                   principal_id:
                     type: string

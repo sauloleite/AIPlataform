@@ -5,7 +5,17 @@ export type AssetKind = (typeof ASSET_KINDS)[number];
 export const VERSION_STATUSES = ['draft', 'published', 'deprecated'] as const;
 export type VersionStatus = (typeof VERSION_STATUSES)[number];
 
-export const TOOL_TYPES = ['mcp', 'openapi', 'function', 'builtin'] as const;
+/**
+ * `function` is deliberately absent.
+ *
+ * It named a tool the platform would never call: no endpoint, no builtin id,
+ * nothing to reach. Publishing one succeeded and invoking it failed at the
+ * gateway with "no executor is configured", which reads as a deployment problem
+ * rather than as the category error it was. A client-executed tool needs the
+ * runtime to pause and hand the call back to its caller, and that does not
+ * exist -- the type comes back with it, or not at all.
+ */
+export const TOOL_TYPES = ['mcp', 'openapi', 'builtin'] as const;
 export type ToolType = (typeof TOOL_TYPES)[number];
 
 export const RISK_LEVELS = ['low', 'medium', 'high'] as const;
