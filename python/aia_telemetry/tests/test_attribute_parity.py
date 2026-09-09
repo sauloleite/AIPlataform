@@ -1,0 +1,69 @@
+"""The attribute names mean the same thing in both languages.
+
+A span attribute is a string, and a string that differs by one character between
+the router and agent-runtime does not fail anywhere — it produces a Grafana
+query that silently returns half the traffic. `aia.project_id` is on every span
+by ADR-009, and a Python service spelling it differently would be invisible.
+
+Python was short of five `aia.*` and four `gen_ai.*` when this was written.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from aia_telemetry import AiaAttr, GenAiAttr
+
+ROOT = Path(__file__).resolve().parents[3]
+ATTRIBUTES_TS = ROOT / "packages/telemetry/src/attributes.ts"
+
+
+def _typescript(block: str) -> dict[str, str]:
+    source = ATTRIBUTES_TS.read_text()
+    match = re.search(rf"export const {block} = \{{(.*?)\}} as const;", source, re.S)
+    assert match is not None, f"{block} not found; the parser has stopped understanding the file"
+    return dict(re.findall(r"^\s*([A-Z_]+): '([^']+)',", match.group(1), re.M))
+
+
+def _python(cls: type) -> dict[str, str]:
+    return {name: getattr(cls, name) for name in dir(cls) if name.isupper()}
+
+
+class TestBusinessAttributes:
+    def test_python_declares_the_same_names(self) -> None:
+        assert set(_python(AiaAttr)) == set(_typescript("AIA_ATTR"))
+
+    def test_every_value_is_identical(self) -> None:
+        assert _python(AiaAttr) == _typescript("AIA_ATTR")
+
+    def test_project_id_is_the_one_that_must_never_move(self) -> None:
+        # ADR-009 puts it on every span, and every tenant-scoped query filters
+        # on it. Renaming it silently empties every dashboard.
+        assert AiaAttr.PROJECT_ID == "aia.project_id"
+
+
+class TestGenAiAttributes:
+    def test_python_declares_the_same_names(self) -> None:
+        assert set(_python(GenAiAttr)) == set(_typescript("GEN_AI_ATTR"))
+
+    def test_every_value_is_identical(self) -> None:
+        assert _python(GenAiAttr) == _typescript("GEN_AI_ATTR")
+
+    def test_every_name_is_in_the_gen_ai_namespace(self) -> None:
+        # These follow the OpenTelemetry GenAI conventions, which is what keeps
+        # the telemetry portable to a backend that has never heard of us.
+        assert all(value.startswith("gen_ai.") for value in _python(GenAiAttr).values())
+
+
+class TestWhatIsDeliberatelyAbsent:
+    def test_python_declares_no_metric_names(self) -> None:
+        """`AIA_METRIC` is not mirrored, and that is the honest choice.
+
+        TypeScript declares six metric names and creates an instrument for none
+        of them. Copying the list here would double a claim neither language
+        keeps. The names arrive with the instruments (roadmap M5).
+        """
+        import aia_telemetry
+
+        assert not hasattr(aia_telemetry, "AiaMetric")
