@@ -6,7 +6,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header
 
-from aia_auth import JwtVerifier, Principal, bearer_token, require_membership
+from aia_auth import (
+    POLICY,
+    AccessRequest,
+    JwtVerifier,
+    Principal,
+    authorize,
+    bearer_token,
+    is_internal_service,
+)
 from aia_errors import ProjectRequiredError
 from aia_telemetry import AiaAttr, annotate_active_span
 from guardrails.application.dto import InspectCommand, RedactCommand
@@ -39,9 +47,13 @@ def _authenticate(
     if not x_project_id:
         raise ProjectRequiredError()
 
-    # Service-to-service (the router) does not need project membership.
-    if principal.type != "service":
-        require_membership(principal, x_project_id)
+    # Named, rather than an unnamed `if`: the decision records which branch
+    # allowed the call, so a trace shows a service-to-service bypass firing
+    # instead of showing nothing.
+    authorize(
+        is_internal_service | POLICY.READ_PROJECT,
+        AccessRequest(principal=principal, project_id=x_project_id),
+    )
 
     annotate_active_span(
         **{

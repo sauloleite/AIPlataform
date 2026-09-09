@@ -7,7 +7,14 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, Query, Response
 from pydantic import BaseModel, Field
 
-from aia_auth import Principal, bearer_token, require_membership
+from aia_auth import (
+    POLICY,
+    AccessRequest,
+    Principal,
+    authorize,
+    bearer_token,
+    is_internal_service,
+)
 from aia_errors import ProjectRequiredError
 from aia_telemetry import AiaAttr, annotate_active_span
 from evaluation.application.dto import Caller, RunSuiteCommand
@@ -36,8 +43,13 @@ def _authenticate(
     principal = container.verifier.verify(token)
     if not x_project_id:
         raise ProjectRequiredError()
-    if principal.type != "service":
-        require_membership(principal, x_project_id)
+    # Named, rather than an unnamed `if`: the decision records which branch
+    # allowed the call, so a trace shows a service-to-service bypass firing
+    # instead of showing nothing.
+    authorize(
+        is_internal_service | POLICY.READ_PROJECT,
+        AccessRequest(principal=principal, project_id=x_project_id),
+    )
 
     annotate_active_span(**{AiaAttr.PROJECT_ID: x_project_id, AiaAttr.PRINCIPAL_ID: principal.id})
     return _caller_of(principal, x_project_id, token)

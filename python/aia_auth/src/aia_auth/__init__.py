@@ -14,6 +14,22 @@ import httpx
 import jwt
 from jwt import PyJWKClient
 
+from aia_auth.authorization import (
+    POLICY,
+    AccessRequest,
+    Decision,
+    Specification,
+    allow,
+    authorize,
+    can_invoke_tool_risk,
+    data_zone_is_compatible,
+    deny,
+    has_role,
+    has_scope,
+    is_internal_service,
+    is_member_of_project,
+    spec,
+)
 from aia_contracts import MAX_ZONES_BY_CLASSIFICATION
 from aia_errors import DomainError, ErrorCode, ForbiddenError, UnauthenticatedError
 
@@ -198,15 +214,29 @@ def is_expired(principal: Principal, now: float | None = None) -> bool:
 
 
 __all__ = [
+    "POLICY",
     "ROLES",
     "ZONES_BY_CLASSIFICATION",
+    "AccessRequest",
+    "Decision",
     "InvalidTokenError",
     "JwtVerifier",
     "Principal",
     "ProjectMembership",
+    "Specification",
     "TokenExpiredError",
+    "allow",
+    "authorize",
     "bearer_token",
+    "can_invoke_tool_risk",
+    "data_zone_is_compatible",
+    "deny",
+    "has_role",
+    "has_scope",
     "is_expired",
+    "is_internal_service",
+    "is_member_of_project",
     "require_membership",
+    "spec",
     "zone_is_compatible",
 ]

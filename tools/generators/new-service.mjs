@@ -682,7 +682,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from aia_auth import JwtVerifier
-
 from ${snake}.application.use_cases.example import RunExample
 from ${snake}.config import Settings, get_settings
 from ${snake}.infrastructure.in_memory import InMemoryExampleRepository
@@ -720,11 +719,18 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from aia_auth import Principal, bearer_token, require_membership
-from aia_errors import ProjectRequiredError
-from aia_telemetry import AiaAttr, annotate_active_span
 from fastapi import APIRouter, Depends, Header
 
+from aia_auth import (
+    POLICY,
+    AccessRequest,
+    Principal,
+    authorize,
+    bearer_token,
+    is_internal_service,
+)
+from aia_errors import ProjectRequiredError
+from aia_telemetry import AiaAttr, annotate_active_span
 from ${snake}.application.dto import ExampleCommand
 from ${snake}.container import get_container
 
@@ -740,12 +746,15 @@ def _authenticate(
     principal = get_container().verifier.verify(bearer_token(authorization))
     if not x_project_id:
         raise ProjectRequiredError()
-    if principal.type != "service":
-        require_membership(principal, x_project_id)
-
-    annotate_active_span(
-        **{AiaAttr.PROJECT_ID: x_project_id, AiaAttr.PRINCIPAL_ID: principal.id}
+    # Named, rather than an unnamed \`if\`: the decision records which branch
+    # allowed the call, so a trace shows a service-to-service bypass firing
+    # instead of showing nothing.
+    authorize(
+        is_internal_service | POLICY.READ_PROJECT,
+        AccessRequest(principal=principal, project_id=x_project_id),
     )
+
+    annotate_active_span(**{AiaAttr.PROJECT_ID: x_project_id, AiaAttr.PRINCIPAL_ID: principal.id})
     return principal, x_project_id
 
 
@@ -780,11 +789,11 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from aia_errors import PROBLEM_CONTENT_TYPE, DomainError, problem_from_unknown
-from aia_telemetry import current_trace_id, start_telemetry
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from aia_errors import PROBLEM_CONTENT_TYPE, DomainError, problem_from_unknown
+from aia_telemetry import current_trace_id, start_telemetry
 from ${snake}.config import get_settings
 from ${snake}.presentation.http.routes import health_router, router
 
