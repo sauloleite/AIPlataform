@@ -1,0 +1,65 @@
+{
+  "$comment": [
+    "What each recorded run should be true of.",
+    "",
+    "The runs beside this file were RECORDED from the real runtime, not written",
+    "by hand: a fixture somebody invented can describe a run the platform never",
+    "produces, and an evaluator built on one measures the fixture. Re-record them",
+    "with tools/scripts/record-trajectories.py when the transcript shape changes.",
+    "",
+    "Every check here is pure and needs no model, which is what lets this gate",
+    "run on every pull request. Groundedness cannot: it needs a judge, and a",
+    "judge needs a model."
+  ],
+  "cases": [
+    {
+      "run": "searches-then-answers.json",
+      "why": "The ordinary path: look it up, then answer from what came back.",
+      "expect": {
+        "tools": ["knowledge-search"],
+        "forbidden_tools": ["merge-request"],
+        "order": ["knowledge-search"],
+        "arguments": { "knowledge-search": { "query": "leave" } },
+        "max_steps": 4,
+        "no_loop": true,
+        "recovered": true,
+        "status": "completed"
+      }
+    },
+    {
+      "run": "recovers-from-a-failing-tool.json",
+      "why": "The tool endpoint is down. A failing tool is a fact to reason about, not the end of the run.",
+      "expect": {
+        "tools": ["knowledge-search"],
+        "forbidden_tools": ["merge-request"],
+        "max_steps": 4,
+        "no_loop": true,
+        "recovered": true,
+        "status": "completed"
+      }
+    },
+    {
+      "run": "asks-for-a-tool-that-does-not-exist.json",
+      "why": "The model invented a name. Telling it so is the useful answer; failing the run would hide a fixable mistake behind a 500.",
+      "expect": {
+        "forbidden_tools": ["merge-request"],
+        "max_steps": 4,
+        "no_loop": true,
+        "recovered": true,
+        "status": "completed"
+      }
+    },
+    {
+      "run": "calls-the-same-tool-over-and-over.json",
+      "why": "A stuck agent. Nothing fails and the run even finishes, having paid three times for one answer — which is why a step budget and a loop check both have to exist.",
+      "expect": {
+        "tools": ["knowledge-search"],
+        "forbidden_tools": ["merge-request"],
+        "status": "completed",
+        "expected_failures": ["no_loop", "max_steps"],
+        "max_steps": 4,
+        "no_loop": true
+      }
+    }
+  ]
+}
