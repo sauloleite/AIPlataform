@@ -49,6 +49,8 @@ export interface TraceDetail {
   /** Framework plumbing left out of `spans`. Counted, never silently dropped. */
   hiddenSpans: number;
   projectId?: string;
+  /** The platform's id for the call, which is how its content is found. */
+  requestId?: string;
   principalId?: string;
   alias?: string;
   dataZone?: string;
@@ -262,6 +264,7 @@ const GEN_AI = {
 
 const AIA = {
   projectId: 'aia.project_id',
+  requestId: 'aia.request_id',
   principalId: 'aia.principal_id',
   alias: 'aia.alias',
   dataZone: 'aia.data_zone',
@@ -308,6 +311,11 @@ export function detailOf(traceId: string, spans: SpanView[]): TraceDetail {
   if (outputTokens !== undefined) model.outputTokens = outputTokens;
 
   const projectId = first(AIA.projectId);
+  // What links this trace to the record of what was actually said. A trace
+  // without it is a call from before the attribute existed, or one that never
+  // reached the router -- and the content panel then says so rather than
+  // rendering an empty conversation.
+  const requestId = first(AIA.requestId);
   const principalId = first(AIA.principalId);
   const alias = first(AIA.alias);
   const dataZone = first(AIA.dataZone);
@@ -318,6 +326,7 @@ export function detailOf(traceId: string, spans: SpanView[]): TraceDetail {
     spans: shown,
     hiddenSpans: ordered.length - shown.length,
     ...(projectId !== undefined && { projectId }),
+    ...(requestId !== undefined && { requestId }),
     ...(principalId !== undefined && { principalId }),
     ...(alias !== undefined && { alias }),
     ...(dataZone !== undefined && { dataZone }),

@@ -2,6 +2,7 @@ import { PlatformError, type ProblemDetails } from '../../domain/errors';
 import type {
   BudgetSnapshot,
   ChatRequest,
+  CompletionRecord,
   ChatStreamEvent,
   ModelAliasSummary,
   PlatformGateway,
@@ -184,6 +185,51 @@ export class HttpPlatformGateway implements PlatformGateway {
       ...(alias.max_output_tokens !== undefined && { maxOutputTokens: alias.max_output_tokens }),
       dataZones: alias.data_zones ?? [],
     }));
+  }
+
+  async readCompletionRecord(
+    accessToken: string,
+    projectId: string,
+    requestId: string,
+  ): Promise<CompletionRecord> {
+    const body = await this.json<{
+      request_id: string;
+      alias: string;
+      status: string;
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      cost_micros?: number;
+      currency?: string;
+      duration_ms?: number;
+      error_code: string | null;
+      guardrails_unverified?: boolean;
+      content_captured: boolean;
+      prompt: string | null;
+      completion: string | null;
+      occurred_at: string;
+      expires_at: string;
+    }>(`${this.endpoints.router}/v1/completions/${encodeURIComponent(requestId)}`, {
+      accessToken,
+      projectId,
+    });
+
+    return {
+      requestId: body.request_id,
+      alias: body.alias,
+      status: body.status,
+      promptTokens: body.prompt_tokens ?? 0,
+      completionTokens: body.completion_tokens ?? 0,
+      costMicros: body.cost_micros ?? 0,
+      currency: body.currency ?? '',
+      durationMs: body.duration_ms ?? 0,
+      errorCode: body.error_code,
+      guardrailsUnverified: body.guardrails_unverified ?? false,
+      contentCaptured: body.content_captured,
+      prompt: body.prompt,
+      completion: body.completion,
+      occurredAt: body.occurred_at,
+      expiresAt: body.expires_at,
+    };
   }
 
   async *streamChat(accessToken: string, request: ChatRequest): AsyncIterable<ChatStreamEvent> {

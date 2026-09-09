@@ -6,6 +6,8 @@ import {
 } from '../src/modules/observability/application/use-cases/annotate-trace';
 import { HttpEvaluationGateway } from '../src/modules/observability/infrastructure/http/evaluation-gateway';
 import { PlatformError } from '../src/modules/console/domain/errors';
+import { InspectCompletion } from '../src/modules/observability/application/use-cases/inspect-completion';
+import { FakePlatform } from './fakes';
 
 const ANNOTATION = {
   id: 'ann-1',
@@ -133,5 +135,56 @@ describe('recording an annotation', () => {
     const headers = requests[0]?.init?.headers as Record<string, string>;
     expect(headers['X-Project-Id']).toBe('proj-1');
     expect(headers.Authorization).toBe('Bearer token');
+  });
+});
+
+describe('the content behind a trace', () => {
+  it('is not looked up when the trace carries no request id', async () => {
+    // A call from before `aia.request_id` existed, or one that never reached
+    // the router. Reported as its own reason, because it is fixed somewhere
+    // else entirely from a refused read.
+    const platform = new FakePlatform();
+
+    const view = await new InspectCompletion(platform).execute('token', 'proj-1', undefined);
+
+    expect(view.reason).toBe('no-request-id');
+    expect(platform.calls).toEqual([]);
+  });
+
+  it('a refusal leaves the trace on the screen', async () => {
+    // The commonest cause is a viewer without `auditor`, which is the policy
+    // working. A thrown error here would blank a page that is still useful.
+    const platform = new FakePlatform();
+    platform.failing.add('readCompletionRecord');
+
+    const view = await new InspectCompletion(platform).execute('token', 'proj-1', 'req-1');
+
+    expect(view).toEqual({ record: null, reason: 'unreadable' });
+  });
+
+  it('returns the record when the reader may see it', async () => {
+    const platform = new FakePlatform();
+    platform.records.set('req-1', {
+      requestId: 'req-1',
+      alias: 'chat-local',
+      status: 'completed',
+      promptTokens: 10,
+      completionTokens: 20,
+      costMicros: 300,
+      currency: 'BRL',
+      durationMs: 1200,
+      errorCode: null,
+      guardrailsUnverified: false,
+      contentCaptured: true,
+      prompt: 'how do I restart?',
+      completion: 'Drain traffic first.',
+      occurredAt: '2026-09-09T12:00:00Z',
+      expiresAt: '2026-12-09T12:00:00Z',
+    });
+
+    const view = await new InspectCompletion(platform).execute('token', 'proj-1', 'req-1');
+
+    expect(view.record?.completion).toBe('Drain traffic first.');
+    expect(view.reason).toBeUndefined();
   });
 });

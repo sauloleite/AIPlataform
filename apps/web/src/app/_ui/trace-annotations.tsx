@@ -67,6 +67,8 @@ export function TraceAnnotations({
   annotations,
   taxonomy,
   unavailable = false,
+  capturedQuestion,
+  capturedAnswer,
 }: {
   projectId: string;
   traceId: string;
@@ -74,6 +76,9 @@ export function TraceAnnotations({
   taxonomy: FailureModeCount[];
   /** The evaluation service could not be read. Not the same as "none yet". */
   unavailable?: boolean;
+  /** The redacted content, when the project captured it and this reader may see it. */
+  capturedQuestion?: string;
+  capturedAnswer?: string;
 }): ReactElement {
   const styles = useStyles();
   const [state, action, pending] = useActionState(annotateTraceAction, EMPTY);
@@ -161,15 +166,15 @@ export function TraceAnnotations({
           </summary>
           <div className={styles.form}>
             <Text as="p" className={styles.note}>
-              Traces record how long a call took and what it cost, never what was said. Paste the
-              question and the answer you just graded, and this annotation also becomes a human
-              label — which is what ADR-028 calibrates a judge against.
+              {capturedQuestion === undefined
+                ? 'A trace records how long a call took and what it cost, never what was said. Paste the question and the answer you graded, and this annotation also becomes a human label — which is what ADR-028 calibrates a judge against.'
+                : 'Filled in from the record above, redacted as it was stored. Edit it if the redaction removed something the grader needs, and this annotation also becomes a human label.'}
             </Text>
             <Field label="Question">
-              <Textarea name="question" resize="vertical" />
+              <Textarea name="question" resize="vertical" defaultValue={capturedQuestion ?? ''} />
             </Field>
             <Field label="Answer">
-              <Textarea name="answer" resize="vertical" />
+              <Textarea name="answer" resize="vertical" defaultValue={capturedAnswer ?? ''} />
             </Field>
           </div>
         </details>

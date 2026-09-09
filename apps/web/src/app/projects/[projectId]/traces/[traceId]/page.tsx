@@ -4,8 +4,10 @@ import { redirect } from 'next/navigation';
 import { getContainer } from '../../../../../container';
 import { messageFor, requiresSignIn } from '../../../../../modules/console/domain/errors';
 import type { AnnotationPage } from '../../../../../modules/observability/application/evaluation-ports';
+import type { CompletionView } from '../../../../../modules/observability/application/use-cases/inspect-completion';
 import type { TraceDetail } from '../../../../../modules/observability/domain/trace';
 import { TraceAnnotations } from '../../../../_ui/trace-annotations';
+import { TraceContent } from '../../../../_ui/trace-content';
 import { TraceDetailView } from '../../../../_ui/trace-detail';
 
 export const dynamic = 'force-dynamic';
@@ -16,10 +18,11 @@ export default async function TracePage({
   params: Promise<{ projectId: string; traceId: string }>;
 }): Promise<ReactElement> {
   const { projectId, traceId } = await params;
-  const { authorize, inspectTrace, readAnnotations } = await getContainer();
+  const { authorize, inspectTrace, readAnnotations, inspectCompletion } = await getContainer();
 
   let trace: TraceDetail | null = null;
   let annotations: AnnotationPage = { items: [], taxonomy: [] };
+  let completion: CompletionView = { record: null, reason: 'no-request-id' };
   let failure: string | undefined;
 
   let annotationsUnavailable = false;
@@ -38,6 +41,12 @@ export default async function TracePage({
     } catch {
       annotationsUnavailable = true;
     }
+
+    // The content is a separate read, from a different service, under a
+    // different permission: `InspectCompletion` reports why there is nothing
+    // rather than throwing, so a viewer without `auditor` sees the trace and a
+    // sentence about what they cannot see.
+    completion = await inspectCompletion.execute(accessToken, projectId, trace?.requestId);
   } catch (error) {
     if (requiresSignIn(error)) redirect('/login');
     failure = messageFor(error);
@@ -61,12 +70,15 @@ export default async function TracePage({
   return (
     <>
       <TraceDetailView trace={trace} />
+      <TraceContent completion={completion} />
       <TraceAnnotations
         projectId={projectId}
         traceId={traceId}
         annotations={annotations.items}
         taxonomy={annotations.taxonomy}
         unavailable={annotationsUnavailable}
+        capturedQuestion={completion.record?.prompt ?? undefined}
+        capturedAnswer={completion.record?.completion ?? undefined}
       />
     </>
   );

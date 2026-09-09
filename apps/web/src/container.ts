@@ -23,6 +23,7 @@ import {
   AnnotateTrace,
   ReadAnnotations,
 } from './modules/observability/application/use-cases/annotate-trace';
+import { InspectCompletion } from './modules/observability/application/use-cases/inspect-completion';
 import {
   BindTool,
   ListTools,
@@ -169,6 +170,7 @@ export interface Container {
   listEvaluations: ListEvaluations;
   readAnnotations: ReadAnnotations;
   annotateTrace: AnnotateTrace;
+  inspectCompletion: InspectCompletion;
 }
 
 /**
@@ -217,5 +219,6 @@ export async function getContainer(): Promise<Container> {
     listEvaluations: new ListEvaluations(evaluations),
     readAnnotations: new ReadAnnotations(evaluations),
     annotateTrace: new AnnotateTrace(evaluations),
+    inspectCompletion: new InspectCompletion(platform),
   };
 }
