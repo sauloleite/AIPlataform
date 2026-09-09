@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "@aia/contracts": "workspace:*",
-    "@aia/errors": "workspace:*"
+    "@aia/errors": "workspace:*",
+    "@aia/resilience": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.11"

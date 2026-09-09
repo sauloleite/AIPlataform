@@ -104,7 +104,14 @@ export default tseslint.config(
     // type information cannot run on them.
     // The `disableTypeChecked` rules have to be MERGED: overwriting `rules`
     // after the spread would erase exactly what switches those rules off.
-    files: ['tools/**/*.mjs', '**/*.config.mjs', '**/*.config.ts', '*.cjs', '**/*.cjs'],
+    files: [
+      'tools/**/*.mjs',
+      'examples/**/*.mjs',
+      '**/*.config.mjs',
+      '**/*.config.ts',
+      '*.cjs',
+      '**/*.cjs',
+    ],
     ...tseslint.configs.disableTypeChecked,
     rules: {
       ...tseslint.configs.disableTypeChecked.rules,

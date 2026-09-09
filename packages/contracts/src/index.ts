@@ -29,6 +29,8 @@ import type { components as InferenceComponents } from './generated/inference-ro
 import type { components as GovernanceComponents } from './generated/governance.js';
 import type { components as IdentityComponents } from './generated/identity.js';
 import type { components as GuardrailsComponents } from './generated/guardrails.js';
+import type { components as KnowledgeComponents } from './generated/knowledge.js';
+import type { components as AgentRuntimeComponents } from './generated/agent-runtime.js';
 
 export type ChatCompletionRequest = InferenceComponents['schemas']['ChatCompletionRequest'];
 export type ChatCompletion = InferenceComponents['schemas']['ChatCompletion'];
@@ -49,6 +51,15 @@ export type ModelRuleDto = GovernanceComponents['schemas']['ModelRule'];
 export type PrincipalDto = IdentityComponents['schemas']['Principal'];
 export type TokenResponse = IdentityComponents['schemas']['TokenResponse'];
 export type PatDto = IdentityComponents['schemas']['Pat'];
+
+export type SearchRequest = KnowledgeComponents['schemas']['SearchRequest'];
+export type SearchResponse = KnowledgeComponents['schemas']['SearchResponse'];
+export type VectorStoreDto = KnowledgeComponents['schemas']['VectorStore'];
+
+export type StartRunRequest = AgentRuntimeComponents['schemas']['StartRunRequest'];
+export type ApprovalRequest = AgentRuntimeComponents['schemas']['ApprovalRequest'];
+export type RunDto = AgentRuntimeComponents['schemas']['Run'];
+export type RunDetailDto = AgentRuntimeComponents['schemas']['RunDetail'];
 
 export type AnalyzeRequest = GuardrailsComponents['schemas']['AnalyzeRequest'];
 export type AnalyzeResponse = GuardrailsComponents['schemas']['AnalyzeResponse'];

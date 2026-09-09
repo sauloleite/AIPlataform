@@ -210,6 +210,7 @@ source = { editable = "python/aia_sdk" }
 dependencies = [
     { name = "aia-contracts" },
     { name = "aia-errors" },
+    { name = "aia-resilience" },
     { name = "httpx" },
 ]
 
@@ -217,6 +218,7 @@ dependencies = [
 requires-dist = [
     { name = "aia-contracts", editable = "python/aia_contracts" },
     { name = "aia-errors", editable = "python/aia_errors" },
+    { name = "aia-resilience", editable = "python/aia_resilience" },
     { name = "httpx", specifier = ">=0.28.1" },
 ]
 

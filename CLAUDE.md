@@ -52,14 +52,17 @@ If something is useful to two services, it is a shared library — do not copy i
 
 ## Shared libraries
 
-| TypeScript        | Python           | What                                                 |
-| ----------------- | ---------------- | ---------------------------------------------------- |
-| `@aia/errors`     | `aia_errors`     | Problem Details (RFC 9457), the error code catalogue |
-| `@aia/auth`       | `aia_auth`       | Local JWT with JWKS, Principal, RBAC/ABAC            |
-| `@aia/resilience` | `aia_resilience` | Timeout, retry, circuit breaker, bulkhead            |
-| `@aia/telemetry`  | `aia_telemetry`  | OTel with `gen_ai.*` and `aia.*`                     |
-| `@aia/messaging`  | `aia_messaging`  | CloudEvents, outbox, Redis Streams                   |
-| `@aia/nest`       | —                | HTTP glue: filter, guard, health                     |
+| TypeScript        | Python           | What                                                   |
+| ----------------- | ---------------- | ------------------------------------------------------ |
+| `@aia/errors`     | `aia_errors`     | Problem Details (RFC 9457), the error code catalogue   |
+| `@aia/auth`       | `aia_auth`       | Local JWT with JWKS, Principal, RBAC/ABAC              |
+| `@aia/resilience` | `aia_resilience` | Timeout, retry, circuit breaker, bulkhead              |
+| `@aia/telemetry`  | `aia_telemetry`  | OTel with `gen_ai.*` and `aia.*`                       |
+| `@aia/messaging`  | `aia_messaging`  | CloudEvents, outbox, Redis Streams                     |
+| `@aia/contracts`  | `aia_contracts`  | Types generated from `contracts/`, the data-zone table |
+| `@aia/nest`       | —                | HTTP glue for Nest: filter, guard, health              |
+| —                 | `aia_fastapi`    | HTTP glue for FastAPI: the same three                  |
+| `@aia/sdk`        | `aia_sdk`        | Client for the canonical API, and a fake of it         |
 
 **Never reinvent retry, timeout or circuit breaker.** Use `POLICIES` from
 `@aia/resilience`; the values come from the table in reference doc 02 §8.

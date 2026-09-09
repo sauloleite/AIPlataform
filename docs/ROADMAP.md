@@ -53,7 +53,7 @@ routing, because none of those can be judged without a measurement.
 | M1  | ~~The repository stops lying~~ **done**          | A plan built on a false description of the system is a guess                          |
 | M2  | ~~Delivery is real, and CI defends it~~ **done** | Helm ships 6 of 11 services; nothing in CI compares a route to its contract           |
 | M3  | ~~Connect what is already built~~ **done**       | The bulkhead, the tool-argument schema and the TTFT heartbeat need wiring, not design |
-| M4  | Python parity and the two SDKs                   | The next two services are Python, and `_authenticate` is already written three times  |
+| M4  | ~~Python parity and the two SDKs~~ **done**      | The next two services are Python, and `_authenticate` is already written three times  |
 | M5  | Telemetry that emits                             | Six metrics are declared and no instrument exists, so no SLO dashboard can            |
 | M6  | Evaluation that gates                            | Everything after this must be provable, not asserted                                  |
 | M7  | `aia-document-processing`                        | Unblocks every document that is not plain text                                        |
@@ -82,3 +82,11 @@ coherent platform rather than a half-finished one.
 - **Fine-tuning and automatic prompt optimisation.** The adaptation ladder says
   to exhaust the rung below first and prove it with a number. M6 is what makes
   that provable.
+- **Pydantic models generated from every OpenAPI document.** The Python
+  contracts package generates the one thing the two languages must agree on
+  byte for byte -- ADR-027's data-zone table -- and nothing else. A model tree
+  generated from ten documents would be a second source of truth for every
+  request shape, drifting against the TypeScript one with nothing comparing
+  them, and what a client sends is validated by the platform, which is the only
+  place that can validate it. `aia_sdk` therefore hand-writes its request and
+  response types, and says so where they are defined.
