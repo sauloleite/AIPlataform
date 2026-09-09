@@ -73,6 +73,7 @@ typecheck: ## Type checking in both ecosystems
 arch: ## The Clean Architecture dependency rule (fails the build)
 	pnpm exec depcruise --config .dependency-cruiser.cjs --output-type err apps packages
 	uv run lint-imports
+	node tools/scripts/check-project-references.mjs
 
 # `--project unit` used to be here and matched nothing: there is no vitest
 # projects config, each package owns its own vitest.config.ts. `nx run-many` is
@@ -101,7 +102,7 @@ contracts: ## Regenerates the types from contracts/openapi and contracts/asyncap
 routes: ## Every registered route is declared in a contract, and the reverse
 	uv run python tools/scripts/check_routes.py
 
-e2e: ## Flow 7.1 end to end against the local environment
+e2e: ## Flows 7.1, 7.2 and 7.3 end to end against the local environment
 	bash tools/scripts/e2e.sh
 
 eval: ## Evaluation suites, gated by threshold

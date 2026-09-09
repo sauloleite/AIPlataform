@@ -10,12 +10,19 @@ import type { AuthenticatedRequest } from '@aia/nest';
 
 /**
  * Enough of an Express response to see what reached the wire, and when.
+ *
+ * `headersSent` and the throw from `setHeader` are not decoration: this fake
+ * used to accept headers after the body had gone out, and that silence is what
+ * let a commit timer fire onto an already-answered response and take the whole
+ * router down with ERR_HTTP_HEADERS_SENT. A fake that forgives what the real
+ * one refuses tests the fake.
  */
 class RecordingResponse {
   readonly headers: Record<string, string> = {};
   readonly chunks: string[] = [];
   statusCode: number | undefined;
   headersFlushed = false;
+  headersSent = false;
   ended = false;
   body: unknown;
   writableEnded = false;
@@ -28,11 +35,17 @@ class RecordingResponse {
   }
 
   setHeader(name: string, value: string): void {
+    if (this.headersSent) {
+      throw Object.assign(new Error('Cannot set headers after they are sent to the client'), {
+        code: 'ERR_HTTP_HEADERS_SENT',
+      });
+    }
     this.headers[name] = value;
   }
 
   flushHeaders(): void {
     this.headersFlushed = true;
+    this.headersSent = true;
   }
 
   write(chunk: string): boolean {
@@ -51,6 +64,7 @@ class RecordingResponse {
 
   send(body: unknown): this {
     this.body = body;
+    this.headersSent = true;
     return this;
   }
 
@@ -181,6 +195,31 @@ describe('committing to a 200 while the first token is still coming', () => {
     // as an event, and it does rather than being swallowed.
     expect(response.statusCode).toBe(200);
     expect(response.chunks.join('')).toContain('budget_exhausted');
+  });
+
+  it('leaves no timer armed when the stream fails before the first event', async () => {
+    const response = new RecordingResponse();
+    const controller = controllerFor(
+      useCaseYielding(async function* () {
+        throw new BudgetExhaustedError('proj-1', 60);
+
+        yield { kind: 'delta', content: '' };
+      }),
+    );
+
+    await controller.chat(aRequest(), response as unknown as Response, BODY);
+    expect(response.statusCode).toBe(429);
+
+    // The failure never enters the loop, so nothing there clears the deadline.
+    // Left armed, it fires fifteen seconds later onto a response that has
+    // already been answered -- an exception thrown inside a timer callback,
+    // with no caller to catch it, which ends the process.
+    expect(vi.getTimerCount()).toBe(0);
+
+    // And even if something else arms it, the commit must be a no-op rather
+    // than a crash.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(response.chunks).toHaveLength(0);
   });
 
   it('leaves no timer running once the stream is done', async () => {

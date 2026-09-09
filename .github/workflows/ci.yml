@@ -90,6 +90,32 @@ jobs:
       - name: import-linter (Python)
         run: uv run lint-imports
 
+      # A dependency the build graph does not know about compiles by luck --
+      # at the repository root, where everything is built anyway -- and fails
+      # in the service image, which follows references and nothing else.
+      - name: Every @aia dependency is a project reference
+        run: node tools/scripts/check-project-references.mjs
+
+      - name: The reference check really fails when a reference is missing
+        run: |
+          set -euo pipefail
+          CONFIG=packages/auth/tsconfig.build.json
+          cp "$CONFIG" /tmp/tsconfig.build.json.bak
+          trap 'mv /tmp/tsconfig.build.json.bak "$CONFIG"' EXIT
+
+          node -e '
+            const fs = require("node:fs");
+            const path = "packages/auth/tsconfig.build.json";
+            const config = JSON.parse(fs.readFileSync(path, "utf8"));
+            config.references = config.references.filter((r) => !r.path.includes("contracts"));
+            fs.writeFileSync(path, JSON.stringify(config, null, 2));
+          '
+          if node tools/scripts/check-project-references.mjs; then
+            echo "::error::the reference check did NOT detect a missing reference."
+            exit 1
+          fi
+          echo "  reference check: caught"
+
       # An architecture test that never fails protects nothing. Each rule below
       # is given a violation on purpose and has to catch it.
       #
@@ -306,7 +332,7 @@ jobs:
         run: uv run pytest -m integration || [ $? -eq 5 ]
 
   # ==========================================================================
-  # End to end: brings the whole platform up and runs flow 7.1.
+  # End to end: brings the whole platform up and runs flows 7.1, 7.2 and 7.3.
   # ==========================================================================
   e2e:
     name: End to end
@@ -327,7 +353,7 @@ jobs:
             -f deploy/compose/docker-compose.ci.yml \
             --env-file .env up -d --build --wait --wait-timeout 600
 
-      - name: Flow 7.1
+      - name: Flows 7.1, 7.2 and 7.3
         run: bash tools/scripts/e2e.sh
         env:
           COMPOSE_FILES: '-f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.ci.yml'

@@ -9,6 +9,9 @@
   "exclude": ["src/**/*.spec.ts", "src/**/*.test.ts"],
   "references": [
     {
+      "path": "../contracts/tsconfig.build.json"
+    },
+    {
       "path": "../errors/tsconfig.build.json"
     }
   ],

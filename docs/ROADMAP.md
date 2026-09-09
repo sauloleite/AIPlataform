@@ -48,21 +48,21 @@ the two new Python services, or the duplication they already have triples; and
 evaluation and telemetry come before any change to retrieval, context or
 routing, because none of those can be judged without a measurement.
 
-| #   | Milestone                                                               | Why it comes here                                                                     |
-| --- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| M1  | ~~The repository stops lying~~ **done**                                 | A plan built on a false description of the system is a guess                          |
-| M2  | Delivery is real, and CI defends it **(all but the 7.2/7.3 e2e flows)** | Helm ships 6 of 11 services; nothing in CI compares a route to its contract           |
-| M3  | ~~Connect what is already built~~ **done**                              | The bulkhead, the tool-argument schema and the TTFT heartbeat need wiring, not design |
-| M4  | Python parity and the two SDKs                                          | The next two services are Python, and `_authenticate` is already written three times  |
-| M5  | Telemetry that emits                                                    | Six metrics are declared and no instrument exists, so no SLO dashboard can            |
-| M6  | Evaluation that gates                                                   | Everything after this must be provable, not asserted                                  |
-| M7  | `aia-document-processing`                                               | Unblocks every document that is not plain text                                        |
-| M8  | `aia-data-platform` and FinOps                                          | Gives the published events a consumer                                                 |
-| M9  | `aia-memory`                                                            | Agent memory does not exist; `thread_id` is carried and never used                    |
-| M10 | Retrieval quality                                                       | Reranking and contextual retrieval, measured against M6                               |
-| M11 | Context engineering in the loop                                         | Compaction and a context budget, measured against M6                                  |
-| M12 | Gateway: tokens, prefix cache, cascade                                  | Per-token limits and provider caching, measured against M6                            |
-| M13 | Injection architecture and delegated authority                          | Provenance, isolation patterns, RFC 8693 token exchange                               |
+| #   | Milestone                                        | Why it comes here                                                                     |
+| --- | ------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| M1  | ~~The repository stops lying~~ **done**          | A plan built on a false description of the system is a guess                          |
+| M2  | ~~Delivery is real, and CI defends it~~ **done** | Helm ships 6 of 11 services; nothing in CI compares a route to its contract           |
+| M3  | ~~Connect what is already built~~ **done**       | The bulkhead, the tool-argument schema and the TTFT heartbeat need wiring, not design |
+| M4  | Python parity and the two SDKs                   | The next two services are Python, and `_authenticate` is already written three times  |
+| M5  | Telemetry that emits                             | Six metrics are declared and no instrument exists, so no SLO dashboard can            |
+| M6  | Evaluation that gates                            | Everything after this must be provable, not asserted                                  |
+| M7  | `aia-document-processing`                        | Unblocks every document that is not plain text                                        |
+| M8  | `aia-data-platform` and FinOps                   | Gives the published events a consumer                                                 |
+| M9  | `aia-memory`                                     | Agent memory does not exist; `thread_id` is carried and never used                    |
+| M10 | Retrieval quality                                | Reranking and contextual retrieval, measured against M6                               |
+| M11 | Context engineering in the loop                  | Compaction and a context budget, measured against M6                                  |
+| M12 | Gateway: tokens, prefix cache, cascade           | Per-token limits and provider caching, measured against M6                            |
+| M13 | Injection architecture and delegated authority   | Provenance, isolation patterns, RFC 8693 token exchange                               |
 
 Each milestone is independently shippable. Stopping after any of them leaves a
 coherent platform rather than a half-finished one.

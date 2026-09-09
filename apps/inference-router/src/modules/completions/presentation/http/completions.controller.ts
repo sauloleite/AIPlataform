@@ -183,6 +183,15 @@ export class CompletionsController {
         message: isDomainError(error) ? error.message : 'Internal error',
       });
       writer.close();
+    } finally {
+      // Every exit, not only the ones that reach the loop. `clearTimeout` used
+      // to live in the loop body alone, so a stream that failed BEFORE its
+      // first event -- an unusable alias, a provider with no key -- left the
+      // deadline armed. Fifteen seconds later it fired onto a response already
+      // answered with Problem Details, and setting headers on a sent response
+      // throws ERR_HTTP_HEADERS_SENT from inside a timer callback, where there
+      // is no caller to catch it. One refused stream took the router down.
+      clearTimeout(commit);
     }
   }
 
