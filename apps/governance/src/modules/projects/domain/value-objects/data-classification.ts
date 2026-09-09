@@ -1,3 +1,4 @@
+import { MAX_ZONES_BY_CLASSIFICATION } from '@aia/contracts';
 import { ValidationError } from '@aia/errors';
 
 export const CLASSIFICATIONS = ['public', 'internal', 'confidential', 'restricted'] as const;
@@ -11,13 +12,13 @@ export type DataZone = (typeof DATA_ZONES)[number];
  *
  * A project policy may NARROW this list, never widen it: a `restricted` project
  * still cannot leave the machine even if someone edits its policy.
+ *
+ * From the contract, not written here (ADR-027). This service DECIDES a
+ * project's zones, and the router ENFORCES them from its own copy of the same
+ * rule -- so the two disagreeing would mean governance granting what the router
+ * refuses, or worse, the other way round.
  */
-const MAX_ZONES: Record<ClassificationLevel, readonly DataZone[]> = {
-  public: ['local', 'br', 'us', 'eu', 'global'],
-  internal: ['local', 'br', 'us', 'eu', 'global'],
-  confidential: ['local', 'br'],
-  restricted: ['local'],
-};
+const MAX_ZONES: Record<ClassificationLevel, readonly DataZone[]> = MAX_ZONES_BY_CLASSIFICATION;
 
 export class DataClassification {
   private constructor(readonly level: ClassificationLevel) {}

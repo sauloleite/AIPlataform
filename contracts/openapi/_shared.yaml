@@ -109,6 +109,20 @@ components:
         The project data classification. It conditions which zones model routing
         may send the content to (ADR-010).
       enum: [public, internal, confidential, restricted]
+      # The rule itself, and the reason it lives in the contract rather than in
+      # one of the languages: it was written out four times -- in
+      # packages/auth, python/aia_auth, aia-governance's domain and the console's
+      # -- and four copies of the rule that decides whether restricted data may
+      # leave the machine is four chances for them to disagree with nothing
+      # noticing. Generated into both languages by `make contracts`; CI fails if
+      # either drifts.
+      #
+      # A project policy may NARROW its list, never widen it.
+      x-max-data-zones:
+        public: [local, br, us, eu, global]
+        internal: [local, br, us, eu, global]
+        confidential: [local, br]
+        restricted: [local]
 
     DataZone:
       type: string

@@ -7,6 +7,24 @@
  */
 export type * from './generated/index.js';
 
+/**
+ * The one RUNTIME value this package exports, and it earns it.
+ *
+ * ADR-010's rule -- which data zones a classification may reach -- had been
+ * written out four times: here in `packages/auth`, in `python/aia_auth`, in
+ * aia-governance's domain and in the console's. Four independent copies of the
+ * rule that decides whether restricted data may leave the machine, with nothing
+ * comparing them (ADR-027). It is generated from `_shared.yaml` now, into both
+ * languages, and CI fails if either drifts.
+ */
+export {
+  CLASSIFICATIONS,
+  DATA_ZONES,
+  MAX_ZONES_BY_CLASSIFICATION,
+  type Classification,
+  type DataZone,
+} from './generated/data-zones.js';
+
 import type { components as InferenceComponents } from './generated/inference-router.js';
 import type { components as GovernanceComponents } from './generated/governance.js';
 import type { components as IdentityComponents } from './generated/identity.js';

@@ -174,8 +174,14 @@ jobs:
       - name: Generated types are in sync with the contracts
         run: |
           node tools/scripts/generate-contracts.mjs
-          if ! git diff --exit-code --stat packages/contracts/src/generated; then
-            echo "::error::The generated types differ from the contracts. Run 'make contracts' and commit."
+          # BOTH languages. The data-zone rule is emitted into each of them from
+          # one source (ADR-027), and a check that watched only TypeScript would
+          # let the Python copy drift -- which is the failure the single source
+          # exists to prevent.
+          if ! git diff --exit-code --stat \
+               packages/contracts/src/generated \
+               python/aia_contracts/src/aia_contracts/_generated; then
+            echo "::error::The generated output differs from the contracts. Run 'make contracts' and commit."
             exit 1
           fi
 

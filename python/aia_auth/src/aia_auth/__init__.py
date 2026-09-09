@@ -14,6 +14,7 @@ import httpx
 import jwt
 from jwt import PyJWKClient
 
+from aia_contracts import MAX_ZONES_BY_CLASSIFICATION
 from aia_errors import DomainError, ErrorCode, ForbiddenError, UnauthenticatedError
 
 ROLES: Final[frozenset[str]] = frozenset(
@@ -26,13 +27,13 @@ ROLES: Final[frozenset[str]] = frozenset(
     }
 )
 
-# ADR-010: maximum zones per classification. A policy may narrow, never widen.
-ZONES_BY_CLASSIFICATION: Final[dict[str, tuple[str, ...]]] = {
-    "public": ("local", "br", "us", "eu", "global"),
-    "internal": ("local", "br", "us", "eu", "global"),
-    "confidential": ("local", "br"),
-    "restricted": ("local",),
-}
+#: ADR-010: maximum zones per classification. A policy may narrow, never widen.
+#:
+#: Re-exported from the contract rather than written here (ADR-027). It used to
+#: be a literal in this file AND in packages/auth AND in aia-governance's domain
+#: AND in the console's -- four independent copies of the one rule that decides
+#: whether restricted data may leave the machine, with nothing comparing them.
+ZONES_BY_CLASSIFICATION: Final[dict[str, tuple[str, ...]]] = MAX_ZONES_BY_CLASSIFICATION
 
 
 class TokenExpiredError(DomainError):

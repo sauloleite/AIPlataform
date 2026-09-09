@@ -1,3 +1,4 @@
+import { MAX_ZONES_BY_CLASSIFICATION } from '@aia/contracts';
 import { ForbiddenError } from '@aia/errors';
 import { ROLES, type Principal, type Role, isPlatformAdmin, rolesInProject } from './principal.js';
 import { Specification, allow, deny, spec } from './specification.js';
@@ -56,13 +57,12 @@ export const hasScope = (scope: string): Specification<AccessRequest> =>
  *
  * The order matters: `restricted` accepts only `local`, `confidential` also
  * accepts in-country, and so on. Public data may go anywhere.
+ *
+ * Read from the contract rather than written here (ADR-027). The same table
+ * used to exist in this file, in `python/aia_auth`, in aia-governance's domain
+ * and in the console's, and nothing compared the four.
  */
-const ZONES_BY_CLASSIFICATION: Record<string, readonly string[]> = {
-  public: ['local', 'br', 'us', 'eu', 'global'],
-  internal: ['local', 'br', 'us', 'eu', 'global'],
-  confidential: ['local', 'br'],
-  restricted: ['local'],
-};
+const ZONES_BY_CLASSIFICATION: Record<string, readonly string[]> = MAX_ZONES_BY_CLASSIFICATION;
 
 export const dataZoneIsCompatible = spec<AccessRequest>(
   'data zone compatible with the classification',

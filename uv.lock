@@ -62,6 +62,7 @@ name = "aia-auth"
 version = "0.1.0"
 source = { editable = "python/aia_auth" }
 dependencies = [
+    { name = "aia-contracts" },
     { name = "aia-errors" },
     { name = "cryptography" },
     { name = "httpx" },
@@ -70,6 +71,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aia-contracts", editable = "python/aia_contracts" },
     { name = "aia-errors", editable = "python/aia_errors" },
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "httpx", specifier = ">=0.28.1" },
