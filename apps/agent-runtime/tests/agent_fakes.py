@@ -160,9 +160,24 @@ class ScriptedModel:
 
 
 def a_tool_call(
-    name: str, arguments: str = '{"query":"leave"}', call_id: str = "call_1"
+    name: str,
+    arguments: str = '{"query":"leave"}',
+    call_id: str = "call_1",
+    provider_state: str | None = None,
 ) -> dict[str, Any]:
-    return {"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}
+    """What a provider sends when the model asks for a tool.
+
+    `provider_state` is the opaque blob one provider requires echoed back on the
+    next turn. It defaults to absent because most providers send none, and is
+    settable because a test that never produces one cannot prove it is stripped
+    before a caller sees the transcript.
+    """
+    return {
+        "id": call_id,
+        "type": "function",
+        "function": {"name": name, "arguments": arguments},
+        **({"provider_state": provider_state} if provider_state is not None else {}),
+    }
 
 
 UNAVAILABLE = DomainError(

@@ -25,7 +25,12 @@ dev = [
     "httpx>=0.28.1",
     "import-linter>=2.1",
     "testcontainers>=4.9.1",
+    # A response is validated against the contract's own schema. `schemathesis`
+    # above fuzzes a RUNNING service; this validates a shape without one, so the
+    # check runs in `make check` rather than only where containers exist.
+    "jsonschema>=4.23.0",
     "schemathesis>=3.39.0",
+    "types-jsonschema>=4.23.0",
     "types-pyyaml>=6.0.12",
 ]
 
