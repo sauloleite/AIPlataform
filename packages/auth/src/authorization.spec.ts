@@ -145,6 +145,53 @@ describe('canInvokeToolRisk (OWASP LLM06)', () => {
       canInvokeToolRisk.isSatisfiedBy(request({ principal: owner, toolRiskLevel: 'high' })),
     ).toBe(true);
   });
+
+  it('a medium-risk tool needs no elevated role either', () => {
+    expect(canInvokeToolRisk.isSatisfiedBy(request({ toolRiskLevel: 'medium' }))).toBe(true);
+  });
+
+  it('a request that is not a tool invocation is not a tool decision', () => {
+    expect(canInvokeToolRisk.isSatisfiedBy(request({}))).toBe(true);
+  });
+
+  it('a level it does not recognise is treated as the most dangerous, not the least', () => {
+    // This used to read `!== 'high'`, so anything else was allowed outright.
+    // `registry-tool-catalog.ts` casts `risk_level` out of another service's
+    // JSON without re-validating it, and a tool stored before the list was
+    // fixed would still carry whatever it carried. The control that gates the
+    // dangerous tools is the wrong place to trust an upstream.
+    const unknown = request({ toolRiskLevel: 'critical' as 'high' });
+    expect(canInvokeToolRisk.isSatisfiedBy(unknown)).toBe(false);
+
+    const owner = principal({
+      memberships: [{ projectId: 'proj-1', roles: [ROLES.PROJECT_OWNER] }],
+    });
+    expect(
+      canInvokeToolRisk.isSatisfiedBy(
+        request({ principal: owner, toolRiskLevel: 'critical' as 'high' }),
+      ),
+    ).toBe(true);
+  });
+
+  it('is case sensitive, and an uppercase level does not slip through', () => {
+    expect(canInvokeToolRisk.isSatisfiedBy(request({ toolRiskLevel: 'HIGH' as 'high' }))).toBe(
+      false,
+    );
+  });
+
+  it('fails closed the same way dataZoneIsCompatible does', () => {
+    // The two are the same kind of ABAC rule and sat two functions apart in one
+    // file with opposite defaults: an unknown classification was denied, an
+    // unknown risk level was allowed.
+    expect(
+      dataZoneIsCompatible.isSatisfiedBy(
+        request({ dataClassification: 'made-up', targetDataZone: 'local' }),
+      ),
+    ).toBe(false);
+    expect(canInvokeToolRisk.isSatisfiedBy(request({ toolRiskLevel: 'made-up' as 'high' }))).toBe(
+      false,
+    );
+  });
 });
 
 describe('authorize', () => {

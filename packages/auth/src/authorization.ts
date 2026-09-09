@@ -77,12 +77,30 @@ export const dataZoneIsCompatible = spec<AccessRequest>(
   "the target's data zone is not compatible with the project classification",
 );
 
-/** OWASP LLM06: a high-risk tool requires an owner or admin role. */
+/**
+ * OWASP LLM06: a high-risk tool requires an owner or admin role.
+ *
+ * Fails CLOSED on a level it does not recognise, the way
+ * `dataZoneIsCompatible` above does — the two are the same kind of ABAC rule
+ * and used to disagree on the default. This one tested `!== 'high'` and
+ * allowed everything else, so a definition carrying `critical`, or `HIGH`, or a
+ * typo, needed no elevated role at all.
+ *
+ * The registry refuses an unknown level at publish, which makes that hard to
+ * reach rather than impossible: `registry-tool-catalog.ts` casts `risk_level`
+ * out of another service's JSON without re-validating it, and a tool stored
+ * before the list was fixed would still be there. A control that gates the
+ * dangerous tools is the wrong place to trust an upstream.
+ */
 export const canInvokeToolRisk = new (class extends Specification<AccessRequest> {
   readonly name = 'may invoke a tool at this risk level';
 
   evaluate(request: AccessRequest): ReturnType<Specification<AccessRequest>['evaluate']> {
-    if (request.toolRiskLevel !== 'high') return allow('risk level needs no elevated role');
+    const level = request.toolRiskLevel;
+    if (level === undefined) return allow('not a tool invocation');
+    if (level === 'low' || level === 'medium') return allow('risk level needs no elevated role');
+    // 'high', and anything this does not recognise, which is treated as the
+    // most dangerous rather than the least.
     return hasRole(ROLES.PROJECT_OWNER).evaluate(request);
   }
 })();
