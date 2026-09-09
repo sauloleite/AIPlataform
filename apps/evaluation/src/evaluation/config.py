@@ -25,6 +25,17 @@ class Settings(PlatformSettings):
     #: Where the suites live, relative to the repository root.
     suites_path: str = "evals/suites"
 
+    #: Human labels, and the calibration records computed from them (ADR-028).
+    labels_path: str = "evals/labels"
+    calibrations_path: str = "evals/calibration"
+
+    #: How long a calibration is trusted. An alias is a NAME: a provider
+    #: re-points it at a new snapshot and nothing tells the platform. Ninety
+    #: days is not a claim about when the model changed -- it is a bound on how
+    #: long the platform will keep grading with a number nobody has rechecked.
+    #: 0 switches the check off, for a self-hosted model that really is frozen.
+    judge_calibration_max_age_days: float = 90.0
+
     #: The alias that GRADES. Empty disables the judged evaluators, and a suite
     #: that names one then refuses to run.
     #:

@@ -9,7 +9,7 @@ COMPOSE_PROD := docker compose -f deploy/compose/docker-compose.yml -f deploy/co
 
 .DEFAULT_GOAL := help
 .PHONY: help bootstrap dev dev-infra down clean logs lint lint-fix arch test test-unit test-integration \
-        contracts routes typecheck e2e eval seed models build images helm-lint check
+        contracts routes typecheck e2e eval calibrate seed models build images helm-lint check
 
 help: ## Lists the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -119,6 +119,14 @@ SUITE ?= evals/suites
 
 eval: ## Evaluation suites, gated by threshold. Override with SUITE=path
 	uv run python -m evaluation.cli run --suite $(SUITE)
+
+LABELS ?= evals/labels
+
+# A judged suite refuses to run until its judge has been measured against these
+# labels (ADR-028). This is what produces that record; it costs one inference
+# per label, so it is run when the judge alias changes, not on every push.
+calibrate: ## Measures the judge against evals/labels and writes the record
+	uv run python -m evaluation.cli calibrate --labels $(LABELS)
 
 build: ## Compiles the TypeScript packages and services
 	pnpm exec nx run-many -t build --all

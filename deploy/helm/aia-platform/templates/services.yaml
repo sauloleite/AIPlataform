@@ -259,8 +259,14 @@ spec:
             {{- end }}
             - name: SUITES_PATH
               value: {{ $service.values.suitesPath | quote }}
+            - name: LABELS_PATH
+              value: {{ $service.values.labelsPath | quote }}
+            - name: CALIBRATIONS_PATH
+              value: {{ $service.values.calibrationsPath | quote }}
             - name: JUDGE_ALIAS
               value: {{ $service.values.judgeAlias | quote }}
+            - name: JUDGE_CALIBRATION_MAX_AGE_DAYS
+              value: {{ $service.values.judgeCalibrationMaxAgeDays | quote }}
             {{- end }}
 
             {{- if eq $service.key "web" }}

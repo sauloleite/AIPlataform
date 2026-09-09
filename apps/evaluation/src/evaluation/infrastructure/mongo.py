@@ -62,6 +62,12 @@ def _from_run(run: EvaluationRun) -> dict[str, Any]:
         "suite": run.suite,
         "alias": run.alias,
         "principal_id": run.principal_id,
+        # Which alias graded, and how well it agreed with the humans when the
+        # run started. Both were computed and then thrown away: a stored run
+        # could not say who graded it, let alone whether the grader was any
+        # good, which is most of what makes an old score worth reading.
+        "judge_alias": run.judge_alias,
+        "judge_agreement": run.judge_agreement,
         "status": run.status.value,
         "started_at": run.started_at,
         "finished_at": run.finished_at,
@@ -103,6 +109,11 @@ def _to_run(document: dict[str, Any]) -> EvaluationRun:
         suite=str(document.get("suite", "")),
         alias=str(document.get("alias", "")),
         principal_id=str(document.get("principal_id", "")),
+        judge_alias=document.get("judge_alias"),
+        judge_agreement={
+            str(name): float(value)
+            for name, value in (document.get("judge_agreement") or {}).items()
+        },
         status=RunStatus(document.get("status", RunStatus.RUNNING.value)),
         started_at=_aware(document.get("started_at")),
         finished_at=document.get("finished_at"),

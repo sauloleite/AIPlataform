@@ -5,6 +5,7 @@ The order matters and each step is a refusal waiting to happen:
   load the suite      -> an unknown evaluator is a typo, not a metric to skip
   load the dataset    -> a shrunken dataset is an easier pass, so it is checked
   check the judge     -> a judged evaluator with no judge FAILS, never scores 0
+  check its agreement -> a judge nobody checked against a human does not grade
   answer every case   -> one error makes the whole run `errored`
   score, aggregate    -> only answered cases contribute
   gate                -> below a threshold is a failure CI can act on
@@ -18,11 +19,13 @@ import logging
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 
 from aia_errors import DomainError
 from aia_messaging import EventPublisher, EventType, new_event
 from evaluation.application.dto import Caller, RunSuiteCommand
 from evaluation.application.ports import (
+    CalibrationSource,
     DatasetSource,
     Judge,
     RunRepository,
@@ -30,30 +33,21 @@ from evaluation.application.ports import (
     SuiteSource,
     TargetClient,
 )
+from evaluation.domain.calibration import DEFAULT_BAR, CalibrationBar, refusal
 from evaluation.domain.entities import CaseResult, DatasetCase, EvaluationRun
 from evaluation.domain.errors import (
     CaseNotMeasurableError,
     DatasetTooSmallError,
     JudgeRequiredError,
+    JudgeUncalibratedError,
 )
+from evaluation.domain.judging import CRITERIA
 from evaluation.domain.scoring import exact_match, metric_for, token_overlap
 from evaluation.domain.suite import JUDGED, EvaluatorSpec, Suite
 
 _LOGGER = logging.getLogger(__name__)
 
 SOURCE = "aia-evaluation"
-
-CRITERIA = {
-    "groundedness": (
-        "Is every claim in the answer supported by the context? Score 1.0 when "
-        "nothing is asserted that the context does not contain, and 0.0 when "
-        "the answer invents facts."
-    ),
-    "relevance": (
-        "Does the answer address the question that was asked? Score 1.0 for a "
-        "direct answer and 0.0 for one that talks about something else."
-    ),
-}
 
 
 @dataclass(slots=True)
@@ -65,6 +59,13 @@ class RunSuite:
     events: EventPublisher
     judge: Judge | None = None
     safety: SafetyInspector | None = None
+    #: Where the calibration records live. None means none are on file, and a
+    #: judged suite then refuses -- an unconfigured store and an empty one say
+    #: the same thing about whether anybody checked the judge.
+    calibrations: CalibrationSource | None = None
+    bar: CalibrationBar = DEFAULT_BAR
+    #: Days after which a calibration stops counting. 0 disables the check.
+    max_calibration_age_days: float = 0.0
 
     async def execute(self, command: RunSuiteCommand) -> list[EvaluationRun]:
         loaded = self.suites.load(command.suite_path)
@@ -94,7 +95,7 @@ class RunSuite:
             )
 
         try:
-            self._assert_runnable(suite)
+            self._assert_runnable(suite, run)
             cases = self.datasets.load(suite.dataset, relative_to=command.suite_path)
             if len(cases) < suite.min_cases:
                 raise DatasetTooSmallError(suite.name, len(cases), suite.min_cases)
@@ -112,7 +113,7 @@ class RunSuite:
         await self._publish(run)
         return run
 
-    def _assert_runnable(self, suite: Suite) -> None:
+    def _assert_runnable(self, suite: Suite, run: EvaluationRun) -> None:
         """Refuses a suite this runner cannot honestly measure.
 
         A judged evaluator with no judge would score nothing, and a metric over
@@ -121,6 +122,47 @@ class RunSuite:
         """
         if suite.needs_judge and self.judge is None:
             raise JudgeRequiredError(sorted(spec.name for spec in suite.evaluators if spec.judged))
+
+        self._assert_judge_is_calibrated(suite, run.judge_agreement)
+
+    def _assert_judge_is_calibrated(self, suite: Suite, agreement: dict[str, float]) -> None:
+        """Refuses a judge nobody has checked against a human (ADR-028).
+
+        Here rather than in the CLI, and per evaluator rather than per judge: a
+        judge calibrated for relevance says nothing about whether it can tell
+        grounded from invented, and `POST /v1/evaluations` gates a merge just as
+        hard as `make eval` does.
+        """
+        if self.judge is None:
+            return
+
+        for spec in suite.evaluators:
+            if not spec.judged:
+                continue
+            record = (
+                self.calibrations.find(judge_alias=self.judge.alias, evaluator=spec.name)
+                if self.calibrations is not None
+                else None
+            )
+            reason = refusal(
+                record,
+                judge_alias=self.judge.alias,
+                evaluator=spec.name,
+                bar=self.bar,
+                max_age_days=self.max_calibration_age_days,
+                now=datetime.now(UTC),
+            )
+            if record is None or reason is not None:
+                # `record is None` is already one of the reasons refusal()
+                # gives; it is repeated here so the type is narrowed without an
+                # assert, which -O would strip out of a security-shaped check.
+                raise JudgeUncalibratedError(
+                    spec.name, self.judge.alias, reason or "no calibration on file"
+                )
+
+            kappa = record.measured().kappa
+            if kappa is not None:
+                agreement[spec.name] = kappa
 
     async def _case(
         self, case: DatasetCase, suite: Suite, alias: str, caller: Caller

@@ -13,6 +13,8 @@ evals/
 ├── datasets/      questions with a reference answer, versioned
 ├── suites/        what to measure and where the failing threshold sits
 ├── trajectories/  recorded agent runs, and what each should be true of
+├── labels/        what a human decided, so the judge can be measured
+├── calibration/   what the judge decided about those, and how far apart they are
 └── redteam/       adversarial cases (injection, jailbreak, exfiltration)
 ```
 
@@ -31,6 +33,7 @@ nobody implemented is worse than an admitted gap.
 | A prompt, alias or chunking change    | The affected use case's suite    | Nothing — no CI job                    | Yes, below the threshold          |
 | Before swapping an alias's deployment | The model regression suite       | Nothing — no such suite                | Yes                               |
 | Production                            | A 1 to 5% traffic sample         | Nothing — no sampler                   | No, it alerts                     |
+| Before a judged suite runs, at all    | The judge's own calibration      | **Yes** — it refuses without one       | Yes                               |
 
 The third row is not "every pull request", and the distinction is the honest
 one: `ci-smoke` needs a router and guardrails running, so it lives in the `e2e`
@@ -55,6 +58,17 @@ money and time on every push. It belongs to a scheduled run against
 `make eval` runs the judged suites locally, and no workflow calls it yet.
 `tools/scripts/seed.sh` does create the `platform-ci` project it needs, with its
 own budget.
+
+## The judge is measured too
+
+A judged suite asks a model what it thinks and turns the answer into a gate.
+Nothing in that checks whether the model's opinion tracks a human's, and
+`groundedness: 0.87` reads the same either way. So a judged evaluator refuses to
+run until its judge has been graded against `evals/labels/` on a held-out half
+and cleared a bar — ADR-028, and `evals/labels/README.md` for how to produce the
+record. There is no record in the repository today, which means a judged suite
+currently refuses and says which command fixes it. That is the same refusal
+ADR-021 makes everywhere else: better than a number nobody can account for.
 
 ## Why the threshold is not 100%
 

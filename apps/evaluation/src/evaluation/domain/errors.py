@@ -90,3 +90,43 @@ class JudgeUnreadableError(DomainError):
             # model output into an error field.
             details={"said": said[:120]},
         )
+
+
+class JudgeUncalibratedError(DomainError):
+    """The judge has never been checked against a human, or failed the check.
+
+    ADR-021 refuses to report a verdict it did not measure. This is the same
+    refusal one level up: with an unchecked judge the measurement happens and
+    nobody knows what it measures -- `groundedness: 0.87` reads identically
+    whether the judge tracks a careful reader or scores every fluent paragraph
+    highly, and the second one gates merges just as confidently.
+
+    The reason travels with the error because this stops somebody's merge, and
+    "uncalibrated" alone sends them into the source to find out which of the
+    ways it failed.
+    """
+
+    def __init__(self, evaluator: str, judge_alias: str, reason: str) -> None:
+        super().__init__(
+            f"The judge is not calibrated for {evaluator}: {reason}",
+            code=ErrorCode.VALIDATION_FAILED,
+            status=400,
+            details={"evaluator": evaluator, "judge_alias": judge_alias, "reason": reason},
+        )
+
+
+class LabelsTooFewError(DomainError):
+    """Not enough labelled answers to calibrate a judge at all.
+
+    Refused before the judge is asked anything: a calibration over four labels
+    would produce a record that looks exactly like a real one and licenses a
+    gate on the strength of four opinions.
+    """
+
+    def __init__(self, evaluator: str, held_out: int, required: int) -> None:
+        super().__init__(
+            "There are too few held-out labels to calibrate this evaluator",
+            code=ErrorCode.VALIDATION_FAILED,
+            status=400,
+            details={"evaluator": evaluator, "held_out": held_out, "required": required},
+        )

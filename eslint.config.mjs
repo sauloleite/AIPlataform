@@ -13,6 +13,11 @@ export default tseslint.config(
       '.nx/**',
       '**/generated/**',
       'docs/reference/**',
+      // Agent scratch space, which holds git worktrees -- a whole second
+      // checkout with no node_modules in it. Linting those reports thousands of
+      // unresolved-type errors in files that are not ours. `.prettierignore`
+      // already excludes it for the same reason.
+      '.claude/**',
       // The Python virtualenv brings in third-party libraries' JS.
       '.venv/**',
       '**/__pycache__/**',

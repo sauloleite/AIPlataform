@@ -558,15 +558,22 @@ services:
       MONGO_DATABASE: aia_evaluation
       REDIS_URL: redis://redis:6379
       SUITES_PATH: /app/evals/suites
+      LABELS_PATH: /app/evals/labels
+      CALIBRATIONS_PATH: /app/evals/calibration
       # The alias that GRADES. Empty by default and deliberately so: a suite
       # naming a judged evaluator then REFUSES to run, rather than scoring
       # nothing and reporting a pass nobody measured. Point it at an alias
       # other than the one under test -- a model grading itself agrees with
       # itself.
       JUDGE_ALIAS: ${JUDGE_ALIAS:-}
+      # And a judge that grades has to have been measured against the labels
+      # first (ADR-028). Mounted read-only with everything else in evals/: a
+      # record the graded system could rewrite would not be evidence.
+      JUDGE_CALIBRATION_MAX_AGE_DAYS: ${JUDGE_CALIBRATION_MAX_AGE_DAYS:-90}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
     volumes:
-      # The suites and datasets are versioned in Git, and read from there.
+      # The suites, datasets, labels and calibration records are versioned in
+      # Git, and read from there.
       - ../../evals:/app/evals:ro
     ports: ['8003:8003']
     depends_on:

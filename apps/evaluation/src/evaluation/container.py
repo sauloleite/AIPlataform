@@ -13,7 +13,11 @@ from aia_messaging import RedisStreamPublisher
 from evaluation.application.ports import Judge, RunRepository, SafetyInspector
 from evaluation.application.use_cases.run_suite import RunSuite
 from evaluation.config import Settings, get_settings
-from evaluation.infrastructure.files import JsonlDatasetSource, YamlSuiteSource
+from evaluation.infrastructure.files import (
+    JsonCalibrationStore,
+    JsonlDatasetSource,
+    YamlSuiteSource,
+)
 from evaluation.infrastructure.mongo import MongoRunRepository, ensure_indexes, mongo_client
 from evaluation.infrastructure.platform_clients import (
     GuardrailsSafetyInspector,
@@ -69,6 +73,8 @@ def get_container() -> Container:
             events=RedisStreamPublisher(redis=redis.from_url(settings.redis_url)),
             judge=judge,
             safety=safety,
+            calibrations=JsonCalibrationStore(settings.calibrations_path),
+            max_calibration_age_days=settings.judge_calibration_max_age_days,
         ),
         verifier=JwtVerifier(
             issuer=settings.identity_issuer,

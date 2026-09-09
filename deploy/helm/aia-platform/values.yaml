@@ -251,7 +251,20 @@ evaluation:
   # The judge must not be the model under test. Empty means judged suites refuse
   # to run rather than score themselves (ADR-021).
   judgeAlias: ''
+  # And a judge that grades has to have been measured against human labels
+  # first (ADR-028), from a record under calibrationsPath.
+  judgeCalibrationMaxAgeDays: 90
+  # These three paths are inside the image, and the image does NOT contain
+  # evals/: deploy/docker/python.Dockerfile copies the service and the shared
+  # libraries, nothing else. In compose the directory arrives as a read-only
+  # bind mount; in Kubernetes there is no such mount, so `POST /v1/evaluations`
+  # here answers 404 for every suite. The gate runs from CI and the CLI, where
+  # the repository is checked out. Mounting evals/ as a ConfigMap is not a
+  # drop-in fix -- a ConfigMap key cannot contain a slash, and a suite refers to
+  # its dataset by relative path.
   suitesPath: /app/evals/suites
+  labelsPath: /app/evals/labels
+  calibrationsPath: /app/evals/calibration
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 512Mi }

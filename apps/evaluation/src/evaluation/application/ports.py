@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from evaluation.domain.calibration import Calibration, LabelledAnswer
 from evaluation.domain.entities import Answer, DatasetCase, EvaluationRun
 from evaluation.domain.suite import Suite
 
@@ -64,6 +65,33 @@ class Judge(Protocol):
         project_id: str,
         access_token: str,
     ) -> float: ...
+
+
+class LabelSource(Protocol):
+    """Where human labels come from. A directory of JSONL in the repo, today.
+
+    In the repo rather than in a database for the same reason the datasets are:
+    a label that changed shows up in a PR, and re-labelling the cases a judge
+    got wrong is the easiest way to make a judge look calibrated.
+    """
+
+    def load(self, path: str) -> list[LabelledAnswer]: ...
+
+
+class CalibrationSource(Protocol):
+    """The calibration records on file, one per judge alias and evaluator.
+
+    Returns None when there is none, which is not an error here: deciding what
+    a missing calibration means is the runner's rule, not the store's.
+    """
+
+    def find(self, *, judge_alias: str, evaluator: str) -> Calibration | None: ...
+
+
+class CalibrationWriter(Protocol):
+    """Where a fresh calibration record is written for review and commit."""
+
+    def save(self, calibration: Calibration) -> str: ...
 
 
 class SafetyInspector(Protocol):

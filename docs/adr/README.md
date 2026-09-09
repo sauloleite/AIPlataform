@@ -38,6 +38,7 @@ change of context.
 | [025](ADR-025-tool-arguments-are-validated-at-the-gateway.md)      | Tool arguments are validated against their schema at the gateway              | accepted (new)                      |
 | [026](ADR-026-a-restricted-project-fails-closed.md)                | A restricted project fails closed when guardrails are unavailable             | accepted (new)                      |
 | [027](ADR-027-the-data-zone-rule-has-one-source.md)                | The data-zone rule has one source, generated into both languages              | accepted (new)                      |
+| [028](ADR-028-a-judge-is-calibrated-or-it-does-not-grade.md)       | A judge is calibrated against human labels, or it does not grade              | accepted (new)                      |
 
 Format: context, decision, alternatives, consequences and review trigger.
 Template in [TEMPLATE.md](TEMPLATE.md).

@@ -101,6 +101,11 @@ class EvaluationRun:
     #: have one alias -- but it has to be visible on the record, because the
     #: resulting score is indistinguishable from an independent one.
     judge_alias: str | None = None
+    #: Held-out agreement (Cohen's kappa) per judged evaluator, as it stood when
+    #: this run was allowed to start. Kept on the record because a judged score
+    #: is only as good as the judge, and six months later the calibration file
+    #: has been recomputed -- this is what says which number licensed THIS run.
+    judge_agreement: dict[str, float] = field(default_factory=dict)
     status: RunStatus = RunStatus.RUNNING
     metrics: list[Metric] = field(default_factory=list)
     results: list[CaseResult] = field(default_factory=list)
