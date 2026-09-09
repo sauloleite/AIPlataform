@@ -119,6 +119,7 @@ export class FakePolicyReader implements PolicyReader {
       periodEndsInSeconds: 86_400,
       maxConcurrentRequests: 20,
       contentCapture: false,
+      contentRetentionDays: 90,
       stale: false,
       ...overrides,
     };

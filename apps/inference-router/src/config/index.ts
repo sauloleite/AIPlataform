@@ -37,6 +37,9 @@ const schema = z.object({
 
   POLICY_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(30),
   BUDGET_UNVERIFIED_MAX_TOKENS: z.coerce.number().int().positive().default(2000),
+  // The fallback when governance does not report a project's retention, which
+  // only happens against a governance older than the field. Retention itself is
+  // a project policy now (doc 02 §10.2), not a property of this deployment.
   AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
   DEFAULT_CURRENCY: z.string().length(3).default('BRL'),
 

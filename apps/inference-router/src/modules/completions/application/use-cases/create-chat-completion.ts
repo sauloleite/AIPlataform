@@ -540,6 +540,7 @@ export class CreateChatCompletion {
         durationMs,
         ...(extra.errorCode !== undefined && { errorCode: extra.errorCode }),
         guardrailsUnverified: routing.guardrailsUnverified,
+        expiresAt: expiryFrom(now, plan.policyResult.contentRetentionDays),
         // Content is stored only with the project's opt-in, and it arrives
         // already redacted from the guardrail pipeline (doc 02 §10.2).
         ...(plan.policyResult.contentCapture && {
@@ -623,4 +624,9 @@ function totals(usage: TokenUsage): {
     completionTokens: usage.completionTokens,
     totalTokens: usage.promptTokens + usage.completionTokens,
   };
+}
+
+/** When a record written now stops existing, given the project's retention. */
+function expiryFrom(now: Date, retentionDays: number): Date {
+  return new Date(now.getTime() + retentionDays * 24 * 60 * 60 * 1000);
 }

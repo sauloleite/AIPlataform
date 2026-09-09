@@ -181,6 +181,7 @@ export class ProjectsController {
       })),
       max_concurrent_requests: policy.maxConcurrentRequests,
       content_capture: policy.contentCapture,
+      content_retention_days: policy.contentRetentionDays,
       version: policy.version,
       ...(policy.budget !== undefined && {
         budget: {
@@ -219,6 +220,9 @@ export class ProjectsController {
         maxConcurrentRequests: input.max_concurrent_requests,
       }),
       ...(input.content_capture !== undefined && { contentCapture: input.content_capture }),
+      ...(input.content_retention_days !== undefined && {
+        contentRetentionDays: input.content_retention_days,
+      }),
     });
 
     return {

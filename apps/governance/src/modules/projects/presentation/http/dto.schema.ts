@@ -35,6 +35,7 @@ export const setPolicySchema = z.object({
     .optional(),
   max_concurrent_requests: z.number().int().min(1).optional(),
   content_capture: z.boolean().optional(),
+  content_retention_days: z.number().int().min(1).max(3650).optional(),
 });
 
 export const listQuerySchema = z.object({

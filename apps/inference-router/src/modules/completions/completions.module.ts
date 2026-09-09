@@ -128,6 +128,7 @@ const adapters: Provider[] = [
         governanceUrl: config.GOVERNANCE_URL,
         serviceToken: () => tokens.get(),
         cacheTtlSeconds: config.POLICY_CACHE_TTL_SECONDS,
+        defaultRetentionDays: config.AUDIT_RETENTION_DAYS,
         defaultCurrency: config.DEFAULT_CURRENCY,
       }),
     inject: [CONFIG, ServiceTokenProvider],
@@ -155,9 +156,10 @@ const adapters: Provider[] = [
   },
   {
     provide: AUDIT_REPOSITORY,
-    useFactory: (db: Db, config: RouterConfig) =>
-      new MongoAuditRepository(db, config.AUDIT_RETENTION_DAYS),
-    inject: [Db, CONFIG],
+    // No retention argument any more: expiry is written per document from the
+    // project's own policy, so one collection can hold two answers.
+    useFactory: (db: Db) => new MongoAuditRepository(db),
+    inject: [Db],
   },
   {
     provide: USAGE_PUBLISHER,

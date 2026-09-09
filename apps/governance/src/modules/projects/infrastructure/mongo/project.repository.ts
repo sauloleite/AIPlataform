@@ -24,6 +24,8 @@ interface ProjectDocument {
   modelRules: ModelRule[];
   maxConcurrentRequests: number;
   contentCapture: boolean;
+  /** Absent on a project written before retention became a policy field. */
+  contentRetentionDays?: number;
   policyVersion: number;
   createdAt: Date;
   updatedAt: Date;
@@ -43,6 +45,9 @@ function toEntity(document: ProjectDocument): Project {
     allowedZones: document.allowedZones,
     modelRules: document.modelRules,
     maxConcurrentRequests: document.maxConcurrentRequests,
+    // The default rather than a crash: a project stored before this field
+    // existed keeps the ninety days it already had (doc 02 §10.2).
+    contentRetentionDays: document.contentRetentionDays ?? 90,
     contentCapture: document.contentCapture,
     policyVersion: document.policyVersion,
     createdAt: document.createdAt,

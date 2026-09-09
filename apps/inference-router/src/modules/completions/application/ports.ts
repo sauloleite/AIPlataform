@@ -169,6 +169,8 @@ export interface PolicyResult {
   periodEndsInSeconds: number;
   maxConcurrentRequests: number;
   contentCapture: boolean;
+  /** How long this project's audit records live. Per project (doc 02 §10.2). */
+  contentRetentionDays: number;
   /** Policy served from cache because the origin was unreachable. */
   stale: boolean;
 }
@@ -208,6 +210,15 @@ export interface AuditRecord {
    * redacted first answers half the question an auditor asks.
    */
   guardrailsUnverified: boolean;
+  /**
+   * When this record disappears.
+   *
+   * Per document rather than a collection-wide TTL, because retention is now a
+   * project decision and one index cannot hold two answers. Mongo expires a
+   * document whose `expiresAt` has passed when the index says
+   * `expireAfterSeconds: 0`.
+   */
+  expiresAt: Date;
   /** Only populated with the project's opt-in and AFTER PII redaction. */
   redactedPrompt?: string;
   redactedCompletion?: string;

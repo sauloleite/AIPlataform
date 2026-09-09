@@ -13,7 +13,7 @@ Knowing this up front saves time and avoids an incomplete answer:
 | -------------------------------------- | ----------------------------------------- | ----------------------------- |
 | `aia_identity.principals`              | id, email, name, roles                    | as long as the account exists |
 | `aia_identity.personal_access_tokens`  | token hash, name, usage                   | 30 days after expiry          |
-| `aia_router.inference_audit`           | principal_id, project, tokens, cost, zone | 90 days (TTL)                 |
+| `aia_router.inference_audit`           | principal_id, project, tokens, cost, zone | per project, 90 days default  |
 | `aia_router.inference_audit` (content) | **redacted** prompt and answer            | only with project opt-in      |
 | `aia_agent_runtime.runs`               | principal_id, project, agent, thread      | none — no TTL yet             |
 | `aia_agent_runtime.checkpoints`        | the run transcript, keyed by `run_id`     | none — no TTL yet             |
@@ -21,11 +21,24 @@ Knowing this up front saves time and avoids an incomplete answer:
 | Redis Streams                          | events carrying principal_id              | the stream's length cap       |
 | Traces                                 | `aia.principal_id`                        | per the backend's retention   |
 
-The two `aia_agent_runtime` collections have **no TTL**: retention there is not
-configured anywhere, unlike the router's 90 days and the gateway's 365. Moving
-retention onto the project policy, where reference doc 02 §10.2 requires it, is
-roadmap M3. Until then an agent transcript is kept indefinitely, and this
-procedure is the only thing that removes one.
+`aia_router.inference_audit` now expires **per project**: the record carries an
+`expiresAt` written from that project's `content_retention_days`, so a project
+asking for thirty days gets thirty. Change it through governance:
+
+```bash
+curl -X PUT "${BASE_URL}/v1/projects/${PROJECT_ID}/policy" \
+  -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
+  -d '{"content_retention_days": 30}'
+```
+
+It applies to records written from then on. Shortening retention does not expire
+what is already stored — those documents carry the expiry they were written
+with, and this procedure is what removes them sooner.
+
+The two `aia_agent_runtime` collections still have **no TTL** at all: an agent
+transcript is kept indefinitely, and this procedure is the only thing that
+removes one. `aia_mcp_gateway.tool_invocations` keeps its service-wide 365 days,
+which holds no conversation content — only which tool ran, for whom and when.
 
 Conversation content exists only if the project enabled `content_capture`, and
 even then it has already been through PII redaction.

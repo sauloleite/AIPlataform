@@ -211,6 +211,14 @@ export interface components {
              * @default false
              */
             content_capture: boolean;
+            /**
+             * @description How long an audit record for this project is kept. Per project
+             *     rather than per service because it is a decision about personal
+             *     data, and a classification that changes should be able to change it
+             *     (reference doc 02 §10.2, LGPD).
+             * @default 90
+             */
+            content_retention_days: number;
             /** @description Increments on every change. The router uses it to invalidate its cache. */
             version: number;
         };
@@ -219,6 +227,7 @@ export interface components {
             model_rules?: components["schemas"]["ModelRule"][];
             max_concurrent_requests?: number;
             content_capture?: boolean;
+            content_retention_days?: number;
         };
         Page: {
             items: unknown[];

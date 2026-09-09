@@ -87,3 +87,58 @@ describe('Project', () => {
     }).toThrow(ValidationError);
   });
 });
+
+/**
+ * Retention as a project decision (reference doc 02 §10.2).
+ *
+ * It used to be an environment variable per service, so every project in a
+ * deployment kept its content for exactly as long as every other -- and the
+ * LGPD procedure had nothing per project to act on.
+ */
+describe('Project content retention', () => {
+  it('starts at ninety days, which is the documented default', () => {
+    expect(create().contentRetentionDays).toBe(90);
+  });
+
+  it('can be set to something shorter or longer', () => {
+    const project = create();
+
+    project.setContentRetentionDays(30, NOW);
+    expect(project.contentRetentionDays).toBe(30);
+
+    project.setContentRetentionDays(365, NOW);
+    expect(project.contentRetentionDays).toBe(365);
+  });
+
+  it('refuses zero, a negative number and a fraction of a day', () => {
+    const project = create();
+
+    expect(() => {
+      project.setContentRetentionDays(0, NOW);
+    }).toThrow(ValidationError);
+    expect(() => {
+      project.setContentRetentionDays(-1, NOW);
+    }).toThrow(ValidationError);
+    expect(() => {
+      project.setContentRetentionDays(1.5, NOW);
+    }).toThrow(ValidationError);
+  });
+
+  it('refuses a retention nobody chose deliberately', () => {
+    // Ten years is not a technical limit. Keeping personal data longer is a
+    // decision with a legal basis behind it, and a form that accepts 99999 has
+    // made that decision on somebody's behalf.
+    expect(() => {
+      create().setContentRetentionDays(99_999, NOW);
+    }).toThrow(ValidationError);
+  });
+
+  it('counts as a policy change, so the router invalidates its cache', () => {
+    const project = create();
+    const before = project.policyVersion;
+
+    project.setContentRetentionDays(30, NOW);
+
+    expect(project.policyVersion).toBeGreaterThan(before);
+  });
+});

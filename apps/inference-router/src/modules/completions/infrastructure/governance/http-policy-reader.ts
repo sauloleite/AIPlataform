@@ -12,6 +12,8 @@ interface PolicyResponse {
   model_rules?: { alias: string; allowed: boolean; max_output_tokens?: number }[];
   max_concurrent_requests: number;
   content_capture: boolean;
+  /** Absent from a governance older than the field. */
+  content_retention_days?: number;
   version: number;
   budget?: {
     currency: string;
@@ -34,6 +36,15 @@ export interface HttpPolicyReaderOptions {
   serviceToken: () => Promise<string>;
   cacheTtlSeconds: number;
   defaultCurrency: string;
+  /**
+   * Retention for a project whose policy does not carry one.
+   *
+   * Only reachable when governance is older than the field: retention has a
+   * default at the project, so a current governance always answers with a
+   * number. It stays because a router talking to an older governance must not
+   * write a record with no expiry at all.
+   */
+  defaultRetentionDays: number;
   /** Implicit limit when the project has no configured budget. */
   unlimitedMicros?: bigint;
 }
@@ -145,6 +156,7 @@ function toPolicyResult(payload: PolicyResponse, options: HttpPolicyReaderOption
       periodEndsInSeconds: 3600,
       maxConcurrentRequests: payload.max_concurrent_requests,
       contentCapture: payload.content_capture,
+      contentRetentionDays: payload.content_retention_days ?? options.defaultRetentionDays,
       stale: false,
     };
   }
@@ -163,6 +175,7 @@ function toPolicyResult(payload: PolicyResponse, options: HttpPolicyReaderOption
     periodEndsInSeconds: secondsToEnd,
     maxConcurrentRequests: payload.max_concurrent_requests,
     contentCapture: payload.content_capture,
+    contentRetentionDays: payload.content_retention_days ?? options.defaultRetentionDays,
     stale: false,
   };
 }

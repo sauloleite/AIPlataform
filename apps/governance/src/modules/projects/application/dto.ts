@@ -26,6 +26,7 @@ export interface SetPolicyCommand {
   modelRules?: { alias: string; allowed: boolean; maxOutputTokens?: number }[];
   maxConcurrentRequests?: number;
   contentCapture?: boolean;
+  contentRetentionDays?: number;
 }
 
 export interface ProjectView {
@@ -55,6 +56,7 @@ export interface ProjectPolicyView {
   modelRules: { alias: string; allowed: boolean; maxOutputTokens?: number }[];
   maxConcurrentRequests: number;
   contentCapture: boolean;
+  contentRetentionDays: number;
   version: number;
   budget?: {
     currency: string;

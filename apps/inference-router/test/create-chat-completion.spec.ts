@@ -642,3 +642,49 @@ describe('when the guardrail cannot inspect the content', () => {
     expect(usage.published[0]).toMatchObject({ guardrailsUnverified: true });
   });
 });
+
+/**
+ * Retention as a project decision (reference doc 02 §10.2, LGPD).
+ *
+ * It was `AUDIT_RETENTION_DAYS`, an environment variable per service, so every
+ * project in a deployment kept its content for exactly as long as every other
+ * -- and the LGPD procedure had no per-project handle to act on.
+ */
+describe('how long an audit record lives', () => {
+  it('expires according to the project policy, not a deployment setting', async () => {
+    const { useCase, audit } = build({ policy: { contentRetentionDays: 30 } });
+
+    await useCase.execute(aCommand());
+
+    const record = audit.records[0];
+    const days = (record!.expiresAt.getTime() - record!.occurredAt.getTime()) / 86_400_000;
+    expect(days).toBe(30);
+  });
+
+  it('gives two projects two different lifetimes', async () => {
+    const short = build({ policy: { contentRetentionDays: 7 } });
+    const long = build({ policy: { contentRetentionDays: 365 } });
+
+    await short.useCase.execute(aCommand());
+    await long.useCase.execute(aCommand());
+
+    // The reason expiry moved onto the document: one collection-wide TTL index
+    // holds one number and cannot answer both.
+    const daysOf = (h: typeof short) => {
+      const r = h.audit.records[0]!;
+      return (r.expiresAt.getTime() - r.occurredAt.getTime()) / 86_400_000;
+    };
+    expect(daysOf(short)).toBe(7);
+    expect(daysOf(long)).toBe(365);
+  });
+
+  it('still sets an expiry on a record with no content in it', async () => {
+    const { useCase, audit } = build({ policy: { contentCapture: false } });
+
+    await useCase.execute(aCommand());
+
+    // The record itself carries principal_id and cost, which are personal data
+    // whether or not the prompt was stored.
+    expect(audit.records[0]?.expiresAt).toBeInstanceOf(Date);
+  });
+});
