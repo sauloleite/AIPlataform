@@ -1,0 +1,24 @@
+# Tells Grafana where this repository's dashboards are.
+#
+# Mounted as a FILE and not as a directory: the otel-lgtm image provisions its
+# own dashboards from `grafana-dashboards.yaml` in the same folder, and mounting
+# the folder would hide them.
+#
+# The path is `/otel-lgtm/grafana/conf/provisioning/`, which is where this image
+# looks — not `/etc/grafana/provisioning`, which is where the standard Grafana
+# image looks. Getting that wrong provisions nothing and reports nothing.
+apiVersion: 1
+
+providers:
+  - name: aia
+    orgId: 1
+    folder: AIA
+    type: file
+    # A dashboard edited in the UI is overwritten on the next reload. That is
+    # deliberate: a panel that exists only in somebody's browser is not a
+    # dashboard the platform has.
+    disableDeletion: false
+    allowUiUpdates: false
+    options:
+      path: /otel-lgtm/dashboards/aia
+      foldersFromFilesStructure: false

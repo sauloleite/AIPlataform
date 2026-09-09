@@ -126,7 +126,17 @@ services:
       - '3200:3200' # Tempo query API -- what the console's Traces screen reads
       - '4317:4317' # OTLP gRPC
       - '4318:4318' # OTLP HTTP
-    volumes: [lgtm-data:/data]
+    volumes:
+      - lgtm-data:/data
+      # Mounted as FILES, not as directories: this image provisions its own
+      # dashboards and datasources from the same folders, and mounting a folder
+      # over one would hide them. The path is the image's own
+      # (`/otel-lgtm/grafana/conf/provisioning`) and not the `/etc/grafana` one
+      # the standard Grafana image uses -- provisioning into the wrong path
+      # succeeds silently and shows nothing.
+      - ../grafana/provisioning/dashboards/aia.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/aia.yaml:ro
+      - ../grafana/provisioning/alerting/aia-alerts.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/aia-alerts.yaml:ro
+      - ../grafana/dashboards:/otel-lgtm/dashboards/aia:ro
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin

@@ -50,7 +50,10 @@ jobs:
         run: pnpm exec prettier --check .
 
       - name: ESLint
-        run: pnpm exec eslint . --max-warnings 0
+        # Same ceiling as the Makefile, and for the same reason: the type-aware
+        # rules hold one TypeScript program for the whole monorepo, and the
+        # default heap is no longer enough for it.
+        run: NODE_OPTIONS=--max-old-space-size=6144 pnpm exec eslint . --max-warnings 0
 
       - name: tsc (tests included)
         # `tsconfig.build.json` excludes the tests so they stay out of the image,
@@ -95,6 +98,26 @@ jobs:
       # in the service image, which follows references and nothing else.
       - name: Every @aia dependency is a project reference
         run: node tools/scripts/check-project-references.mjs
+
+      # A panel querying a metric nothing emits draws an empty chart, and an
+      # alert on an absent series never fires. Both look exactly like a quiet
+      # hour, which is why this is a check and not a review item.
+      - name: Every dashboard and alert queries a metric the platform records
+        run: node tools/scripts/check-dashboards.mjs
+
+      - name: The dashboard check really fails on a renamed metric
+        run: |
+          set -euo pipefail
+          DASHBOARD=deploy/grafana/dashboards/aia-slos.json
+          cp "$DASHBOARD" /tmp/aia-slos.json.bak
+          trap 'mv /tmp/aia-slos.json.bak "$DASHBOARD"' EXIT
+
+          sed -i 's/aia_inference_cost_micros_total/aia_inference_spend_total/' "$DASHBOARD"
+          if node tools/scripts/check-dashboards.mjs; then
+            echo "::error::the dashboard check did NOT notice a metric nothing records."
+            exit 1
+          fi
+          echo "  dashboard check: caught"
 
       - name: The reference check really fails when a reference is missing
         run: |

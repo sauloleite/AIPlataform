@@ -43,11 +43,25 @@ services:
   qdrant:
     ports: !override []
 
+  # `GF_AUTH_ANONYMOUS_ENABLED: 'false'` used to sit here, with a comment saying
+  # anonymous Grafana is acceptable in dev and not in production. It did
+  # nothing: `/otel-lgtm/run-grafana.sh` in this image runs
+  # `export GF_AUTH_ANONYMOUS_ENABLED=true` and `GF_AUTH_ANONYMOUS_ORG_ROLE=Admin`
+  # unconditionally, after compose has set the environment and before Grafana
+  # reads it. Anyone who reaches this container gets Admin, and every trace
+  # carries `aia.project_id` and `aia.principal_id`.
+  #
+  # What actually contains it is the line below: no port is published, so only
+  # the platform's own network reaches Grafana. That is a real boundary and it
+  # is the only one there is -- an operator who publishes 3000 to reach a
+  # dashboard has published an unauthenticated admin console, whatever the
+  # environment block says.
+  #
+  # The admin password is still set, because that variable IS honoured and it
+  # is what a person logging in over an SSH tunnel authenticates against.
   lgtm:
     ports: !override []
     environment:
-      # Anonymous Grafana is acceptable in dev, not in production.
-      GF_AUTH_ANONYMOUS_ENABLED: 'false'
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
     secrets: [grafana_password]
     deploy:

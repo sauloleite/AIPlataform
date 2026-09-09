@@ -53,9 +53,16 @@ models: ## Pulls the local models into Ollama (zero cost, no API key)
 seed: ## Creates the admin, a sample project and the platform-ci eval project
 	bash tools/scripts/seed.sh
 
+# ESLint runs the type-aware rules over the whole monorepo, which means holding
+# the TypeScript program for eleven services and nine packages in one heap.
+# Node's default ceiling here is about 2 GB and the run now needs more than
+# that: it dies with "Reached heap limit", which reads like a lint failure and
+# is not one. The number is a ceiling, not a reservation.
+LINT_HEAP_MB ?= 6144
+
 lint: ## Lint and formatting (fails on a warning, reference doc 03 §5)
 	pnpm exec prettier --check .
-	pnpm exec eslint . --max-warnings 0
+	NODE_OPTIONS=--max-old-space-size=$(LINT_HEAP_MB) pnpm exec eslint . --max-warnings 0
 	uv run ruff check .
 	uv run ruff format --check .
 
@@ -74,6 +81,7 @@ arch: ## The Clean Architecture dependency rule (fails the build)
 	pnpm exec depcruise --config .dependency-cruiser.cjs --output-type err apps packages
 	uv run lint-imports
 	node tools/scripts/check-project-references.mjs
+	node tools/scripts/check-dashboards.mjs
 
 # `--project unit` used to be here and matched nothing: there is no vitest
 # projects config, each package owns its own vitest.config.ts. `nx run-many` is
