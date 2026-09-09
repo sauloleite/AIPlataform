@@ -33,8 +33,9 @@ The red-team row is real and is the only one: the cases run as domain unit tests
 through `apps/guardrails/tests/test_redteam_dataset.py`, which the `test-unit`
 job already executes, at no cost and with no network.
 
-`make eval` runs the judged suites locally, and no workflow calls it. It also
-needs a `platform-ci` project, which `tools/scripts/seed.sh` does not create yet.
+`make eval` runs the judged suites locally, and no workflow calls it yet.
+`tools/scripts/seed.sh` does create the `platform-ci` project it needs, with its
+own budget.
 
 ## Why the threshold is not 100%
 

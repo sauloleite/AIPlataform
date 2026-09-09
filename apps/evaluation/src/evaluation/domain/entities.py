@@ -96,6 +96,11 @@ class EvaluationRun:
     suite: str
     alias: str
     principal_id: str
+    #: Which alias graded, when the suite was judged. Equal to `alias` means the
+    #: model marked its own homework, which is not forbidden -- a small team may
+    #: have one alias -- but it has to be visible on the record, because the
+    #: resulting score is indistinguishable from an independent one.
+    judge_alias: str | None = None
     status: RunStatus = RunStatus.RUNNING
     metrics: list[Metric] = field(default_factory=list)
     results: list[CaseResult] = field(default_factory=list)

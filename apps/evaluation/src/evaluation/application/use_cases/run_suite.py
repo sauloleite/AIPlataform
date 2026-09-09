@@ -14,7 +14,9 @@ The thing this is built to prevent is a green run that measured nothing.
 
 from __future__ import annotations
 
+import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 from aia_errors import DomainError
@@ -29,9 +31,15 @@ from evaluation.application.ports import (
     TargetClient,
 )
 from evaluation.domain.entities import CaseResult, DatasetCase, EvaluationRun
-from evaluation.domain.errors import DatasetTooSmallError, JudgeRequiredError
+from evaluation.domain.errors import (
+    CaseNotMeasurableError,
+    DatasetTooSmallError,
+    JudgeRequiredError,
+)
 from evaluation.domain.scoring import exact_match, metric_for, token_overlap
 from evaluation.domain.suite import JUDGED, EvaluatorSpec, Suite
+
+_LOGGER = logging.getLogger(__name__)
 
 SOURCE = "aia-evaluation"
 
@@ -70,13 +78,27 @@ class RunSuite:
             suite=suite.name,
             alias=alias,
             principal_id=command.caller.principal_id,
+            judge_alias=self.judge.alias if self.judge is not None else None,
         )
+
+        if suite.needs_judge and run.judge_alias == alias:
+            # Not a refusal: ADR-021 allows it, because a small team may
+            # genuinely have one alias. But it happens on every entry point now,
+            # not only in the CLI -- `POST /v1/evaluations` used to run a
+            # self-judging suite in silence, and the score it produced was
+            # indistinguishable from an independent one.
+            _LOGGER.warning(
+                "suite %s is graded by the alias under test (%s): a model agrees with itself",
+                suite.name,
+                alias,
+            )
 
         try:
             self._assert_runnable(suite)
             cases = self.datasets.load(suite.dataset, relative_to=command.suite_path)
             if len(cases) < suite.min_cases:
                 raise DatasetTooSmallError(suite.name, len(cases), suite.min_cases)
+            _assert_every_case_is_measurable(suite, cases)
 
             await self.runs.save(run)
 
@@ -151,8 +173,13 @@ class RunSuite:
             if spec.name == "groundedness" and not case.context:
                 # Nothing to be grounded IN. The lexical floor would score the
                 # answer against an empty string and call it zero, which reads
-                # as a failure of the model rather than of the dataset.
-                return token_overlap(answer, (case.expected,)) if case.expected else 1.0
+                # as a failure of the model rather than of the dataset -- so it
+                # falls back to the reference answer instead.
+                #
+                # A row with neither is refused before the run starts, by
+                # `_assert_every_case_is_measurable`. It used to return 1.0
+                # here: a perfect score for a measurement that never happened.
+                return token_overlap(answer, (case.expected,))
 
             return await self.judge.score(
                 criterion=CRITERIA[spec.name],
@@ -196,3 +223,23 @@ class RunSuite:
 def with_alias(suite: Suite, alias: str) -> Suite:
     """A suite pointed at a different alias. What a regression run does."""
     return replace(suite, alias=alias)
+
+
+def _assert_every_case_is_measurable(suite: Suite, cases: Sequence[DatasetCase]) -> None:
+    """Refuses a dataset row a declared evaluator has nothing to measure against.
+
+    Before the run, not during it, and for the reason ADR-021 gives for every
+    other refusal: a hole found at the end is a number nobody can trust, and
+    finding it here costs nothing while finding it later costs a suite of
+    tokens.
+
+    Only `groundedness` can be starved this way today -- it needs a context or,
+    failing that, a reference answer -- but the shape is the point: an evaluator
+    that cannot see what it grades must say so rather than return a score.
+    """
+    for spec in suite.evaluators:
+        if spec.name != "groundedness":
+            continue
+        for case in cases:
+            if not case.context and not case.expected:
+                raise CaseNotMeasurableError(suite.name, spec.name, case.id)

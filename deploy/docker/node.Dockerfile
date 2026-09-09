@@ -49,7 +49,16 @@ RUN pnpm exec tsc --build apps/${SERVICE}/tsconfig.build.json
 
 # `--prod` drops devDependencies; `deploy` flattens the workspace links into a
 # self-contained tree, which is what the distroless image can load.
-RUN pnpm --filter "@aia/${SERVICE}" deploy --prod --legacy /output
+#
+# `--no-optional` because optional dependencies here are platform binaries for
+# operating systems this image is not: nine `@rolldown/binding-*` packages for
+# Windows, macOS, FreeBSD and four Linux ABIs, none of which a linux/amd64
+# runtime can load. pnpm was fetching metadata for every one of them, and those
+# nine requests are what failed the build three times running with
+# ERR_PNPM_BROKEN_METADATA_JSON while several hundred other packages downloaded
+# without trouble. An image build should not depend on nine round-trips for
+# files it will delete.
+RUN pnpm --filter "@aia/${SERVICE}" deploy --prod --no-optional --legacy /output
 
 # ----------------------------------------------------------------------------
 FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runtime

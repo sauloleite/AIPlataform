@@ -42,6 +42,17 @@ class Judge(Protocol):
     a different one. A model grading itself agrees with itself.
     """
 
+    @property
+    def alias(self) -> str:
+        """Which alias grades.
+
+        On the port because the runner has to be able to notice that it matches
+        the alias under test. That warning used to live in the CLI alone, so
+        `POST /v1/evaluations` ran a self-judging suite in silence -- and a
+        self-graded score looks exactly like a real one.
+        """
+        ...
+
     async def score(
         self,
         *,

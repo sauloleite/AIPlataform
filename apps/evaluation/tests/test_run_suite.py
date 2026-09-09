@@ -225,6 +225,25 @@ class TestGrounding:
         assert run.status in {RunStatus.PASSED, RunStatus.FAILED}
         assert run.metrics[0].sample_size == 1
 
+    async def test_a_case_with_neither_context_nor_reference_is_refused(self) -> None:
+        """ADR-021: refuse rather than score nothing.
+
+        `groundedness` asks whether every claim is supported by the CONTEXT. A
+        row with no context and no reference offers neither, and the runner used
+        to hand it 1.0 -- a perfect score for a measurement that never happened,
+        which is worse than a zero because a zero gets investigated.
+        """
+        harness = Harness(a_suite(EvaluatorSpec("groundedness", threshold=0.5)))
+        harness.use_case.datasets = FakeDatasetSource(
+            [DatasetCase(id="c1", input="what is the retention?")]
+        )
+
+        run = await harness.run()
+
+        assert run.status is RunStatus.ERRORED
+        # Refused BEFORE the run, so no case was answered and no token spent.
+        assert harness.target.tokens_seen == []
+
     async def test_the_judge_is_told_what_it_is_judging(self) -> None:
         harness = Harness(
             a_suite(
@@ -247,3 +266,24 @@ def test_both_kinds_of_bad_run_stop_a_merge(status: RunStatus) -> None:
     run.status = status
 
     assert run.gated
+
+
+class TestWhoGraded:
+    """A model that marks its own homework agrees with itself."""
+
+    async def test_the_run_records_which_alias_graded_it(self) -> None:
+        harness = Harness(a_suite(EvaluatorSpec("groundedness", threshold=0.5)))
+
+        run = await harness.run()
+
+        # On the RECORD, not only in a log the CLI prints: a self-graded score
+        # is indistinguishable from an independent one, and whoever reads the
+        # run later is the person who needs to be able to tell.
+        assert run.judge_alias == "judge-alias"
+
+    async def test_a_run_with_no_judge_records_none(self) -> None:
+        harness = Harness(a_suite(EvaluatorSpec("exact_match", threshold=0.5)), with_judge=False)
+
+        run = await harness.run()
+
+        assert run.judge_alias is None

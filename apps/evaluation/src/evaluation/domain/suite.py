@@ -47,6 +47,12 @@ class Suite:
     name: str
     dataset: str
     alias: str
+    #: The project SLUG this suite is meant to run against, not an id.
+    #:
+    #: The runner needs an id, and resolving a slug means a call to governance
+    #: that a pure domain object cannot make -- so this is advisory: it tells a
+    #: human, and the CLI's refusal, which project a suite expects. The CI job
+    #: is what resolves it.
     project: str
     evaluators: tuple[EvaluatorSpec, ...]
     #: A metric over three cases is not a metric. A suite that shrank because

@@ -58,6 +58,9 @@ class FakeTarget:
 
 @dataclass(slots=True)
 class FakeJudge:
+    #: The alias that grades. A fake honours the port, and the port names it so
+    #: the runner can notice a model marking its own homework.
+    alias: str = "judge-alias"
     verdict: float = 1.0
     criteria_seen: list[str] = field(default_factory=list)
     #: Set to simulate a judge that answered something unreadable.

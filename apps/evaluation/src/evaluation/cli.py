@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import os
 import sys
+from collections.abc import Sequence
 
 from aia_errors import DomainError
 from evaluation.application.dto import Caller, RunSuiteCommand
@@ -69,13 +70,25 @@ async def run_command(args: argparse.Namespace) -> int:
         return _validate_only(args.suite)
 
     if not args.project or not args.token:
-        print("A project id and an access token are required (AIA_PROJECT_ID, AIA_ACCESS_TOKEN).")
+        # Naming the suite's own `project` here is the only thing that field
+        # does. It is a slug and the runner needs an id, so it cannot be used
+        # directly -- but telling somebody which project a suite expects is
+        # better than a generic refusal, and better than a key nothing reads.
+        print(
+            "A project id and an access token are required "
+            "(AIA_PROJECT_ID, AIA_ACCESS_TOKEN).\n"
+            f"{_expected_projects(args.suite)}"
+        )
         return 2
 
     use_case = RunSuite(
         suites=YamlSuiteSource(),
         datasets=JsonlDatasetSource(),
         target=RouterTargetClient(base_url=settings.inference_router_url),
+        # In memory on purpose. The CLI is a GATE, not a record: it runs on a
+        # developer's laptop and in CI, where a database write would either
+        # need a connection nobody has or leave rows from an ephemeral runner.
+        # `POST /v1/evaluations` is the entry point that persists.
         runs=InMemoryRunRepository(),
         events=_NoEvents(),
         judge=(
@@ -103,6 +116,35 @@ async def run_command(args: argparse.Namespace) -> int:
     for run in runs:
         _report(run)
 
+    return exit_code_for(runs)
+
+
+def _expected_projects(suite_path: str) -> str:
+    """Which project the suites at this path say they are for."""
+    try:
+        slugs = sorted({suite.project for suite in YamlSuiteSource().load(suite_path)})
+    except DomainError:
+        return ""
+    if not slugs:
+        return ""
+    return f"The suites here expect the project {', '.join(slugs)} (`make seed` creates it)."
+
+
+def exit_code_for(runs: Sequence[EvaluationRun]) -> int:
+    """What CI is told, in one number.
+
+    ADR-021 keeps `failed` and `errored` apart, and this is where that
+    distinction reaches a pipeline. `failed` is quality below a threshold: look
+    at the prompts. `errored` is a measurement that did not happen: look at the
+    wiring. Both stop a merge, and collapsing them into "red" -- which this did,
+    returning 1 for either -- sends half the people to the wrong place.
+
+    `errored` wins over `failed` when a batch contains both, because a run that
+    could not be measured makes the whole batch's verdict provisional: the
+    suites that did fail may not be the only ones that would have.
+    """
+    if any(run.status is RunStatus.ERRORED for run in runs):
+        return 2
     return 1 if any(run.gated for run in runs) else 0
 
 

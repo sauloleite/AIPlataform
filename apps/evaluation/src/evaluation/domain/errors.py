@@ -49,6 +49,30 @@ class DatasetTooSmallError(DomainError):
         )
 
 
+class CaseNotMeasurableError(DomainError):
+    """A dataset row a declared evaluator has nothing to measure against.
+
+    `groundedness` asks whether every claim is supported by the CONTEXT. A row
+    with no context and no reference answer offers neither, so there is nothing
+    to be grounded in and nothing to fall back on -- and the runner used to give
+    that row 1.0, a perfect score for a measurement that never happened. That is
+    exactly the lie ADR-021 exists to prevent, and it is worse than a zero,
+    because a zero at least gets investigated.
+
+    Refused before the run rather than during it: a dataset that cannot be
+    scored is a dataset problem, and finding it costs nothing here and a full
+    suite of tokens later.
+    """
+
+    def __init__(self, suite: str, evaluator: str, case_id: str) -> None:
+        super().__init__(
+            "A case has nothing for this evaluator to measure against",
+            code=ErrorCode.VALIDATION_FAILED,
+            status=400,
+            details={"suite": suite, "evaluator": evaluator, "case": case_id},
+        )
+
+
 class JudgeUnreadableError(DomainError):
     """The judge answered something that is not a grade.
 
