@@ -13,6 +13,16 @@ import { SseWriter } from './sse.js';
 import { toChatCompletionResponse, toEmbeddingsResponse } from '../mappers/openai.mapper.js';
 
 /**
+ * How long the response may stay silent before committing to a 200.
+ *
+ * Comfortably under the sixty seconds at which ALB, GCLB and nginx drop an idle
+ * connection, and far above the time any fast failure takes: a budget refusal,
+ * an unknown alias or an incompatible data zone all happen in milliseconds and
+ * still answer with a real HTTP status.
+ */
+const COMMIT_AFTER_MS = 15_000;
+
+/**
  * The canonical inference API, OpenAI-compatible.
  *
  * The controller only adapts input and output: there is no business rule here.
@@ -107,6 +117,23 @@ export class CompletionsController {
    * An error BEFORE the first event becomes Problem Details with an HTTP status.
    * After the first event the headers are already sent, so the error can only
    * arrive as an `error` event inside the stream itself.
+   *
+   * That is why the writer is created lazily -- and why it cannot wait for the
+   * first event either. Nothing is on the wire until it exists, so the wait for
+   * the first token is a silent connection, and a proxy drops one of those at
+   * sixty seconds (ALB, GCLB and nginx all default to it). A local model loads
+   * from disk on the first call and `POLICIES.INFERENCE_STREAMING_LOCAL` allows
+   * a hundred and twenty seconds for it, so the gap is not hypothetical: it is
+   * the zero-cost path this platform exists to offer.
+   *
+   * The two cannot both be had. Sending a byte commits the response to 200 and
+   * spends the HTTP status; sending nothing risks a truncated answer with no
+   * error at all, which is worse. So the commit happens as late as it safely
+   * can: if the first event has not arrived by `COMMIT_AFTER_MS`, the headers
+   * go out and the heartbeat starts, and any later failure arrives as an
+   * `error` event instead of a status. Anything that fails quickly -- an
+   * exhausted budget, an incompatible zone, an unknown alias -- still answers
+   * with Problem Details, because it fails long before this deadline.
    */
   private async streamChat(
     command: Parameters<CreateChatCompletion['stream']>[0],
@@ -114,8 +141,15 @@ export class CompletionsController {
   ): Promise<void> {
     let writer: SseWriter | undefined;
 
+    const commit = setTimeout(() => {
+      writer ??= new SseWriter(response);
+    }, COMMIT_AFTER_MS);
+    // Must not hold the process open during shutdown.
+    commit.unref();
+
     try {
       for await (const event of this.createChatCompletion.stream(command)) {
+        clearTimeout(commit);
         writer ??= new SseWriter(response);
         if (writer.isClosed) break;
 
