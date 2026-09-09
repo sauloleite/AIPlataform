@@ -10,11 +10,14 @@ from pydantic import BaseModel, Field
 from aia_auth import Principal
 from aia_fastapi import AuthenticatedCaller, authenticated, health_router
 from evaluation.application.dto import Caller, RunSuiteCommand
+from evaluation.application.use_cases.annotate import RecordAnnotationCommand
 from evaluation.container import get_container
+from evaluation.domain.annotation import Annotation
 from evaluation.domain.entities import EvaluationRun
 from evaluation.domain.errors import RunNotFoundError
 
 router = APIRouter(prefix="/v1/evaluations", tags=["evaluation"])
+annotations_router = APIRouter(prefix="/v1/annotations", tags=["evaluation"])
 
 MAX_LIMIT = 100
 
@@ -125,6 +128,86 @@ async def get_run(run_id: str, caller: Authenticated) -> dict[str, Any]:
     if run is None:
         raise RunNotFoundError(run_id)
     return _run_response(run, with_cases=True)
+
+
+class AnnotationBody(BaseModel):
+    """What the console posts after somebody reads a trace.
+
+    The text fields are optional because content capture is per project and off
+    by default: most annotations are a verdict about a trace whose words the
+    platform never stored, and requiring them would mean either an empty string
+    or no annotation at all.
+    """
+
+    trace_id: str = Field(description="The trace this is about.")
+    verdict: str = Field(description="good or bad.")
+    failure_mode: str = Field(default="", description="Required when the verdict is bad.")
+    note: str = ""
+    evaluator: str = Field(default="", description="Which evaluator should have caught it.")
+    question: str = ""
+    answer: str = ""
+    context: list[str] = Field(default_factory=list)
+
+
+def _annotation_response(annotation: Annotation) -> dict[str, Any]:
+    return {
+        "id": annotation.id,
+        "project_id": annotation.project_id,
+        "trace_id": annotation.trace_id,
+        "verdict": annotation.verdict.value,
+        "failure_mode": annotation.failure_mode,
+        "note": annotation.note or None,
+        "evaluator": annotation.evaluator,
+        "question": annotation.question or None,
+        "answer": annotation.answer or None,
+        "context": list(annotation.context),
+        "principal_id": annotation.principal_id,
+        "created_at": annotation.created_at.isoformat().replace("+00:00", "Z"),
+        "is_label": annotation.is_label,
+    }
+
+
+@annotations_router.post("", status_code=201)
+async def record_annotation(body: AnnotationBody, caller: Authenticated) -> dict[str, Any]:
+    """Records what a person decided about one trace.
+
+    Re-annotating the same trace as the same person replaces the earlier
+    verdict: that is somebody changing their mind, and counting both would
+    inflate a failure mode by however often its reader hesitated.
+    """
+    annotation = await get_container().record_annotation.execute(
+        RecordAnnotationCommand(
+            caller=caller,
+            trace_id=body.trace_id,
+            verdict=body.verdict,
+            failure_mode=body.failure_mode,
+            note=body.note,
+            evaluator=body.evaluator,
+            question=body.question,
+            answer=body.answer,
+            context=tuple(body.context),
+        )
+    )
+    return _annotation_response(annotation)
+
+
+@annotations_router.get("")
+async def list_annotations(
+    caller: Authenticated,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 25,
+    trace_id: Annotated[str | None, Query()] = None,
+    failure_mode: Annotated[str | None, Query()] = None,
+) -> dict[str, Any]:
+    page = await get_container().list_annotations.execute(
+        caller, limit=limit, trace_id=trace_id, failure_mode=failure_mode
+    )
+    return {
+        "items": [_annotation_response(annotation) for annotation in page.items],
+        "taxonomy": [
+            {"failure_mode": entry.failure_mode, "count": entry.count} for entry in page.taxonomy
+        ],
+        "next_cursor": None,
+    }
 
 
 async def _ready() -> dict[str, str]:

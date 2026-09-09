@@ -18,6 +18,7 @@ Knowing this up front saves time and avoids an incomplete answer:
 | `aia_agent_runtime.runs`               | principal_id, project, agent, thread      | none — no TTL yet             |
 | `aia_agent_runtime.checkpoints`        | the run transcript, keyed by `run_id`     | none — no TTL yet             |
 | `aia_mcp_gateway.tool_invocations`     | principalId, tool, arguments hash         | 365 days (TTL)                |
+| `aia_evaluation.annotations`           | principal_id, and the answer they read    | none — no TTL yet             |
 | Redis Streams                          | events carrying principal_id              | the stream's length cap       |
 | Traces                                 | `aia.principal_id`                        | per the backend's retention   |
 
@@ -60,6 +61,12 @@ $COMPOSE exec -T mongo mongosh aia_agent_runtime --quiet --eval "
 
 $COMPOSE exec -T mongo mongosh aia_mcp_gateway --quiet --eval "
   db.tool_invocations.find({ principalId: '$PRINCIPAL_ID' }).toArray()" > subject-tools.json
+
+# Two different people can appear in one annotation: the ANNOTATOR, in
+# principal_id, and whoever wrote the question that was annotated, in the text.
+# A subject-access request has to search both.
+$COMPOSE exec -T mongo mongosh aia_evaluation --quiet --eval "
+  db.annotations.find({ principal_id: '$PRINCIPAL_ID' }).toArray()" > subject-annotations.json
 ```
 
 The run transcripts live in `aia_agent_runtime.checkpoints`, keyed by `run_id`
@@ -94,9 +101,27 @@ $COMPOSE exec -T mongo mongosh aia_mcp_gateway --quiet --eval "
     { principalId: '$PRINCIPAL_ID' },
     { \$set: { principalId: 'anonymised' } })"
 
+# An annotation is a judgement a person made about an answer, and it may quote
+# the answer verbatim. The judgement is deleted rather than anonymised: unlike
+# an inference record it is not accounting, and a failure taxonomy does not need
+# to know who reported each case. What survives is the count, which is the part
+# anybody uses.
+$COMPOSE exec -T mongo mongosh aia_evaluation --quiet --eval "
+  print('annotations: ' +
+    db.annotations.deleteMany({ principal_id: '$PRINCIPAL_ID' }).deletedCount)"
+
 $COMPOSE exec -T mongo mongosh aia_identity --quiet --eval "
   db.principals.deleteOne({ _id: '$PRINCIPAL_ID' })"
 ```
+
+**A label exported from an annotation is a copy in Git.** `evaluation labels`
+appends to `evals/labels/*.jsonl`, and erasing the database does not reach a
+file that has been committed and pushed. When the subject is the annotator,
+`labelled_by` carries their principal id; when the subject wrote the question,
+their words may be in the label itself. Grep the label files for the principal
+id and for any identifier from the request, remove what matches in a commit of
+its own, and re-run `make calibrate` -- a calibration measured against labels
+that no longer exist is a number nobody can reproduce.
 
 **Why the transcripts are deleted but the audit trails are anonymised**: a run
 transcript is content, held under the project's own legal basis and useful to

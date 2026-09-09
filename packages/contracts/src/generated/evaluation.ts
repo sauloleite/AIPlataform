@@ -73,6 +73,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/annotations": {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The annotations for this project, and the taxonomy they add up to
+         * @description The counts are the point of the endpoint. A failure mode nobody has
+         *     seen twice is an anecdote; one that appears in a third of the annotated
+         *     traces is the next evaluator to write.
+         */
+        get: operations["listAnnotations"];
+        put?: never;
+        /**
+         * Records what a person decided about one real trace
+         * @description Error analysis, made durable. Reading traces and naming what went wrong
+         *     is what produces a failure taxonomy; an evaluator written before that
+         *     measures what its author imagined rather than what the platform does.
+         *
+         *     The failure mode is free text, normalised to a slug. It is deliberately
+         *     not an enum: an enum decided up front is the same guess in a different
+         *     place, and the taxonomy this returns is the one the traces produced.
+         *
+         *     An annotation that carries the question and the answer, and names the
+         *     evaluator that should have caught the problem, is also a human LABEL —
+         *     which is what a judge is calibrated against (ADR-028).
+         */
+        post: operations["recordAnnotation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -169,6 +211,71 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /**
+         * @description What the person decided about the answer. Binary on purpose: a
+         *     three-point scale collects the middle, and the middle is where
+         *     disagreement hides rather than being resolved.
+         * @enum {string}
+         */
+        AnnotationVerdict: "good" | "bad";
+        AnnotationRequest: {
+            trace_id: string;
+            verdict: components["schemas"]["AnnotationVerdict"];
+            /**
+             * @description Required when the verdict is `bad`, and refused when it is `good`.
+             *     "It was wrong" that does not say how is the annotation that teaches
+             *     nobody anything.
+             */
+            failure_mode?: string;
+            note?: string;
+            /**
+             * @description Which evaluator should have caught this, if one could have. Optional,
+             *     and it is the field that turns an annotation into a calibration
+             *     label — which is why it is asked here rather than inferred later.
+             * @enum {string}
+             */
+            evaluator?: "groundedness" | "relevance";
+            question?: string;
+            answer?: string;
+            /**
+             * @description What the answer was supposed to be grounded in. Present only when
+             *     the annotator had it: content capture is per project and off by
+             *     default, so an annotation frequently carries a verdict and no text.
+             */
+            context?: string[];
+        };
+        Annotation: {
+            id: string;
+            project_id: string;
+            trace_id: string;
+            verdict: components["schemas"]["AnnotationVerdict"];
+            failure_mode?: string | null;
+            note?: string | null;
+            evaluator?: string | null;
+            question?: string | null;
+            answer?: string | null;
+            context?: string[];
+            /** @description Who decided. An unattributed label has no authority. */
+            principal_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * @description Whether this annotation can be used to calibrate a judge: it needs
+             *     an evaluator, a question and an answer. False is the common case and
+             *     not a defect.
+             */
+            is_label?: boolean;
+        };
+        FailureModeCount: {
+            failure_mode: string;
+            count: number;
+        };
+        AnnotationPage: {
+            items: components["schemas"]["Annotation"][];
+            /** @description Every failure mode seen in this project, commonest first. */
+            taxonomy: components["schemas"]["FailureModeCount"][];
+            next_cursor?: string | null;
+        };
         RunPage: {
             items: components["schemas"]["Run"][];
             next_cursor?: string | null;
@@ -246,6 +353,11 @@ export type SchemaMetric = components['schemas']['Metric'];
 export type SchemaRun = components['schemas']['Run'];
 export type SchemaRunDetail = components['schemas']['RunDetail'];
 export type SchemaCaseOutcome = components['schemas']['CaseOutcome'];
+export type SchemaAnnotationVerdict = components['schemas']['AnnotationVerdict'];
+export type SchemaAnnotationRequest = components['schemas']['AnnotationRequest'];
+export type SchemaAnnotation = components['schemas']['Annotation'];
+export type SchemaFailureModeCount = components['schemas']['FailureModeCount'];
+export type SchemaAnnotationPage = components['schemas']['AnnotationPage'];
 export type SchemaRunPage = components['schemas']['RunPage'];
 export type SchemaProblemDetails = components['schemas']['ProblemDetails'];
 export type ResponseBadRequest = components['responses']['BadRequest'];
@@ -352,6 +464,70 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    listAnnotations: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["Limit"];
+                /** @description Only the annotations on this trace. */
+                trace_id?: string;
+                /** @description Only this failure mode, normalised the same way it is stored. */
+                failure_mode?: string;
+            };
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The annotations, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnotationPage"];
+                };
+            };
+        };
+    };
+    recordAnnotation: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnotationRequest"];
+            };
+        };
+        responses: {
+            /** @description The annotation */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Annotation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
         };
     };
     evaluationLive: {

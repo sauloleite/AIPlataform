@@ -17,6 +17,7 @@ import os
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from aia_errors import DomainError
 from evaluation.application.dto import Caller, RunSuiteCommand
@@ -24,8 +25,10 @@ from evaluation.application.use_cases.calibrate_judge import (
     CalibrateJudge,
     CalibrateJudgeCommand,
 )
+from evaluation.application.use_cases.labels_from_annotations import LabelsFromAnnotations
 from evaluation.application.use_cases.run_suite import RunSuite
 from evaluation.config import get_settings
+from evaluation.domain.annotation import Annotation, AnnotationVerdict
 from evaluation.domain.calibration import DEFAULT_BAR, Calibration, refusal
 from evaluation.domain.entities import EvaluationRun, RunStatus
 from evaluation.domain.suite import Suite
@@ -33,10 +36,12 @@ from evaluation.infrastructure.files import (
     JsonCalibrationStore,
     JsonlDatasetSource,
     JsonlLabelSource,
+    JsonlLabelWriter,
     YamlSuiteSource,
 )
 from evaluation.infrastructure.in_memory import InMemoryRunRepository
 from evaluation.infrastructure.platform_clients import (
+    AnnotationsClient,
     GuardrailsSafetyInspector,
     ModelJudge,
     RouterTargetClient,
@@ -86,6 +91,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         help="Only this evaluator; repeatable. The default is every labelled one",
+    )
+
+    labels = sub.add_parser(
+        "labels",
+        help="Appends the annotations people wrote about real traces to the label files",
+    )
+    labels.add_argument("--out", default="evals/labels", help="Where the label files live")
+    labels.add_argument("--project", default=os.environ.get("AIA_PROJECT_ID", ""))
+    labels.add_argument("--token", default=os.environ.get("AIA_ACCESS_TOKEN", ""))
+    labels.add_argument("--limit", type=int, default=500, help="Annotations to read")
+    labels.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Reports what would be written without writing it",
     )
     return parser
 
@@ -226,6 +245,79 @@ def _report_calibration(calibration: Calibration, path: str) -> bool:
     return reason is None
 
 
+async def labels_command(args: argparse.Namespace) -> int:
+    """Reads this project's annotations and appends the ones that are labels.
+
+    The pairing that makes error analysis pay for itself twice: the same reading
+    that produces a failure taxonomy produces the labels a judge is calibrated
+    against, so the judge is measured on the platform's real mistakes rather
+    than on cases somebody invented.
+    """
+    settings = get_settings()
+
+    if not args.project or not args.token:
+        print("A project id and an access token are required (AIA_PROJECT_ID, AIA_ACCESS_TOKEN).")
+        return 2
+
+    client = AnnotationsClient(base_url=settings.evaluation_url)
+    try:
+        raw = await client.list(project_id=args.project, access_token=args.token, limit=args.limit)
+    except DomainError as error:
+        print(f"{CROSS} {error.code}: {error.message}")
+        return 2
+
+    writer = JsonlLabelWriter(args.out)
+    export = LabelsFromAnnotations(known=writer.existing_ids()).execute(
+        [_annotation_of(item) for item in raw]
+    )
+
+    print(f"{len(raw)} annotations read")
+    # Both numbers, always. An export that reported only what it wrote would
+    # make a project with content capture switched off look like one nobody
+    # has annotated.
+    print(f"     {export.skipped} carried no evaluator or no text, so are not labels")
+    if export.duplicates:
+        print(f"     {len(export.duplicates)} already in the label files")
+
+    if not export.labels:
+        return 0
+
+    for evaluator, labels in sorted(export.by_evaluator.items()):
+        if args.dry_run:
+            print(f"     would append {len(labels)} to {evaluator}.jsonl")
+            continue
+        path = writer.append(evaluator, labels)
+        print(f"{TICK} appended {len(labels)} to {path}")
+
+    if not args.dry_run:
+        # Appending labels changes what a calibration means: the judge on file
+        # was measured against the set as it was.
+        print("\nThe judge's calibration is now older than the labels. Re-run `make calibrate`.")
+    return 0
+
+
+def _annotation_of(raw: dict[str, Any]) -> Annotation:
+    """The API's JSON, back into the domain object.
+
+    The CLI reads its own service over HTTP rather than out of the database, so
+    this is a real boundary and not ceremony: what comes back is whatever the
+    contract says, from whichever environment the token is for.
+    """
+    return Annotation(
+        id=str(raw.get("id") or ""),
+        project_id=str(raw.get("project_id") or ""),
+        trace_id=str(raw.get("trace_id") or ""),
+        verdict=AnnotationVerdict(str(raw.get("verdict") or AnnotationVerdict.BAD.value)),
+        principal_id=str(raw.get("principal_id") or ""),
+        failure_mode=raw.get("failure_mode"),
+        note=str(raw.get("note") or ""),
+        evaluator=raw.get("evaluator"),
+        question=str(raw.get("question") or ""),
+        answer=str(raw.get("answer") or ""),
+        context=tuple(str(item) for item in raw.get("context") or []),
+    )
+
+
 def _expected_projects(suite_path: str) -> str:
     """Which project the suites at this path say they are for."""
     try:
@@ -361,6 +453,8 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(run_command(args))
     if args.command == "calibrate":
         return asyncio.run(calibrate_command(args))
+    if args.command == "labels":
+        return asyncio.run(labels_command(args))
     return 2
 
 

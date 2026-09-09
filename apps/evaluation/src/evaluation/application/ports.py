@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from evaluation.domain.annotation import Annotation
 from evaluation.domain.calibration import Calibration, LabelledAnswer
 from evaluation.domain.entities import Answer, DatasetCase, EvaluationRun
 from evaluation.domain.suite import Suite
@@ -92,6 +93,26 @@ class CalibrationWriter(Protocol):
     """Where a fresh calibration record is written for review and commit."""
 
     def save(self, calibration: Calibration) -> str: ...
+
+
+class AnnotationRepository(Protocol):
+    """Where what a person decided about a trace is kept.
+
+    Project-scoped in the signature rather than in the caller, because an
+    annotation names a principal and may carry conversation content: a query
+    that forgot the tenant would be a leak, not a bug in a list.
+    """
+
+    async def save(self, annotation: Annotation) -> None: ...
+
+    async def list(
+        self,
+        project_id: str,
+        *,
+        limit: int,
+        trace_id: str | None = None,
+        failure_mode: str | None = None,
+    ) -> list[Annotation]: ...
 
 
 class SafetyInspector(Protocol):

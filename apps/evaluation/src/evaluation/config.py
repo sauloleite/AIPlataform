@@ -18,6 +18,12 @@ class Settings(PlatformSettings):
     inference_router_url: str = "http://inference-router:3000"
     guardrails_url: str = "http://guardrails:8001"
 
+    #: This service's own API, for the CLI. It reads annotations over HTTP with
+    #: the caller's token rather than out of the database, so `evaluation
+    #: labels` works from a laptop with no database credentials and sees exactly
+    #: what that person is allowed to see.
+    evaluation_url: str = "http://evaluation:8003"
+
     mongo_uri: str = "mongodb://mongo:27017"
     mongo_database: str = "aia_evaluation"
     redis_url: str = "redis://redis:6379"

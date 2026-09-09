@@ -97,6 +97,65 @@ paths:
               schema: { $ref: '#/components/schemas/RunDetail' }
         '404': { $ref: './_shared.yaml#/components/responses/NotFound' }
 
+  /v1/annotations:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+    post:
+      operationId: recordAnnotation
+      tags: [evaluation]
+      summary: Records what a person decided about one real trace
+      description: |
+        Error analysis, made durable. Reading traces and naming what went wrong
+        is what produces a failure taxonomy; an evaluator written before that
+        measures what its author imagined rather than what the platform does.
+
+        The failure mode is free text, normalised to a slug. It is deliberately
+        not an enum: an enum decided up front is the same guess in a different
+        place, and the taxonomy this returns is the one the traces produced.
+
+        An annotation that carries the question and the answer, and names the
+        evaluator that should have caught the problem, is also a human LABEL —
+        which is what a judge is calibrated against (ADR-028).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnnotationRequest' }
+      responses:
+        '201':
+          description: The annotation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Annotation' }
+        '400': { $ref: './_shared.yaml#/components/responses/BadRequest' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+    get:
+      operationId: listAnnotations
+      tags: [evaluation]
+      summary: The annotations for this project, and the taxonomy they add up to
+      description: |
+        The counts are the point of the endpoint. A failure mode nobody has
+        seen twice is an anecdote; one that appears in a third of the annotated
+        traces is the next evaluator to write.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/Limit'
+        - name: trace_id
+          in: query
+          required: false
+          schema: { type: string }
+          description: Only the annotations on this trace.
+        - name: failure_mode
+          in: query
+          required: false
+          schema: { type: string }
+          description: Only this failure mode, normalised the same way it is stored.
+      responses:
+        '200':
+          description: The annotations, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnnotationPage' }
+
   /health/live:
     get:
       operationId: evaluationLive
@@ -210,6 +269,91 @@ components:
         scores:
           type: object
           additionalProperties: { type: number }
+
+    AnnotationVerdict:
+      type: string
+      description: |
+        What the person decided about the answer. Binary on purpose: a
+        three-point scale collects the middle, and the middle is where
+        disagreement hides rather than being resolved.
+      enum: [good, bad]
+
+    AnnotationRequest:
+      type: object
+      required: [trace_id, verdict]
+      properties:
+        trace_id: { type: string }
+        verdict: { $ref: '#/components/schemas/AnnotationVerdict' }
+        failure_mode:
+          type: string
+          description: |
+            Required when the verdict is `bad`, and refused when it is `good`.
+            "It was wrong" that does not say how is the annotation that teaches
+            nobody anything.
+        note: { type: string }
+        evaluator:
+          type: string
+          description: |
+            Which evaluator should have caught this, if one could have. Optional,
+            and it is the field that turns an annotation into a calibration
+            label — which is why it is asked here rather than inferred later.
+          enum: [groundedness, relevance]
+        question: { type: string }
+        answer: { type: string }
+        context:
+          type: array
+          items: { type: string }
+          description: |
+            What the answer was supposed to be grounded in. Present only when
+            the annotator had it: content capture is per project and off by
+            default, so an annotation frequently carries a verdict and no text.
+
+    Annotation:
+      type: object
+      required: [id, project_id, trace_id, verdict, principal_id, created_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        trace_id: { type: string }
+        verdict: { $ref: '#/components/schemas/AnnotationVerdict' }
+        failure_mode: { type: [string, 'null'] }
+        note: { type: [string, 'null'] }
+        evaluator: { type: [string, 'null'] }
+        question: { type: [string, 'null'] }
+        answer: { type: [string, 'null'] }
+        context:
+          type: array
+          items: { type: string }
+        principal_id:
+          type: string
+          description: Who decided. An unattributed label has no authority.
+        created_at: { type: string, format: date-time }
+        is_label:
+          type: boolean
+          description: |
+            Whether this annotation can be used to calibrate a judge: it needs
+            an evaluator, a question and an answer. False is the common case and
+            not a defect.
+
+    FailureModeCount:
+      type: object
+      required: [failure_mode, count]
+      properties:
+        failure_mode: { type: string }
+        count: { type: integer, minimum: 1 }
+
+    AnnotationPage:
+      type: object
+      required: [items, taxonomy]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Annotation' }
+        taxonomy:
+          type: array
+          description: Every failure mode seen in this project, commonest first.
+          items: { $ref: '#/components/schemas/FailureModeCount' }
+        next_cursor: { type: [string, 'null'] }
 
     RunPage:
       type: object

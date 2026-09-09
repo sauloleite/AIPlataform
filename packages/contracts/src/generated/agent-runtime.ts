@@ -164,6 +164,35 @@ export interface components {
             approved: boolean;
             reason?: string;
         };
+        /**
+         * @description A tool call as it sits in the TRANSCRIPT, which is not the shape of
+         *     `ToolCall`.
+         *
+         *     The transcript is replayed to the provider verbatim on the next turn, so
+         *     it holds the provider's wire format: a nested `function` whose
+         *     `arguments` is a JSON STRING, not an object. This used to be declared as
+         *     `ToolCall`, and a client generated from that read `tool_name`,
+         *     `arguments` and `risk_level` as undefined on every executed call.
+         *
+         *     `risk_level` is absent on purpose: it is a property of the TOOL, not of
+         *     a turn in a conversation. The call a run is waiting on carries it, in
+         *     `pending_call`.
+         */
+        TranscriptToolCall: {
+            /** @description Matches the `tool_call_id` of the `tool` message that answered it. */
+            id: string;
+            /** @enum {string} */
+            type: "function";
+            function: {
+                name: string;
+                /**
+                 * @description JSON, as a string. The providers encode it this way and the
+                 *     transcript keeps it unchanged, because re-encoding would change
+                 *     bytes the model matched against.
+                 */
+                arguments: string;
+            };
+        };
         ToolCall: {
             id: string;
             tool_name: string;
@@ -207,7 +236,7 @@ export interface components {
             content?: string | null;
             name?: string;
             tool_call_id?: string;
-            tool_calls?: components["schemas"]["ToolCall"][];
+            tool_calls?: components["schemas"]["TranscriptToolCall"][];
         };
         /** @description RFC 9457. `code` is stable and part of the public contract. */
         ProblemDetails: {
@@ -293,6 +322,7 @@ export interface components {
 export type SchemaRunStatus = components['schemas']['RunStatus'];
 export type SchemaStartRunRequest = components['schemas']['StartRunRequest'];
 export type SchemaApprovalRequest = components['schemas']['ApprovalRequest'];
+export type SchemaTranscriptToolCall = components['schemas']['TranscriptToolCall'];
 export type SchemaToolCall = components['schemas']['ToolCall'];
 export type SchemaRun = components['schemas']['Run'];
 export type SchemaRunDetail = components['schemas']['RunDetail'];

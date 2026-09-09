@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from aia_fastapi import create_app as create_platform_app
 from evaluation.config import get_settings
 from evaluation.container import get_container
-from evaluation.presentation.http.routes import health, router
+from evaluation.presentation.http.routes import annotations_router, health, router
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ def create_app() -> FastAPI:
         service_name="aia-evaluation",
         title="AIA Evaluation",
         settings=get_settings(),
-        routers=(router, health),
+        routers=(router, annotations_router, health),
         on_startup=_connect,
     )
 

@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -118,6 +120,52 @@ class JsonlLabelSource:
                 raise ValidationError("a label line is an object", source=str(file), line=number)
             labels.append(LabelledAnswer.from_json(raw, number))
         return labels
+
+
+@dataclass(slots=True)
+class JsonlLabelWriter:
+    """Appends labels to the file for their evaluator.
+
+    Appends rather than rewrites, and that is the whole design: a label file is
+    the accumulated reading of real traces, and an export that replaced it would
+    throw away every label written before the last run of the command -- along
+    with the held-out split, which is computed from ids that have to keep
+    existing.
+    """
+
+    directory: str = "evals/labels"
+
+    def append(self, evaluator: str, labels: Sequence[LabelledAnswer]) -> str:
+        path = Path(self.directory) / f"{evaluator}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        lines = "".join(
+            json.dumps(_label_json(label), ensure_ascii=False) + "\n" for label in labels
+        )
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(lines)
+        return str(path)
+
+    def existing_ids(self) -> set[str]:
+        source = JsonlLabelSource()
+        directory = Path(self.directory)
+        if not directory.is_dir():
+            return set()
+        return {label.id for label in source.load(str(directory))}
+
+
+def _label_json(label: LabelledAnswer) -> dict[str, Any]:
+    return {
+        "id": label.id,
+        "evaluator": label.evaluator,
+        "question": label.question,
+        "answer": label.answer,
+        "human": label.human,
+        "reference": label.reference,
+        "context": list(label.context),
+        "labelled_by": label.labelled_by,
+        **({"note": label.note} if label.note else {}),
+    }
 
 
 @dataclass(slots=True)

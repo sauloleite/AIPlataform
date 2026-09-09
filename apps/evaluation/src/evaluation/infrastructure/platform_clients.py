@@ -266,3 +266,48 @@ class GuardrailsSafetyInspector:
             return payload.get("decision") != "block"
 
         return await self.executor.execute(call, key="eval-safety")
+
+
+@dataclass(slots=True)
+class AnnotationsClient:
+    """This service's own annotations, read over its HTTP API.
+
+    Over HTTP rather than through the repository, even though it is the same
+    service, because the caller is the CLI: it runs on a laptop and in CI with
+    no database credentials, and it should see exactly what a person's token
+    lets them see. Reading the collection directly would also skip the project
+    scoping, which is the one thing that must not be optional here -- an
+    annotation names a principal and may carry a real conversation.
+    """
+
+    base_url: str
+    #: The executor's policy is the real bound (INTERNAL: two seconds, one
+    #: retry). This is the socket's, and it is looser on purpose so that a slow
+    #: read fails as a timeout with a policy name on it rather than as a
+    #: transport error nobody can attribute.
+    timeout_seconds: float = 5.0
+    executor: ResilienceExecutor = field(
+        default_factory=lambda: ResilienceExecutor(Policies.INTERNAL)
+    )
+
+    async def list(
+        self, *, project_id: str, access_token: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        async def call() -> list[dict[str, Any]]:
+            async with (
+                _reachable("the evaluation API"),
+                httpx.AsyncClient(timeout=self.timeout_seconds) as client,
+            ):
+                response = await client.get(
+                    f"{self.base_url}/v1/annotations",
+                    headers=_headers(access_token, project_id),
+                    params={"limit": limit},
+                )
+            if response.status_code >= 400:
+                _raise_problem(response, "The annotations could not be read")
+
+            payload: dict[str, Any] = response.json()
+            items: list[dict[str, Any]] = payload.get("items") or []
+            return items
+
+        return await self.executor.execute(call, key="eval-annotations")
