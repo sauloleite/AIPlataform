@@ -205,13 +205,13 @@ Before the production compose, generate the secrets: see
 
 ## Documentation
 
-|                                |                                                                   |
-| ------------------------------ | ----------------------------------------------------------------- |
-| [ADRs](docs/adr/)              | The 23 architecture decisions, with alternatives and consequences |
-| [Roadmap](docs/ROADMAP.md)     | What is built, what is next, and why in that order                |
-| [Runbooks](docs/runbooks/)     | What to do when something goes wrong                              |
-| [Checklists](docs/checklists/) | Sprint 0 and production readiness                                 |
-| [Reference](docs/reference/)   | The original architecture documents this project came from        |
+|                                |                                                               |
+| ------------------------------ | ------------------------------------------------------------- |
+| [ADRs](docs/adr/)              | Every structural decision, with alternatives and consequences |
+| [Roadmap](docs/ROADMAP.md)     | What is built, what is next, and why in that order            |
+| [Runbooks](docs/runbooks/)     | What to do when something goes wrong                          |
+| [Checklists](docs/checklists/) | Sprint 0 and production readiness                             |
+| [Reference](docs/reference/)   | The original architecture documents this project came from    |
 
 The reference documents design the platform on Azure, and are kept in their
 original Portuguese as the unaltered source this work started from. This
