@@ -156,6 +156,36 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AnnotationPage' }
 
+  /v1/samples:
+    parameters:
+      - $ref: './_shared.yaml#/components/parameters/ProjectId'
+    get:
+      operationId: listSamples
+      tags: [evaluation]
+      summary: Production calls scored after the fact, and what they add up to
+      description: |
+        A suite measures the platform against questions somebody wrote down.
+        Production asks different questions, in a different distribution, and it
+        keeps changing — so a suite that passed last night says nothing about
+        the traffic that arrived this afternoon.
+
+        The sampler scores a deterministic fraction of completed calls. It is
+        off by default: sampling spends inference on real traffic and reads what
+        real people wrote.
+
+        `unscorable` is reported beside the means rather than subtracted from
+        them. The commonest reason is a project that does not capture content,
+        and a summary that quietly dropped those would look like a healthy
+        measurement of a tenth of the traffic.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The samples, newest first, with the summary over them
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SamplePage' }
+
   /health/live:
     get:
       operationId: evaluationLive
@@ -353,6 +383,56 @@ components:
           type: array
           description: Every failure mode seen in this project, commonest first.
           items: { $ref: '#/components/schemas/FailureModeCount' }
+        next_cursor: { type: [string, 'null'] }
+
+    Sample:
+      type: object
+      required: [id, project_id, request_id, alias, sampled_at]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        request_id:
+          type: string
+          description: The call this scored. `GET /v1/completions/{requestId}` has what it said.
+        alias: { type: string }
+        scores:
+          type: object
+          additionalProperties: { type: number }
+        unscorable:
+          type: [string, 'null']
+          description: |
+            Why nothing was scored. A hole in the measurement, never a zero — a
+            zero here would read as the platform producing terrible answers.
+        judge_alias: { type: [string, 'null'] }
+        sampled_at: { type: string, format: date-time }
+
+    EvaluatorSummary:
+      type: object
+      required: [evaluator, mean, sample_size]
+      properties:
+        evaluator: { type: string }
+        mean: { type: number }
+        sample_size:
+          type: integer
+          minimum: 0
+          description: A mean over four calls is an anecdote with a decimal point.
+
+    SamplePage:
+      type: object
+      required: [items, summary]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Sample' }
+        summary:
+          type: object
+          required: [evaluators, scored, unscorable]
+          properties:
+            evaluators:
+              type: array
+              items: { $ref: '#/components/schemas/EvaluatorSummary' }
+            scored: { type: integer, minimum: 0 }
+            unscorable: { type: integer, minimum: 0 }
         next_cursor: { type: [string, 'null'] }
 
     RunPage:

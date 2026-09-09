@@ -19,6 +19,7 @@ Knowing this up front saves time and avoids an incomplete answer:
 | `aia_agent_runtime.checkpoints`        | the run transcript, keyed by `run_id`     | none — no TTL yet             |
 | `aia_mcp_gateway.tool_invocations`     | principalId, tool, arguments hash         | 365 days (TTL)                |
 | `aia_evaluation.annotations`           | principal_id, and the answer they read    | none — no TTL yet             |
+| `aia_evaluation.online_samples`        | request_id and a score, **no content**    | none — no TTL yet             |
 | Redis Streams                          | events carrying principal_id              | the stream's length cap       |
 | Traces                                 | `aia.principal_id`                        | per the backend's retention   |
 
@@ -113,6 +114,13 @@ $COMPOSE exec -T mongo mongosh aia_evaluation --quiet --eval "
 $COMPOSE exec -T mongo mongosh aia_identity --quiet --eval "
   db.principals.deleteOne({ _id: '$PRINCIPAL_ID' })"
 ```
+
+An online sample holds a score and the request id it scored, and no
+conversation content: what was said stays in the router's audit under that
+project's retention. It is in this table because the request id links a score to
+a call, and a call has a principal — so erasing the audit record without the
+sample would leave a score pointing at a person the platform has otherwise
+forgotten. Delete the samples for the request ids in `subject-usage.json`.
 
 **A label exported from an annotation is a copy in Git.** `evaluation labels`
 appends to `evals/labels/*.jsonl`, and erasing the database does not reach a

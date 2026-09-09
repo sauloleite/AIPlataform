@@ -595,8 +595,48 @@ services:
       start_period: 20s
     labels:
       traefik.enable: 'true'
-      traefik.http.routers.evaluation.rule: 'PathPrefix(`/v1/evaluations`)'
+      traefik.http.routers.evaluation.rule: 'PathPrefix(`/v1/evaluations`) || PathPrefix(`/v1/annotations`) || PathPrefix(`/v1/samples`)'
       traefik.http.services.evaluation.loadbalancer.server.port: '8003'
+
+  # Online sampling: scores a fraction of real traffic, after the fact.
+  #
+  # A separate process from the API on purpose. It consumes a stream and has no
+  # listener, so it scales and fails on its own -- and it holds the platform's
+  # most privileged credential, which should not also be serving HTTP.
+  #
+  # It exits immediately, printing why, unless ONLINE_SAMPLE_RATE, JUDGE_ALIAS
+  # and a service credential are all set. Off is the default: sampling spends
+  # inference on production traffic and reads what real people wrote.
+  evaluation-sampler:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/python.Dockerfile
+      args: { SERVICE: evaluation }
+    command: ['python', '-m', 'evaluation.sampler']
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      IDENTITY_ISSUER: http://identity:3001
+      IDENTITY_AUDIENCE: aia-platform
+      INFERENCE_ROUTER_URL: http://inference-router:3000
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: aia_evaluation
+      REDIS_URL: redis://redis:6379
+      CALIBRATIONS_PATH: /app/evals/calibration
+      JUDGE_ALIAS: ${JUDGE_ALIAS:-}
+      JUDGE_CALIBRATION_MAX_AGE_DAYS: ${JUDGE_CALIBRATION_MAX_AGE_DAYS:-90}
+      ONLINE_SAMPLE_RATE: ${ONLINE_SAMPLE_RATE:-0}
+      SERVICE_CLIENT_ID: ${EVALUATION_CLIENT_ID:-}
+      SERVICE_CLIENT_SECRET: ${EVALUATION_CLIENT_SECRET:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    volumes:
+      - ../../evals:/app/evals:ro
+    ports: []
+    labels:
+      traefik.enable: 'false'
+    depends_on:
+      evaluation: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
   # The console. It is the only service the browser talks to: it reads the
   # httpOnly session cookie and attaches the platform token server-side, so a

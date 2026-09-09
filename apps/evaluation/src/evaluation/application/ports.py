@@ -11,6 +11,7 @@ from typing import Protocol
 from evaluation.domain.annotation import Annotation
 from evaluation.domain.calibration import Calibration, LabelledAnswer
 from evaluation.domain.entities import Answer, DatasetCase, EvaluationRun
+from evaluation.domain.sampling import Sample
 from evaluation.domain.suite import Suite
 
 
@@ -113,6 +114,37 @@ class AnnotationRepository(Protocol):
         trace_id: str | None = None,
         failure_mode: str | None = None,
     ) -> list[Annotation]: ...
+
+
+class CompletionRecordReader(Protocol):
+    """What one production call recorded, read from aia-inference-router.
+
+    Through the contract, never out of the router's database: no service reads
+    another's collections, and the route it goes through is the one that decides
+    whether this reader may see content at all.
+    """
+
+    async def read(
+        self, *, project_id: str, request_id: str, access_token: str
+    ) -> dict[str, object] | None: ...
+
+
+class SampleRepository(Protocol):
+    async def save(self, sample: Sample) -> None: ...
+
+    async def list(self, project_id: str, *, limit: int) -> list[Sample]: ...
+
+
+class ServiceCredential(Protocol):
+    """The sampler's own token.
+
+    A queue consumer has no caller to act as (ADR-017 covers the other case), so
+    it presents its own credential. An empty string means none is configured,
+    and the sampler then does not run rather than reading production content
+    with whatever privilege happens to be lying around.
+    """
+
+    async def get(self) -> str: ...
 
 
 class SafetyInspector(Protocol):

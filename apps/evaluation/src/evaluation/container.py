@@ -10,7 +10,12 @@ import redis.asyncio as redis
 
 from aia_auth import JwtVerifier
 from aia_messaging import RedisStreamPublisher
-from evaluation.application.ports import Judge, RunRepository, SafetyInspector
+from evaluation.application.ports import (
+    Judge,
+    RunRepository,
+    SafetyInspector,
+    SampleRepository,
+)
 from evaluation.application.use_cases.annotate import ListAnnotations, RecordAnnotation
 from evaluation.application.use_cases.run_suite import RunSuite
 from evaluation.config import Settings, get_settings
@@ -22,6 +27,7 @@ from evaluation.infrastructure.files import (
 from evaluation.infrastructure.mongo import (
     MongoAnnotationRepository,
     MongoRunRepository,
+    MongoSampleRepository,
     ensure_indexes,
     mongo_client,
 )
@@ -39,6 +45,7 @@ class Container:
     record_annotation: RecordAnnotation
     list_annotations: ListAnnotations
     runs: RunRepository
+    samples: SampleRepository
     verifier: JwtVerifier
     _database: Any
 
@@ -56,6 +63,7 @@ def get_container() -> Container:
     database = mongo_client(settings.mongo_uri)[settings.mongo_database]
     runs = MongoRunRepository(database)
     annotations = MongoAnnotationRepository(database)
+    samples = MongoSampleRepository(database)
 
     # No judge alias configured means no judge. A suite that needs one refuses
     # to run, rather than reporting a pass nobody measured.
@@ -73,6 +81,7 @@ def get_container() -> Container:
     return Container(
         settings=settings,
         runs=runs,
+        samples=samples,
         record_annotation=RecordAnnotation(annotations=annotations),
         list_annotations=ListAnnotations(annotations=annotations),
         _database=database,

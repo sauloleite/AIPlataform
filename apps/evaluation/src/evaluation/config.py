@@ -49,6 +49,24 @@ class Settings(PlatformSettings):
     #: agrees with itself.
     judge_alias: str = ""
 
+    #: What fraction of completed production calls the sampler scores.
+    #:
+    #: Zero, and deliberately: sampling spends inference on real traffic and
+    #: reads what real people wrote. Turning it on is a decision with a bill and
+    #: a privacy consequence, and it should be made rather than inherited.
+    online_sample_rate: float = 0.0
+
+    #: The sampler's own identity. It consumes a queue, so there is no caller to
+    #: act as (ADR-017 covers the other case) -- and it reads audit content
+    #: across projects, which makes this one of the platform's most privileged
+    #: credentials. Empty disables the sampler rather than falling back to
+    #: anything.
+    service_client_id: str = ""
+    service_client_secret: str = ""
+
+    #: Which consumer this replica is, in the sampler's consumer group.
+    hostname: str = "evaluation-sampler"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

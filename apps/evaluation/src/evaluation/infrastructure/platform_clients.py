@@ -311,3 +311,42 @@ class AnnotationsClient:
             return items
 
         return await self.executor.execute(call, key="eval-annotations")
+
+
+@dataclass(slots=True)
+class RouterRecordClient:
+    """One production call's record, from aia-inference-router.
+
+    404 becomes None rather than an error: a record that expired under the
+    project's own retention is an ordinary outcome for a sampler that reads
+    minutes or hours after the call, and raising there would turn a policy into
+    an incident.
+    """
+
+    base_url: str
+    timeout_seconds: float = 5.0
+    executor: ResilienceExecutor = field(
+        default_factory=lambda: ResilienceExecutor(Policies.INTERNAL)
+    )
+
+    async def read(
+        self, *, project_id: str, request_id: str, access_token: str
+    ) -> dict[str, Any] | None:
+        async def call() -> dict[str, Any] | None:
+            async with (
+                _reachable("the inference router"),
+                httpx.AsyncClient(timeout=self.timeout_seconds) as client,
+            ):
+                response = await client.get(
+                    f"{self.base_url}/v1/completions/{request_id}",
+                    headers=_headers(access_token, project_id),
+                )
+            if response.status_code == 404:
+                return None
+            if response.status_code >= 400:
+                _raise_problem(response, "The inference record could not be read")
+
+            record: dict[str, Any] = response.json()
+            return record
+
+        return await self.executor.execute(call, key="eval-record")

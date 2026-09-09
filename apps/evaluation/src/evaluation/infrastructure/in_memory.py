@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from evaluation.domain.annotation import Annotation
 from evaluation.domain.entities import EvaluationRun
+from evaluation.domain.sampling import Sample
 
 
 @dataclass(slots=True)
@@ -55,3 +56,21 @@ class InMemoryAnnotationRepository:
             and (failure_mode is None or annotation.failure_mode == failure_mode)
         ]
         return sorted(matching, key=lambda a: a.created_at, reverse=True)[:limit]
+
+
+@dataclass(slots=True)
+class InMemorySampleRepository:
+    """Keyed by request id, like the unique index in Mongo.
+
+    A fake that appended would let a test pass while production deduplicated,
+    which is the disagreement a fake exists to prevent.
+    """
+
+    _samples: dict[str, Sample] = field(default_factory=dict)
+
+    async def save(self, sample: Sample) -> None:
+        self._samples.setdefault(sample.request_id, sample)
+
+    async def list(self, project_id: str, *, limit: int) -> list[Sample]:
+        matching = [s for s in self._samples.values() if s.project_id == project_id]
+        return sorted(matching, key=lambda s: s.sampled_at, reverse=True)[:limit]

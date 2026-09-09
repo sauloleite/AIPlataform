@@ -21,12 +21,19 @@ from evaluation.domain.entities import (
     Metric,
     RunStatus,
 )
+from evaluation.domain.sampling import Sample
 
 
 async def ensure_indexes(database: AsyncDatabase[Any]) -> None:
     await database["evaluation_runs"].create_index([("project_id", 1), ("started_at", -1)])
     await database["evaluation_runs"].create_index([("project_id", 1), ("suite", 1)])
     await database["annotations"].create_index([("project_id", 1), ("created_at", -1)])
+    await database["online_samples"].create_index([("project_id", 1), ("sampled_at", -1)])
+    # One sample per call, whatever the stream redelivers. At-least-once
+    # delivery is the subscriber's contract, so the same usage event arrives
+    # twice after any handler failure -- and a summary that counted it twice
+    # would report the traffic the retries had, not the traffic there was.
+    await database["online_samples"].create_index([("request_id", 1)], unique=True)
     # Two annotations of the same trace by the same person are an edit, not a
     # second opinion: the taxonomy would otherwise count one reader's change of
     # mind twice. Two DIFFERENT people annotating the same trace is exactly what
@@ -238,4 +245,56 @@ def _to_annotation(document: dict[str, Any]) -> Annotation:
         answer=str(document.get("answer") or ""),
         context=tuple(str(item) for item in document.get("context") or []),
         created_at=_aware(document.get("created_at")),
+    )
+
+
+@dataclass(slots=True)
+class MongoSampleRepository:
+    """Production calls scored after the fact.
+
+    Holds no conversation content: the score, not what was scored. What was said
+    stays in the router's audit under the project's own retention, and copying
+    it here would quietly create a second copy with a different expiry.
+    """
+
+    database: AsyncDatabase[Any]
+
+    async def save(self, sample: Sample) -> None:
+        await self.database["online_samples"].update_one(
+            {"request_id": sample.request_id}, {"$setOnInsert": _from_sample(sample)}, upsert=True
+        )
+
+    async def list(self, project_id: str, *, limit: int) -> list[Sample]:
+        cursor = (
+            self.database["online_samples"]
+            .find({"project_id": project_id})
+            .sort("sampled_at", -1)
+            .limit(limit)
+        )
+        return [_to_sample(document) async for document in cursor]
+
+
+def _from_sample(sample: Sample) -> dict[str, Any]:
+    return {
+        "_id": sample.id,
+        "project_id": sample.project_id,
+        "request_id": sample.request_id,
+        "alias": sample.alias,
+        "scores": sample.scores,
+        "unscorable": sample.unscorable,
+        "judge_alias": sample.judge_alias,
+        "sampled_at": sample.sampled_at,
+    }
+
+
+def _to_sample(document: dict[str, Any]) -> Sample:
+    return Sample(
+        id=str(document["_id"]),
+        project_id=str(document.get("project_id", "")),
+        request_id=str(document.get("request_id", "")),
+        alias=str(document.get("alias", "")),
+        scores={str(name): float(value) for name, value in (document.get("scores") or {}).items()},
+        unscorable=document.get("unscorable"),
+        judge_alias=document.get("judge_alias"),
+        sampled_at=_aware(document.get("sampled_at")),
     )

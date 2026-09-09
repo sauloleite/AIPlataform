@@ -32,7 +32,7 @@ nobody implemented is worse than an admitted gap.
 | Push, or a PR labelled `e2e`          | `ci-smoke` (exact match, safety) | **Yes**, with its own negative control | Yes                               |
 | A prompt, alias or chunking change    | The affected use case's suite    | Nothing — no CI job                    | Yes, below the threshold          |
 | Before swapping an alias's deployment | The model regression suite       | Nothing — no such suite                | Yes                               |
-| Production                            | A 1 to 5% traffic sample         | Nothing — no sampler                   | No, it alerts                     |
+| Production                            | A 1 to 5% traffic sample         | **Yes**, when it is switched on        | No, it alerts                     |
 | Before a judged suite runs, at all    | The judge's own calibration      | **Yes** — it refuses without one       | Yes                               |
 | Nightly, and on demand                | The judged suites                | **Yes**, if a provider key is set      | Yes, gating a release             |
 
@@ -64,6 +64,24 @@ that passes green because it could not reach a model is this repository's
 favourite failure, one level up. `make eval` runs the same suites locally, and
 `tools/scripts/seed.sh` creates the `platform-ci` project they need, with its
 own budget.
+
+## Production is sampled, not watched
+
+Everything above is a rehearsal: questions somebody wrote down, asked again.
+`evaluation-sampler` scores a deterministic fraction of real completed calls
+after the fact — off by default, because it spends inference on real traffic and
+reads what real people wrote (ADR-030). `GET /v1/samples` reports what the
+sampled traffic scored and, beside it, how much of it could not be scored at
+all: a project that does not capture content produces only the second kind, and
+a summary that hid them would look like a healthy measurement of a tenth of the
+traffic.
+
+Reading traces is the other half, and it is the one that decides what gets
+measured next. The console's trace page records what a person thought of a call
+and, when it was bad, how — and those annotations accumulate into a failure
+taxonomy the next evaluator comes from (ADR-029). `evaluation labels` turns the
+ones that carry text into the labels the judge is calibrated against, so the
+same reading pays twice.
 
 ## The judge is measured too
 

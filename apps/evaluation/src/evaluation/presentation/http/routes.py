@@ -15,9 +15,11 @@ from evaluation.container import get_container
 from evaluation.domain.annotation import Annotation
 from evaluation.domain.entities import EvaluationRun
 from evaluation.domain.errors import RunNotFoundError
+from evaluation.domain.sampling import summarise
 
 router = APIRouter(prefix="/v1/evaluations", tags=["evaluation"])
 annotations_router = APIRouter(prefix="/v1/annotations", tags=["evaluation"])
+samples_router = APIRouter(prefix="/v1/samples", tags=["evaluation"])
 
 MAX_LIMIT = 100
 
@@ -206,6 +208,49 @@ async def list_annotations(
         "taxonomy": [
             {"failure_mode": entry.failure_mode, "count": entry.count} for entry in page.taxonomy
         ],
+        "next_cursor": None,
+    }
+
+
+@samples_router.get("")
+async def list_samples(
+    caller: Authenticated, limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 25
+) -> dict[str, Any]:
+    """What the sampled traffic scored.
+
+    The summary is over the same page the caller asked for, unlike the
+    annotation taxonomy: a mean is a statement about a set, and a mean over the
+    last 25 calls beside a list of some other 25 would be unreadable.
+    """
+    samples = await get_container().samples.list(caller.project_id, limit=limit)
+    summary = summarise(samples)
+
+    return {
+        "items": [
+            {
+                "id": sample.id,
+                "project_id": sample.project_id,
+                "request_id": sample.request_id,
+                "alias": sample.alias,
+                "scores": sample.scores,
+                "unscorable": sample.unscorable,
+                "judge_alias": sample.judge_alias,
+                "sampled_at": sample.sampled_at.isoformat().replace("+00:00", "Z"),
+            }
+            for sample in samples
+        ],
+        "summary": {
+            "evaluators": [
+                {
+                    "evaluator": entry.evaluator,
+                    "mean": round(entry.mean, 4),
+                    "sample_size": entry.sample_size,
+                }
+                for entry in summary.evaluators
+            ],
+            "scored": summary.scored,
+            "unscorable": summary.unscorable,
+        },
         "next_cursor": None,
     }
 
