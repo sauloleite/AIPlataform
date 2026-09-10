@@ -170,7 +170,12 @@ export class RedisBudgetLedger implements BudgetLedger {
   }
 
   async release(reservation: BudgetReservation): Promise<void> {
-    if (reservation.isUnverified || reservation.state === 'committed') return;
+    // Only a HELD reservation has anything to give back. The entity has always
+    // said releasing twice is harmless -- the compensation runs in a `finally`
+    // -- and this did not honour it: a second release ran the script again and
+    // refunded the estimate twice, so a project's remaining budget grew by an
+    // amount nobody had spent.
+    if (reservation.isUnverified || reservation.state !== 'held') return;
 
     const keys = this.keysFor(reservation.projectId, reservation.periodKey);
 

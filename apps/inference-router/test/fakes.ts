@@ -83,6 +83,12 @@ export class FakeBudgetLedger implements BudgetLedger {
   }
 
   async release(reservation: BudgetReservation): Promise<void> {
+    // The same two guards `RedisBudgetLedger.release` applies. Without them the
+    // fake recorded a release the real ledger would have ignored, so a caller
+    // that releases defensively -- in a `finally`, after a commit that may or
+    // may not have happened -- failed here and worked in production.
+    if (reservation.isUnverified || reservation.state !== 'held') return;
+
     this.released.push(reservation);
     reservation.release();
   }

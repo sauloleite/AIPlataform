@@ -441,6 +441,43 @@ describe('CreateChatCompletion - streaming', () => {
     expect(harness.ledger.committed).toHaveLength(0);
   });
 
+  it('a budget refusal does not leave the slot held', async () => {
+    // The lease was taken before the reservation and released in a `finally`
+    // the reservation's throw jumped over. A project at its limit under load
+    // then ran out of SLOTS as well, for the lease TTL, and reported
+    // `concurrency_limit` for a budget problem.
+    const harness = build({ policy: { limitMicros: 10n } });
+
+    await expect(harness.useCase.execute(aCommand())).rejects.toThrow(BudgetExhaustedError);
+
+    expect(harness.bulkhead.inFlightFor('proj-1')).toBe(0);
+  });
+
+  it('a streamed budget refusal does not leave the slot held either', async () => {
+    const harness = build({ policy: { limitMicros: 10n } });
+
+    await expect(collect(harness.useCase.stream(aCommand({ stream: true })))).rejects.toThrow(
+      BudgetExhaustedError,
+    );
+
+    expect(harness.bulkhead.inFlightFor('proj-1')).toBe(0);
+  });
+
+  it('a stream the caller walks away from releases the money as well as the slot', async () => {
+    // An abandoned generator runs its `finally` and nothing else: no catch, no
+    // commit. The slot was released there and the reservation was not, so the
+    // project's remaining budget under-reported until the reservation expired.
+    const harness = build();
+    const stream = harness.useCase.stream(aCommand({ stream: true }));
+
+    await stream.next();
+    await stream.return(undefined);
+
+    expect(harness.bulkhead.inFlightFor('proj-1')).toBe(0);
+    expect(harness.ledger.released).toHaveLength(1);
+    expect(harness.ledger.committed).toHaveLength(0);
+  });
+
   it('records time to first token, which is the router SLI', async () => {
     const harness = build();
     await collect(harness.useCase.stream(aCommand({ stream: true })));

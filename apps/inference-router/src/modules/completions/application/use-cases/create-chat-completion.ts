@@ -120,59 +120,67 @@ export class CreateChatCompletion {
     // have reserved money it will never spend, and releasing a reservation the
     // caller never got an answer for is work with no purpose.
     const lease = await this.admit(plan, command.projectId);
-    const reservation = await this.reserve(command, plan);
 
+    // The reservation is INSIDE the try, and that is the whole point of the
+    // nesting: `reserve` throws when the budget is exhausted, and with it
+    // outside, the `finally` below never ran. A project at its limit under load
+    // then leaked a slot per refused request until the lease TTL, so
+    // `budget_exhausted` quietly turned into `concurrency_limit` as well.
     try {
-      const attempt = await this.executor.chat(
-        plan.request,
-        plan.deployments,
-        { stream: false },
-        this.callerOf(command, plan),
-      );
-      const cost = attempt.deployment.costOf(
-        attempt.result.usage.promptTokens,
-        attempt.result.usage.completionTokens,
-      );
+      const reservation = await this.reserve(command, plan);
 
-      await this.commit(reservation, cost);
-      if (plan.cacheable) {
-        await this.cache.store(command.projectId, command.alias, plan.promptForCache, {
-          content: attempt.result.content,
-          usage: attempt.result.usage,
-          deploymentId: attempt.deployment.id,
+      try {
+        const attempt = await this.executor.chat(
+          plan.request,
+          plan.deployments,
+          { stream: false },
+          this.callerOf(command, plan),
+        );
+        const cost = attempt.deployment.costOf(
+          attempt.result.usage.promptTokens,
+          attempt.result.usage.completionTokens,
+        );
+
+        await this.commit(reservation, cost);
+        if (plan.cacheable) {
+          await this.cache.store(command.projectId, command.alias, plan.promptForCache, {
+            content: attempt.result.content,
+            usage: attempt.result.usage,
+            deploymentId: attempt.deployment.id,
+          });
+        }
+
+        const routing = this.routingOf({
+          deployment: attempt.deployment,
+          cost,
+          plan,
+          attempts: attempt.attempts,
+          cacheHit: false,
         });
+        await this.settle({
+          command,
+          plan,
+          routing,
+          usage: attempt.result.usage,
+          startedAt,
+          status: 'completed',
+        });
+
+        return {
+          id: command.requestId,
+          model: command.alias,
+          content: attempt.result.content,
+          finishReason: attempt.result.finishReason,
+          usage: totals(attempt.result.usage),
+          routing,
+          ...(attempt.result.toolCalls !== undefined && { toolCalls: attempt.result.toolCalls }),
+        };
+      } catch (error) {
+        // Saga compensation: whatever was reserved must not stay locked.
+        await this.ledger.release(reservation);
+        await this.recordFailure(command, plan, error, startedAt);
+        throw error;
       }
-
-      const routing = this.routingOf({
-        deployment: attempt.deployment,
-        cost,
-        plan,
-        attempts: attempt.attempts,
-        cacheHit: false,
-      });
-      await this.settle({
-        command,
-        plan,
-        routing,
-        usage: attempt.result.usage,
-        startedAt,
-        status: 'completed',
-      });
-
-      return {
-        id: command.requestId,
-        model: command.alias,
-        content: attempt.result.content,
-        finishReason: attempt.result.finishReason,
-        usage: totals(attempt.result.usage),
-        routing,
-        ...(attempt.result.toolCalls !== undefined && { toolCalls: attempt.result.toolCalls }),
-      };
-    } catch (error) {
-      // Saga compensation: whatever was reserved must not stay locked.
-      await this.ledger.release(reservation);
-      await this.recordFailure(command, plan, error, startedAt);
-      throw error;
     } finally {
       await lease.release();
     }
@@ -201,8 +209,11 @@ export class CreateChatCompletion {
     // minutes, and `POLICIES.INFERENCE_STREAMING` gives the lease a longer TTL
     // for exactly that reason.
     const lease = await this.admit(plan, command.projectId);
-    const reservation = await this.reserve(command, plan);
 
+    // Reserved inside the try for the same reason `execute` does it: a budget
+    // refusal must not leave the slot held. Declared out here because the catch
+    // and the finally both have to know whether there is anything to settle.
+    let reservation: BudgetReservation | undefined;
     let emitted = '';
     let firstTokenAt: Date | undefined;
     let usage: TokenUsage = { promptTokens: plan.estimatedPromptTokens, completionTokens: 0 };
@@ -212,6 +223,9 @@ export class CreateChatCompletion {
     let toolCalls: ToolCallOutput[] = [];
 
     try {
+      // Assigns the outer binding, deliberately: a `const` here would shadow it,
+      // leaving the catch and the finally looking at an undefined reservation.
+      reservation = await this.reserve(command, plan);
       const opened = await this.executor.openStream(
         plan.request,
         plan.deployments,
@@ -267,7 +281,7 @@ export class CreateChatCompletion {
 
       yield { kind: 'finished', result };
     } catch (error) {
-      if (emitted !== '' && deployment !== undefined) {
+      if (emitted !== '' && deployment !== undefined && reservation !== undefined) {
         // Partial delivery already happened: commit what was consumed and flag it.
         const partialUsage = {
           promptTokens: usage.promptTokens,
@@ -295,14 +309,32 @@ export class CreateChatCompletion {
         return;
       }
 
-      await this.ledger.release(reservation);
       await this.recordFailure(command, plan, error, startedAt);
       throw error;
     } finally {
-      // A generator abandoned by its consumer still runs this: without it, a
-      // client that disconnects mid-stream leaks a slot until the lease TTL.
-      await lease.release();
+      await this.letGo(reservation, lease);
     }
+  }
+
+  /**
+   * Gives back whatever a stream that did not finish is still holding.
+   *
+   * In a `finally`, because a generator abandoned by its consumer runs nothing
+   * else: no catch, no commit. The slot was already released here -- a client
+   * that disconnects would otherwise hold it until the lease TTL -- and the
+   * reservation was not, so the money stayed held and the project's remaining
+   * budget under-reported until the reservation expired on its own.
+   *
+   * Releasing what was already committed or released is a no-op in the ledger,
+   * which is what lets the compensation live in one place instead of being
+   * threaded through every exit.
+   */
+  private async letGo(
+    reservation: BudgetReservation | undefined,
+    lease: BulkheadLease,
+  ): Promise<void> {
+    if (reservation !== undefined) await this.ledger.release(reservation);
+    await lease.release();
   }
 
   /* ---------------------------------------------------------------- */

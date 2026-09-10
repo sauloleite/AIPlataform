@@ -254,10 +254,16 @@ jobs:
             exit 1
           fi
           node tools/scripts/generate-contracts.mjs >/dev/null
-          if ! git diff --exit-code --stat "$GENERATED" >/dev/null; then
-            echo "regenerating restored the file, as it should"
+
+          # No diff means the generator put the file back the way the contract
+          # says it should be. The two branches below used to be the wrong way
+          # round, and nothing noticed because the two steps above kept failing
+          # first -- a negative control that has never run is a negative control
+          # nobody has checked.
+          if git diff --exit-code --stat "$GENERATED" >/dev/null; then
+            echo "  regenerating overwrote the hand edit, as it must"
           else
-            echo "::error::the generator did not overwrite a hand-edited file"
+            echo "::error::a hand-edited generated file survived the generator"
             exit 1
           fi
 
