@@ -115,6 +115,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/samples": {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Production calls scored after the fact, and what they add up to
+         * @description A suite measures the platform against questions somebody wrote down.
+         *     Production asks different questions, in a different distribution, and it
+         *     keeps changing — so a suite that passed last night says nothing about
+         *     the traffic that arrived this afternoon.
+         *
+         *     The sampler scores a deterministic fraction of completed calls. It is
+         *     off by default: sampling spends inference on real traffic and reads what
+         *     real people wrote.
+         *
+         *     `unscorable` is reported beside the means rather than subtracted from
+         *     them. The commonest reason is a project that does not capture content,
+         *     and a summary that quietly dropped those would look like a healthy
+         *     measurement of a tenth of the traffic.
+         */
+        get: operations["listSamples"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -276,6 +314,39 @@ export interface components {
             taxonomy: components["schemas"]["FailureModeCount"][];
             next_cursor?: string | null;
         };
+        Sample: {
+            id: string;
+            project_id: string;
+            /** @description The call this scored. `GET /v1/completions/{requestId}` has what it said. */
+            request_id: string;
+            alias: string;
+            scores?: {
+                [key: string]: number;
+            };
+            /**
+             * @description Why nothing was scored. A hole in the measurement, never a zero — a
+             *     zero here would read as the platform producing terrible answers.
+             */
+            unscorable?: string | null;
+            judge_alias?: string | null;
+            /** Format: date-time */
+            sampled_at: string;
+        };
+        EvaluatorSummary: {
+            evaluator: string;
+            mean: number;
+            /** @description A mean over four calls is an anecdote with a decimal point. */
+            sample_size: number;
+        };
+        SamplePage: {
+            items: components["schemas"]["Sample"][];
+            summary: {
+                evaluators: components["schemas"]["EvaluatorSummary"][];
+                scored: number;
+                unscorable: number;
+            };
+            next_cursor?: string | null;
+        };
         RunPage: {
             items: components["schemas"]["Run"][];
             next_cursor?: string | null;
@@ -358,6 +429,9 @@ export type SchemaAnnotationRequest = components['schemas']['AnnotationRequest']
 export type SchemaAnnotation = components['schemas']['Annotation'];
 export type SchemaFailureModeCount = components['schemas']['FailureModeCount'];
 export type SchemaAnnotationPage = components['schemas']['AnnotationPage'];
+export type SchemaSample = components['schemas']['Sample'];
+export type SchemaEvaluatorSummary = components['schemas']['EvaluatorSummary'];
+export type SchemaSamplePage = components['schemas']['SamplePage'];
 export type SchemaRunPage = components['schemas']['RunPage'];
 export type SchemaProblemDetails = components['schemas']['ProblemDetails'];
 export type ResponseBadRequest = components['responses']['BadRequest'];
@@ -528,6 +602,34 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listSamples: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["Limit"];
+            };
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The samples, newest first, with the summary over them */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SamplePage"];
+                };
+            };
         };
     };
     evaluationLive: {
