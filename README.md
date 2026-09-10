@@ -123,17 +123,24 @@ browser never holds a platform credential — see [apps/web](apps/web/README.md)
 
 ## Services
 
-| Service                                                                            | Stack   | State                                                     |
-| ---------------------------------------------------------------------------------- | ------- | --------------------------------------------------------- |
-| `aia-inference-router`                                                             | NestJS  | **complete** — 4 providers, budget, SSE, audit            |
-| `aia-identity`                                                                     | NestJS  | **complete** — RS256 JWT, JWKS, PAT, service credentials  |
-| `aia-governance`                                                                   | NestJS  | **complete** — projects, budget, classification, policies |
-| `aia-guardrails`                                                                   | FastAPI | **complete** — Brazilian PII, prompt injection            |
-| `aia-web`                                                                          | Next.js | **complete** — projects, budget, policies, playground     |
-| `aia-agent-runtime`                                                                | FastAPI | skeleton — LangGraph in phase 3                           |
-| `aia-registry`                                                                     | NestJS  | skeleton — phase 2                                        |
-| `aia-evaluation`                                                                   | FastAPI | skeleton — phase 2                                        |
-| `aia-knowledge`, `aia-mcp-gateway`, `aia-document-processing`, `aia-data-platform` | —       | phases 2 to 4                                             |
+| Service                   | Stack   | State                                                                    |
+| ------------------------- | ------- | ------------------------------------------------------------------------ |
+| `aia-inference-router`    | NestJS  | **complete** — 4 providers, budget, SSE, audit                           |
+| `aia-identity`            | NestJS  | **complete** — RS256 JWT, JWKS, PAT, service credentials                 |
+| `aia-governance`          | NestJS  | **complete** — projects, budget, classification, policies                |
+| `aia-guardrails`          | FastAPI | **complete** — Brazilian PII, prompt injection                           |
+| `aia-registry`            | NestJS  | **complete** — agents, tools and prompts, draft/publish/deprecate        |
+| `aia-knowledge`           | NestJS  | **complete** — stores, async ingestion, hybrid search, sharing           |
+| `aia-mcp-gateway`         | NestJS  | **complete** — allow-list, risk, human approval, audit                   |
+| `aia-agent-runtime`       | FastAPI | **complete** — written-out loop, checkpoints, HITL, SSE                  |
+| `aia-evaluation`          | FastAPI | **complete** — suites, judged and deterministic evaluators, CLI          |
+| `aia-web`                 | Next.js | **complete** — projects, agents, stores, tools, traces, evals            |
+| `aia-document-processing` | FastAPI | not built — PDF, DOCX, XLSX and OCR parsing ([roadmap](docs/ROADMAP.md)) |
+| `aia-data-platform`       | Python  | not built — usage analytics, showback, budget reconciliation             |
+
+Until `aia-document-processing` exists, `aia-knowledge` parses text, Markdown and
+JSON; any other upload fails that one job with `unsupported_media_type`.
+[docs/ROADMAP.md](docs/ROADMAP.md) is the living plan.
 
 A new service is born in the right shape through the generator:
 
@@ -191,6 +198,11 @@ docker compose -f deploy/compose/docker-compose.yml \
 # Kubernetes (k3s, kind, EKS, GKE, AKS)
 helm install aia deploy/helm/aia-platform \
   --set mongodb.enabled=false --set mongodb.externalUri=mongodb://your-cluster
+
+# On a cluster with no Gateway controller, route with the Ingress instead
+# (ADR-024 keeps it for exactly this). Without either, nothing is reachable
+# from outside the cluster.
+helm install aia deploy/helm/aia-platform --set networking.mode=ingress
 ```
 
 Before the production compose, generate the secrets: see
@@ -198,12 +210,13 @@ Before the production compose, generate the secrets: see
 
 ## Documentation
 
-|                                |                                                                   |
-| ------------------------------ | ----------------------------------------------------------------- |
-| [ADRs](docs/adr/)              | The 15 architecture decisions, with alternatives and consequences |
-| [Runbooks](docs/runbooks/)     | What to do when something goes wrong                              |
-| [Checklists](docs/checklists/) | Sprint 0 and production readiness                                 |
-| [Reference](docs/reference/)   | The original architecture documents this project came from        |
+|                                |                                                               |
+| ------------------------------ | ------------------------------------------------------------- |
+| [ADRs](docs/adr/)              | Every structural decision, with alternatives and consequences |
+| [Roadmap](docs/ROADMAP.md)     | What is built, what is next, and why in that order            |
+| [Runbooks](docs/runbooks/)     | What to do when something goes wrong                          |
+| [Checklists](docs/checklists/) | Sprint 0 and production readiness                             |
+| [Reference](docs/reference/)   | The original architecture documents this project came from    |
 
 The reference documents design the platform on Azure, and are kept in their
 original Portuguese as the unaltered source this work started from. This
@@ -218,8 +231,12 @@ documentary:
 - **Legal basis and purpose** are required when a project is created (LGPD art. 7).
 - **PII redaction** before any content is persisted.
 - **Data residency** is provable: the processing zone is on every audit record.
-- **Retention** enforced by the database through TTL, not by a job someone can
-  forget.
+- **Retention** of the inference audit is enforced by the database, per
+  document, so two projects can keep their records for different lengths of time
+  (doc 02 §10.2). It is not universal yet: agent runs, tool invocations before
+  their 365-day TTL, and the annotations this platform now collects are listed
+  with their retention — or their absence of one — in the
+  [LGPD runbook](docs/runbooks/lgpd-data-subject-request.md).
 - **Data subject rights**: procedure in a
   [runbook](docs/runbooks/lgpd-data-subject-request.md).
 - **OWASP Top 10 for LLM**: LLM01, LLM02, LLM06, LLM07 and LLM10 with explicit,

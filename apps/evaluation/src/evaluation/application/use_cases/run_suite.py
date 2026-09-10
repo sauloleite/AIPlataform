@@ -5,6 +5,7 @@ The order matters and each step is a refusal waiting to happen:
   load the suite      -> an unknown evaluator is a typo, not a metric to skip
   load the dataset    -> a shrunken dataset is an easier pass, so it is checked
   check the judge     -> a judged evaluator with no judge FAILS, never scores 0
+  check its agreement -> a judge nobody checked against a human does not grade
   answer every case   -> one error makes the whole run `errored`
   score, aggregate    -> only answered cases contribute
   gate                -> below a threshold is a failure CI can act on
@@ -14,13 +15,17 @@ The thing this is built to prevent is a green run that measured nothing.
 
 from __future__ import annotations
 
+import logging
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 
 from aia_errors import DomainError
 from aia_messaging import EventPublisher, EventType, new_event
 from evaluation.application.dto import Caller, RunSuiteCommand
 from evaluation.application.ports import (
+    CalibrationSource,
     DatasetSource,
     Judge,
     RunRepository,
@@ -28,24 +33,21 @@ from evaluation.application.ports import (
     SuiteSource,
     TargetClient,
 )
+from evaluation.domain.calibration import DEFAULT_BAR, CalibrationBar, refusal
 from evaluation.domain.entities import CaseResult, DatasetCase, EvaluationRun
-from evaluation.domain.errors import DatasetTooSmallError, JudgeRequiredError
+from evaluation.domain.errors import (
+    CaseNotMeasurableError,
+    DatasetTooSmallError,
+    JudgeRequiredError,
+    JudgeUncalibratedError,
+)
+from evaluation.domain.judging import CRITERIA
 from evaluation.domain.scoring import exact_match, metric_for, token_overlap
 from evaluation.domain.suite import JUDGED, EvaluatorSpec, Suite
 
-SOURCE = "aia-evaluation"
+_LOGGER = logging.getLogger(__name__)
 
-CRITERIA = {
-    "groundedness": (
-        "Is every claim in the answer supported by the context? Score 1.0 when "
-        "nothing is asserted that the context does not contain, and 0.0 when "
-        "the answer invents facts."
-    ),
-    "relevance": (
-        "Does the answer address the question that was asked? Score 1.0 for a "
-        "direct answer and 0.0 for one that talks about something else."
-    ),
-}
+SOURCE = "aia-evaluation"
 
 
 @dataclass(slots=True)
@@ -57,6 +59,13 @@ class RunSuite:
     events: EventPublisher
     judge: Judge | None = None
     safety: SafetyInspector | None = None
+    #: Where the calibration records live. None means none are on file, and a
+    #: judged suite then refuses -- an unconfigured store and an empty one say
+    #: the same thing about whether anybody checked the judge.
+    calibrations: CalibrationSource | None = None
+    bar: CalibrationBar = DEFAULT_BAR
+    #: Days after which a calibration stops counting. 0 disables the check.
+    max_calibration_age_days: float = 0.0
 
     async def execute(self, command: RunSuiteCommand) -> list[EvaluationRun]:
         loaded = self.suites.load(command.suite_path)
@@ -70,13 +79,27 @@ class RunSuite:
             suite=suite.name,
             alias=alias,
             principal_id=command.caller.principal_id,
+            judge_alias=self.judge.alias if self.judge is not None else None,
         )
 
+        if suite.needs_judge and run.judge_alias == alias:
+            # Not a refusal: ADR-021 allows it, because a small team may
+            # genuinely have one alias. But it happens on every entry point now,
+            # not only in the CLI -- `POST /v1/evaluations` used to run a
+            # self-judging suite in silence, and the score it produced was
+            # indistinguishable from an independent one.
+            _LOGGER.warning(
+                "suite %s is graded by the alias under test (%s): a model agrees with itself",
+                suite.name,
+                alias,
+            )
+
         try:
-            self._assert_runnable(suite)
+            self._assert_runnable(suite, run)
             cases = self.datasets.load(suite.dataset, relative_to=command.suite_path)
             if len(cases) < suite.min_cases:
                 raise DatasetTooSmallError(suite.name, len(cases), suite.min_cases)
+            _assert_every_case_is_measurable(suite, cases)
 
             await self.runs.save(run)
 
@@ -90,7 +113,7 @@ class RunSuite:
         await self._publish(run)
         return run
 
-    def _assert_runnable(self, suite: Suite) -> None:
+    def _assert_runnable(self, suite: Suite, run: EvaluationRun) -> None:
         """Refuses a suite this runner cannot honestly measure.
 
         A judged evaluator with no judge would score nothing, and a metric over
@@ -99,6 +122,47 @@ class RunSuite:
         """
         if suite.needs_judge and self.judge is None:
             raise JudgeRequiredError(sorted(spec.name for spec in suite.evaluators if spec.judged))
+
+        self._assert_judge_is_calibrated(suite, run.judge_agreement)
+
+    def _assert_judge_is_calibrated(self, suite: Suite, agreement: dict[str, float]) -> None:
+        """Refuses a judge nobody has checked against a human (ADR-028).
+
+        Here rather than in the CLI, and per evaluator rather than per judge: a
+        judge calibrated for relevance says nothing about whether it can tell
+        grounded from invented, and `POST /v1/evaluations` gates a merge just as
+        hard as `make eval` does.
+        """
+        if self.judge is None:
+            return
+
+        for spec in suite.evaluators:
+            if not spec.judged:
+                continue
+            record = (
+                self.calibrations.find(judge_alias=self.judge.alias, evaluator=spec.name)
+                if self.calibrations is not None
+                else None
+            )
+            reason = refusal(
+                record,
+                judge_alias=self.judge.alias,
+                evaluator=spec.name,
+                bar=self.bar,
+                max_age_days=self.max_calibration_age_days,
+                now=datetime.now(UTC),
+            )
+            if record is None or reason is not None:
+                # `record is None` is already one of the reasons refusal()
+                # gives; it is repeated here so the type is narrowed without an
+                # assert, which -O would strip out of a security-shaped check.
+                raise JudgeUncalibratedError(
+                    spec.name, self.judge.alias, reason or "no calibration on file"
+                )
+
+            kappa = record.measured().kappa
+            if kappa is not None:
+                agreement[spec.name] = kappa
 
     async def _case(
         self, case: DatasetCase, suite: Suite, alias: str, caller: Caller
@@ -151,8 +215,13 @@ class RunSuite:
             if spec.name == "groundedness" and not case.context:
                 # Nothing to be grounded IN. The lexical floor would score the
                 # answer against an empty string and call it zero, which reads
-                # as a failure of the model rather than of the dataset.
-                return token_overlap(answer, (case.expected,)) if case.expected else 1.0
+                # as a failure of the model rather than of the dataset -- so it
+                # falls back to the reference answer instead.
+                #
+                # A row with neither is refused before the run starts, by
+                # `_assert_every_case_is_measurable`. It used to return 1.0
+                # here: a perfect score for a measurement that never happened.
+                return token_overlap(answer, (case.expected,))
 
             return await self.judge.score(
                 criterion=CRITERIA[spec.name],
@@ -196,3 +265,23 @@ class RunSuite:
 def with_alias(suite: Suite, alias: str) -> Suite:
     """A suite pointed at a different alias. What a regression run does."""
     return replace(suite, alias=alias)
+
+
+def _assert_every_case_is_measurable(suite: Suite, cases: Sequence[DatasetCase]) -> None:
+    """Refuses a dataset row a declared evaluator has nothing to measure against.
+
+    Before the run, not during it, and for the reason ADR-021 gives for every
+    other refusal: a hole found at the end is a number nobody can trust, and
+    finding it here costs nothing while finding it later costs a suite of
+    tokens.
+
+    Only `groundedness` can be starved this way today -- it needs a context or,
+    failing that, a reference answer -- but the shape is the point: an evaluator
+    that cannot see what it grades must say so rather than return a score.
+    """
+    for spec in suite.evaluators:
+        if spec.name != "groundedness":
+            continue
+        for case in cases:
+            if not case.context and not case.expected:
+                raise CaseNotMeasurableError(suite.name, spec.name, case.id)

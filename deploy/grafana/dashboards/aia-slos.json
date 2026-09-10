@@ -1,0 +1,528 @@
+{
+  "uid": "aia-slos",
+  "title": "AIA \u2014 platform SLOs",
+  "description": "The SLIs from reference doc 02 \u00a711. Every panel reads a metric this platform records itself; a panel with no data means the instrument is not being fed, not that the traffic is absent.",
+  "tags": ["aia", "slo"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "editable": false,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Inference router \u2014 doc 02 \u00a711",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false,
+      "panels": [],
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Time to first token, p95",
+      "description": "SLO: 2 s. Streamed calls only \u2014 a blocking call has no such moment, and recording a zero for it would pull the percentile down and make the objective look met.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 2000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, aia_alias) (rate(aia_inference_time_to_first_token_milliseconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{aia_alias}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "Inference duration, p95",
+      "description": "End to end inside the platform, by alias. Includes the queueing a bulkhead imposes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, aia_alias) (rate(aia_inference_duration_milliseconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{aia_alias}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Calls per second, by outcome",
+      "description": "`aia_status` separates a refusal from a failure. A budget rejection is the platform working as told; an error is not, and a chart that adds them together shows neither.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (aia_status) (rate(aia_inference_duration_milliseconds_count[$__rate_interval]))",
+          "legendFormat": "{{aia_status}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "id": 4
+    },
+    {
+      "type": "timeseries",
+      "title": "Availability: share of calls that did not fail",
+      "description": "SLO: 99.9% monthly. Read over the dashboard's window, not the month.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(aia_inference_duration_milliseconds_count{aia_status!=\"failed\"}[$__rate_interval])) / clamp_min(sum(rate(aia_inference_duration_milliseconds_count[$__rate_interval])), 0.0001)",
+          "legendFormat": "not failed",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "id": 5
+    },
+    {
+      "type": "row",
+      "title": "Cost and budget",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "collapsed": false,
+      "panels": [],
+      "id": 6
+    },
+    {
+      "type": "timeseries",
+      "title": "Cost per project",
+      "description": "Micros of the project's currency, committed against its budget. This is the showback number; the audit holds the per-call detail behind it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (aia_project_id) (increase(aia_inference_cost_micros_total[$__rate_interval]))",
+          "legendFormat": "{{aia_project_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokens per second, input against output",
+      "description": "They cost different amounts, so they are separate series rather than a sum.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (gen_ai_token_type) (rate(aia_inference_tokens_total[$__rate_interval]))",
+          "legendFormat": "{{gen_ai_token_type}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "id": 8
+    },
+    {
+      "type": "stat",
+      "title": "Budget rejections (window)",
+      "description": "Requests refused because a project had spent its budget. A conversation with a customer, not an incident.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(aia_budget_rejections_total[$__range]))",
+          "legendFormat": "rejections",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "id": 9
+    },
+    {
+      "type": "stat",
+      "title": "Circuit transitions (window)",
+      "description": "A breaker opening or closing. Sustained transitions mean a provider is flapping. The first transition a deployment records reads as zero, for the same reason the panel beside this one explains.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase(aia_resilience_circuit_state_changes_total[$__range]))",
+          "legendFormat": "transitions",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "id": 10
+    },
+    {
+      "type": "timeseries",
+      "title": "Circuit transitions by deployment",
+      "description": "Which backend, and in which direction. `to=open` is the one that matters. A deployment's FIRST ever transition reads as zero here: `increase` compares samples, and a counter born inside the window has none before it. Everything after the first fires normally.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "showPoints": "never"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum by (aia_deployment_id, aia_circuit_to) (increase(aia_resilience_circuit_state_changes_total[$__rate_interval]))",
+          "legendFormat": "{{aia_deployment_id}} -> {{aia_circuit_to}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "id": 11
+    }
+  ]
+}

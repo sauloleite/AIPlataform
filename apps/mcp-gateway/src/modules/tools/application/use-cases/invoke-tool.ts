@@ -1,12 +1,22 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
+import type { Span } from '@opentelemetry/api';
 import { EVENT_TYPES, newEvent } from '@aia/messaging';
+import {
+  AIA_ATTR,
+  GEN_AI_ATTR,
+  GEN_AI_SPAN,
+  currentTraceId,
+  getTracer,
+  recordSpanError,
+} from '@aia/telemetry';
 import type { Principal } from '@aia/auth';
 
 import {
   ApprovalRequiredError,
   ToolExecutionFailedError,
   ToolNotAllowedError,
+  ToolArgumentsInvalidError,
   ToolNotFoundError,
   ToolRateLimitedError,
 } from '../../domain/errors/index.js';
@@ -23,6 +33,7 @@ import {
   ID_GENERATOR,
   RATE_LIMITER,
   TOOL_CATALOG,
+  SCHEMA_VALIDATOR,
   TOOL_EXECUTORS,
   type ApprovalStore,
   type AuditRepository,
@@ -34,6 +45,7 @@ import {
   type ResolvedCredential,
   type SecretResolver,
   type ToolCatalog,
+  type SchemaValidator,
   type ToolExecutor,
 } from '../ports.js';
 
@@ -57,6 +69,7 @@ export class InvokeTool {
     @Inject(RATE_LIMITER) private readonly limiter: RateLimiter,
     @Inject(APPROVAL_STORE) private readonly approvals: ApprovalStore,
     @Inject(TOOL_EXECUTORS) private readonly executors: readonly ToolExecutor[],
+    @Inject(SCHEMA_VALIDATOR) private readonly schema: SchemaValidator,
     @Inject(CONNECTION_REPOSITORY) private readonly connections: ConnectionRepository,
     @Inject(SECRET_RESOLVER) private readonly secrets: SecretResolver,
     @Inject(AUDIT_REPOSITORY) private readonly audit: AuditRepository,
@@ -64,7 +77,62 @@ export class InvokeTool {
     @Inject(ID_GENERATOR) private readonly ids: IdGenerator,
   ) {}
 
+  private readonly tracer = getTracer('aia-mcp-gateway');
+
+  /**
+   * Runs the tool inside a span named by the GenAI conventions.
+   *
+   * The gateway performs the platform's highest-risk operation -- a call with a
+   * risk level, a human approval gate and an audit row -- and produced no span
+   * at all. A refusal was a row in Mongo and nothing a trace could show, so the
+   * question "what did this run try to do, and what stopped it" had two halves
+   * that could not be joined.
+   */
   async execute(command: InvokeToolCommand, principal: Principal): Promise<InvocationResultView> {
+    return this.tracer.startActiveSpan(
+      `${GEN_AI_SPAN.EXECUTE_TOOL} ${command.toolId}`,
+      {
+        attributes: {
+          [GEN_AI_ATTR.OPERATION_NAME]: GEN_AI_SPAN.EXECUTE_TOOL,
+          'gen_ai.tool.call.id': command.toolId,
+          [AIA_ATTR.PROJECT_ID]: command.projectId,
+          [AIA_ATTR.PRINCIPAL_ID]: command.principalId,
+          // Whether the caller arrived holding an approval. The gateway's own
+          // decision -- whether one was REQUIRED -- is set below, once the tool
+          // is resolved and the binding is known.
+          'aia.tool.approval_presented': command.approvalId !== undefined,
+        },
+      },
+      async (span) => {
+        try {
+          const result = await this.invoke(command, principal, span);
+          span.setAttribute('aia.tool.outcome', result.status);
+          return result;
+        } catch (error) {
+          const code = (error as { code?: string }).code;
+          span.setAttribute('aia.tool.outcome', code ?? 'failed');
+
+          // An approval request is NOT an error, and marking it as one would
+          // make the platform look broken every time it did its job: a project
+          // whose tools all require approval would show a hundred per cent
+          // error rate on the one control that is working. It is recorded as an
+          // outcome instead, the same distinction the budget rejections make.
+          if (!(error instanceof ApprovalRequiredError)) {
+            recordSpanError(span, error, code);
+          }
+          throw error;
+        } finally {
+          span.end();
+        }
+      },
+    );
+  }
+
+  private async invoke(
+    command: InvokeToolCommand,
+    principal: Principal,
+    span: Span,
+  ): Promise<InvocationResultView> {
     const tool = await this.catalog.find({
       projectId: command.projectId,
       accessToken: command.accessToken,
@@ -87,6 +155,12 @@ export class InvokeTool {
       throw error;
     }
 
+    // Before the rate limit, for the same reason the rate limit is after the
+    // decision: a call refused for being malformed must not spend somebody
+    // else's allowance. Before the approval too -- asking a person to approve
+    // arguments that cannot run wastes the one reviewer this control has.
+    await this.assertArgumentsMatchSchema(command, tool);
+
     // The rate is consumed AFTER the decision: a refused call must not spend
     // somebody else's allowance.
     const limited = await this.limiter.consume({
@@ -98,6 +172,12 @@ export class InvokeTool {
       await this.recordDenial(command, tool, error);
       throw error;
     }
+
+    span.setAttributes({
+      'aia.tool.risk_level': tool.riskLevel,
+      'aia.tool.type': tool.toolType,
+      'aia.tool.requires_approval': decision.requiresApproval,
+    });
 
     if (decision.requiresApproval) {
       await this.assertApproved(command, tool);
@@ -256,6 +336,7 @@ export class InvokeTool {
         toolType: tool.toolType,
         riskLevel: tool.riskLevel,
         status: outcome.status,
+        ...(currentTraceId() !== undefined && { traceId: currentTraceId() }),
         ...(outcome.errorCode !== undefined && { errorCode: outcome.errorCode }),
         ...(outcome.approvalId !== undefined && { approvalId: outcome.approvalId }),
         durationMs: outcome.durationMs,
@@ -281,6 +362,33 @@ export class InvokeTool {
   }
 
   /** A refusal is audited too: who was told no, and why, is the useful half. */
+  /**
+   * OWASP LLM05: what the model asked for has to match what the tool declares.
+   *
+   * A tool with no declared parameters is not validated, and that is a real
+   * decision rather than an omission: `parameters` is optional in the registry,
+   * and treating "undeclared" as "nothing is allowed" would break every tool
+   * that takes free-form input. What it does mean is that a tool wanting this
+   * protection has to declare a schema -- which the registry already validates
+   * at publish time.
+   */
+  private async assertArgumentsMatchSchema(
+    command: InvokeToolCommand,
+    tool: ToolDefinition,
+  ): Promise<void> {
+    if (tool.parameters === undefined) return;
+
+    const reasons = this.schema.validate({
+      schema: tool.parameters,
+      value: command.arguments,
+    });
+    if (reasons.length === 0) return;
+
+    const error = new ToolArgumentsInvalidError(tool.toolId, reasons);
+    await this.recordDenial(command, tool, error);
+    throw error;
+  }
+
   private async recordDenial(
     command: InvokeToolCommand,
     tool: ToolDefinition,

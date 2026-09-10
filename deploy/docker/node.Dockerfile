@@ -49,7 +49,19 @@ RUN pnpm exec tsc --build apps/${SERVICE}/tsconfig.build.json
 
 # `--prod` drops devDependencies; `deploy` flattens the workspace links into a
 # self-contained tree, which is what the distroless image can load.
-RUN pnpm --filter "@aia/${SERVICE}" deploy --prod --legacy /output
+#
+# `--no-optional` because optional dependencies here are platform binaries for
+# operating systems this image is not: `@rolldown/binding-*` and `@esbuild/*`
+# for Windows, macOS, FreeBSD, AIX and several Linux ABIs, none of which a
+# linux/amd64 runtime can load. An image should not install what it cannot run.
+#
+# It is NOT a fix for the ERR_PNPM_BROKEN_METADATA_JSON failures this build has
+# been hitting. It was added believing it would be, and the next build failed
+# the same way on `@esbuild/aix-ppc64`: `deploy --legacy` still resolves
+# metadata for the whole lockfile whatever is installed from it. Those failures
+# are a slow path to the registry, and the flag only reduces how much of it the
+# build depends on.
+RUN pnpm --filter "@aia/${SERVICE}" deploy --prod --no-optional --legacy /output
 
 # ----------------------------------------------------------------------------
 FROM gcr.io/distroless/nodejs22-debian12:nonroot AS runtime

@@ -22,12 +22,25 @@ export interface ProjectProps {
   modelRules: ModelRule[];
   maxConcurrentRequests: number;
   contentCapture: boolean;
+  contentRetentionDays: number;
   policyVersion: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
+
+/** Reference doc 02 §10.2: conversation content, ninety days by default. */
+const DEFAULT_RETENTION_DAYS = 90;
+
+/**
+ * Ten years.
+ *
+ * Not a technical limit. Keeping personal data for longer is a decision with a
+ * legal basis behind it, and a platform that lets somebody type 99999 into a
+ * form has made that decision on their behalf.
+ */
+const MAX_RETENTION_DAYS = 3650;
 
 /**
  * The project IS the tenant (reference doc 02, principle 2).
@@ -82,6 +95,7 @@ export class Project {
       modelRules: [],
       maxConcurrentRequests: 20,
       contentCapture: false,
+      contentRetentionDays: DEFAULT_RETENTION_DAYS,
       policyVersion: 1,
       createdAt: now,
       updatedAt: now,
@@ -118,6 +132,10 @@ export class Project {
 
   get contentCapture(): boolean {
     return this.props.contentCapture;
+  }
+
+  get contentRetentionDays(): number {
+    return this.props.contentRetentionDays;
   }
 
   get policyVersion(): number {
@@ -162,6 +180,29 @@ export class Project {
       );
     }
     this.props.contentCapture = enabled;
+    this.touchPolicy(now);
+  }
+
+  /**
+   * How long this project's audit records are kept.
+   *
+   * A project decision rather than a service setting, because it is a decision
+   * about personal data: reference doc 02 §10.2 asks for ninety days by default
+   * and configurable per project, and the LGPD procedure needs a handle it can
+   * act on. It was an environment variable per service, so every project in a
+   * deployment kept its content for exactly as long as every other.
+   */
+  setContentRetentionDays(days: number, now: Date = new Date()): void {
+    if (!Number.isInteger(days) || days < 1) {
+      throw new ValidationError('Retention must be a whole number of days, at least 1');
+    }
+    if (days > MAX_RETENTION_DAYS) {
+      throw new ValidationError(
+        `Retention above ${MAX_RETENTION_DAYS.toString()} days needs a decision this platform does not make for you`,
+        { max_days: MAX_RETENTION_DAYS },
+      );
+    }
+    this.props.contentRetentionDays = days;
     this.touchPolicy(now);
   }
 

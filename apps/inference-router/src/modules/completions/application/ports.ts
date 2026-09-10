@@ -169,6 +169,8 @@ export interface PolicyResult {
   periodEndsInSeconds: number;
   maxConcurrentRequests: number;
   contentCapture: boolean;
+  /** How long this project's audit records live. Per project (doc 02 §10.2). */
+  contentRetentionDays: number;
   /** Policy served from cache because the origin was unreachable. */
   stale: boolean;
 }
@@ -199,14 +201,51 @@ export interface AuditRecord {
   currency: string;
   durationMs: number;
   errorCode?: string;
+  /**
+   * The content left without being inspected.
+   *
+   * On the audit record rather than only on the event, for the same reason
+   * `dataZone` is here: this is the residency evidence, and a record that says
+   * where the data was processed while staying silent about whether it was
+   * redacted first answers half the question an auditor asks.
+   */
+  guardrailsUnverified: boolean;
+  /**
+   * When this record disappears.
+   *
+   * Per document rather than a collection-wide TTL, because retention is now a
+   * project decision and one index cannot hold two answers. Mongo expires a
+   * document whose `expiresAt` has passed when the index says
+   * `expireAfterSeconds: 0`.
+   */
+  expiresAt: Date;
   /** Only populated with the project's opt-in and AFTER PII redaction. */
   redactedPrompt?: string;
   redactedCompletion?: string;
   occurredAt: Date;
 }
 
+/**
+ * A record as the collection HOLDS it, which is not the same as one being written.
+ *
+ * `expiresAt` arrived with per-project retention. Every record written since
+ * carries it and the write type requires it; every record written BEFORE has
+ * none, and a read of one is the case a non-optional field cannot describe.
+ * Reading it as a `Date` and calling `.toISOString()` on it threw.
+ */
+export type StoredAuditRecord = Omit<AuditRecord, 'expiresAt'> & { expiresAt?: Date };
+
 export interface AuditRepository {
   record(entry: AuditRecord): Promise<void>;
+
+  /**
+   * One record, for the project that owns it.
+   *
+   * The project id is a parameter rather than a filter the caller applies
+   * afterwards: this returns redacted conversation content, and a query that
+   * could be scoped by its caller is a query that one day will not be.
+   */
+  find(projectId: string, requestId: string): Promise<StoredAuditRecord | null>;
 }
 export const AUDIT_REPOSITORY = Symbol('AuditRepository');
 
@@ -234,6 +273,16 @@ export interface GuardrailVerdict {
   injectionScore: number;
   injectionSignals: string[];
   decision: 'allow' | 'redact' | 'block';
+  /**
+   * The content was NOT inspected, and `decision: 'allow'` means only that
+   * nothing stood in the way.
+   *
+   * Required rather than optional: an adapter that fails open has to say so,
+   * and a field it can forget is a field it will. The distinction matters
+   * because `allow` from a working guardrail and `allow` from an unreachable
+   * one are the same value with opposite meanings.
+   */
+  unverified: boolean;
 }
 
 export interface Guardrail {
@@ -260,6 +309,15 @@ export interface SemanticCache {
   readonly enabled: boolean;
 }
 export const SEMANTIC_CACHE = Symbol('SemanticCache');
+
+/**
+ * Admission control: how many requests one project may have in flight.
+ *
+ * The port is `Bulkhead` from `@aia/resilience` -- the platform does not invent
+ * its own semaphore (CLAUDE.md). It is declared here so the use case can be
+ * given one without knowing whether it counts in this process or in Redis.
+ */
+export const BULKHEAD = Symbol('Bulkhead');
 
 /** Local token estimate, to reserve budget before calling the model. */
 export interface TokenEstimator {

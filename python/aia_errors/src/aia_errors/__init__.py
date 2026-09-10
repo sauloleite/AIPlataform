@@ -25,6 +25,7 @@ class ErrorCode:
     ALL_DEPLOYMENTS_FAILED: Final = "all_deployments_failed"
     STREAM_INTERRUPTED: Final = "stream_interrupted"
     GUARDRAIL_BLOCKED: Final = "guardrail_blocked"
+    GUARDRAIL_UNAVAILABLE: Final = "guardrail_unavailable"
     PROMPT_INJECTION_SUSPECTED: Final = "prompt_injection_suspected"
     UNAUTHENTICATED: Final = "unauthenticated"
     FORBIDDEN: Final = "forbidden"
@@ -46,6 +47,7 @@ class ErrorCode:
     INGESTION_FAILED: Final = "ingestion_failed"
     TOOL_NOT_FOUND: Final = "tool_not_found"
     TOOL_NOT_ALLOWED: Final = "tool_not_allowed"
+    TOOL_ARGUMENTS_INVALID: Final = "tool_arguments_invalid"
     TOOL_RATE_LIMITED: Final = "tool_rate_limited"
     APPROVAL_REQUIRED: Final = "approval_required"
     TOOL_EXECUTION_FAILED: Final = "tool_execution_failed"
@@ -70,6 +72,7 @@ _TITLES: Final[dict[str, str]] = {
     ErrorCode.ALL_DEPLOYMENTS_FAILED: "Every deployment for the alias failed",
     ErrorCode.STREAM_INTERRUPTED: "Stream interrupted",
     ErrorCode.GUARDRAIL_BLOCKED: "Content blocked by a guardrail",
+    ErrorCode.GUARDRAIL_UNAVAILABLE: "Content cannot be inspected right now",
     ErrorCode.PROMPT_INJECTION_SUSPECTED: "Suspected prompt injection",
     ErrorCode.UNAUTHENTICATED: "Not authenticated",
     ErrorCode.FORBIDDEN: "Access denied",
@@ -91,6 +94,7 @@ _TITLES: Final[dict[str, str]] = {
     ErrorCode.INGESTION_FAILED: "Document ingestion failed",
     ErrorCode.TOOL_NOT_FOUND: "Tool not found",
     ErrorCode.TOOL_NOT_ALLOWED: "Tool not allowed for this project",
+    ErrorCode.TOOL_ARGUMENTS_INVALID: "Tool arguments do not match its schema",
     ErrorCode.TOOL_RATE_LIMITED: "Tool rate limit reached",
     ErrorCode.APPROVAL_REQUIRED: "A human has to approve this tool call",
     ErrorCode.TOOL_EXECUTION_FAILED: "The tool failed to execute",
@@ -178,6 +182,33 @@ class ProjectRequiredError(DomainError):
         )
 
 
+class ConflictError(DomainError):
+    def __init__(self, message: str, **details: Any) -> None:
+        super().__init__(message, code=ErrorCode.CONFLICT, status=409, details=details)
+
+
+class InternalError(DomainError):
+    """Something went wrong that the caller can do nothing about.
+
+    The message is for the LOG. `problem_from_unknown` never puts it in the
+    response, because a 500 that explains itself explains it to whoever is
+    probing.
+    """
+
+    def __init__(self, message: str = "Internal error", **details: Any) -> None:
+        super().__init__(message, code=ErrorCode.INTERNAL_ERROR, status=500, details=details)
+
+
+def is_domain_error(error: object) -> bool:
+    """Whether this is one of ours, and therefore safe to return as it is."""
+    return isinstance(error, DomainError)
+
+
+def problem_type_for(code: str) -> str:
+    """The `type` URI for a code, which is what RFC 9457 asks clients to branch on."""
+    return f"{PROBLEM_TYPE_BASE}/{code}"
+
+
 def problem_from_unknown(
     error: BaseException, *, instance: str | None = None, trace_id: str | None = None
 ) -> dict[str, Any]:
@@ -194,13 +225,17 @@ def problem_from_unknown(
 __all__ = [
     "PROBLEM_CONTENT_TYPE",
     "PROBLEM_TYPE_BASE",
+    "ConflictError",
     "DomainError",
     "ErrorCode",
     "ForbiddenError",
+    "InternalError",
     "NotFoundError",
     "ProjectRequiredError",
     "UnauthenticatedError",
     "ValidationError",
+    "is_domain_error",
     "problem_from_unknown",
+    "problem_type_for",
     "title_for",
 ]

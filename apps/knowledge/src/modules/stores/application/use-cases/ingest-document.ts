@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import type { Span } from '@opentelemetry/api';
 import { EVENT_TYPES, newEvent } from '@aia/messaging';
+import { AIA_ATTR, getTracer, recordSpanError } from '@aia/telemetry';
 
 import type { Document } from '../../domain/entities/document.js';
 import {
@@ -59,7 +61,32 @@ export class IngestDocument {
     @Inject(ID_GENERATOR) private readonly ids: IdGenerator,
   ) {}
 
+  private readonly tracer = getTracer('aia-knowledge');
+
   async execute(payload: IngestionJobPayload): Promise<void> {
+    return this.tracer.startActiveSpan(
+      'ingest_document',
+      {
+        attributes: {
+          [AIA_ATTR.PROJECT_ID]: payload.projectId,
+          'aia.store.id': payload.storeId,
+          'aia.document.id': payload.documentId,
+        },
+      },
+      async (span) => {
+        try {
+          await this.ingest(payload, span);
+        } catch (error) {
+          recordSpanError(span, error, (error as { code?: string }).code);
+          throw error;
+        } finally {
+          span.end();
+        }
+      },
+    );
+  }
+
+  private async ingest(payload: IngestionJobPayload, span: Span): Promise<void> {
     const document = await this.documents.findById(payload.projectId, payload.documentId);
     if (document === null) throw new DocumentNotFoundError(payload.documentId);
 
@@ -67,7 +94,7 @@ export class IngestDocument {
     if (store === null) throw new StoreNotFoundError(payload.storeId, payload.projectId);
 
     try {
-      await this.run(store, document, payload);
+      await this.run(store, document, payload, span);
     } catch (error) {
       const code = codeOf(error);
       document.fail(code, this.clock.now());
@@ -87,9 +114,19 @@ export class IngestDocument {
     store: VectorStore,
     document: Document,
     payload: IngestionJobPayload,
+    span: Span,
   ): Promise<void> {
     const now = (): Date => this.clock.now();
 
+    // Each stage as a span EVENT rather than a span of its own. Four nested
+    // spans per document would quadruple the trace volume of a bulk import to
+    // answer the one question anybody asks -- which stage was slow -- and an
+    // event timeline answers it inside a single span.
+    const stage = (name: string): void => {
+      span.addEvent(name);
+    };
+
+    stage('parsing');
     document.advance('parsing', now());
     await this.documents.save(document);
 
@@ -111,14 +148,17 @@ export class IngestDocument {
       return;
     }
 
+    stage('chunking');
     document.advance('chunking', now());
     await this.documents.save(document);
     const chunks = splitIntoChunks(parsed.markdown, store.chunking);
 
+    stage('embedding');
     document.advance('embedding', now());
     await this.documents.save(document);
     const vectors = await this.embedAll(store, chunks, payload);
 
+    stage('indexing');
     document.advance('indexing', now());
     await this.documents.save(document);
 

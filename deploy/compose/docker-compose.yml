@@ -41,6 +41,7 @@ x-knowledge-base: &knowledge-base
     KNOWLEDGE_BUCKET: ${KNOWLEDGE_BUCKET:-aia-documents}
     INFERENCE_ROUTER_URL: http://inference-router:3000
     EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+    INGESTION_CONCURRENCY: ${INGESTION_CONCURRENCY:-4}
     # Empty until aia-document-processing exists: only text and markdown
     # parse locally, and any other type fails that one job.
     DOCUMENT_PROCESSING_URL: ${DOCUMENT_PROCESSING_URL:-}
@@ -125,7 +126,17 @@ services:
       - '3200:3200' # Tempo query API -- what the console's Traces screen reads
       - '4317:4317' # OTLP gRPC
       - '4318:4318' # OTLP HTTP
-    volumes: [lgtm-data:/data]
+    volumes:
+      - lgtm-data:/data
+      # Mounted as FILES, not as directories: this image provisions its own
+      # dashboards and datasources from the same folders, and mounting a folder
+      # over one would hide them. The path is the image's own
+      # (`/otel-lgtm/grafana/conf/provisioning`) and not the `/etc/grafana` one
+      # the standard Grafana image uses -- provisioning into the wrong path
+      # succeeds silently and shows nothing.
+      - ../grafana/provisioning/dashboards/aia.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/aia.yaml:ro
+      - ../grafana/provisioning/alerting/aia-alerts.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/aia-alerts.yaml:ro
+      - ../grafana/dashboards:/otel-lgtm/dashboards/aia:ro
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
@@ -204,7 +215,11 @@ services:
          {"clientId":"aia-registry",
           "displayName":"Registry",
           "secret":"${REGISTRY_CLIENT_SECRET:-dev-registry-secret-change-in-production}",
-          "scopes":["projects:read"]}]
+          "scopes":["projects:read"]},
+         {"clientId":"aia-evaluation",
+          "displayName":"Evaluation sampler",
+          "secret":"${EVALUATION_CLIENT_SECRET:-dev-evaluation-secret-change-in-production}",
+          "scopes":["projects:read","inference:write","audit:read"]}]
     ports: ['3001:3001']
     depends_on:
       mongo: { condition: service_healthy }
@@ -357,7 +372,7 @@ services:
       start_period: 15s
     labels:
       traefik.enable: 'true'
-      traefik.http.routers.mcp-gateway.rule: 'PathPrefix(`/v1/tools`) || PathPrefix(`/v1/bindings`)'
+      traefik.http.routers.mcp-gateway.rule: 'PathPrefix(`/v1/tools`) || PathPrefix(`/v1/bindings`) || PathPrefix(`/v1/connections`)'
       traefik.http.services.mcp-gateway.loadbalancer.server.port: '3006'
 
   # The same image, a second entrypoint. One dependency tree, one SBOM to sign.
@@ -477,7 +492,9 @@ services:
       start_period: 15s
     labels:
       traefik.enable: 'true'
-      traefik.http.routers.router.rule: 'PathPrefix(`/v1/chat`) || PathPrefix(`/v1/embeddings`) || PathPrefix(`/v1/models`)'
+      # `/v1/completions` is the audit read -- what one call recorded, content
+      # included -- not the OpenAI-compatible completions endpoint.
+      traefik.http.routers.router.rule: 'PathPrefix(`/v1/chat`) || PathPrefix(`/v1/embeddings`) || PathPrefix(`/v1/models`) || PathPrefix(`/v1/completions`)'
       traefik.http.services.router.loadbalancer.server.port: '3000'
 
   agent-runtime:
@@ -523,6 +540,10 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    labels:
+      traefik.enable: 'true'
+      traefik.http.routers.agent-runtime.rule: 'PathPrefix(`/v1/agents`) || PathPrefix(`/v1/runs`)'
+      traefik.http.services.agent-runtime.loadbalancer.server.port: '8002'
 
   # Quality measured, not assumed. It runs the suites in `evals/suites` against
   # this platform, spending real inference against the caller's project.
@@ -543,15 +564,22 @@ services:
       MONGO_DATABASE: aia_evaluation
       REDIS_URL: redis://redis:6379
       SUITES_PATH: /app/evals/suites
+      LABELS_PATH: /app/evals/labels
+      CALIBRATIONS_PATH: /app/evals/calibration
       # The alias that GRADES. Empty by default and deliberately so: a suite
       # naming a judged evaluator then REFUSES to run, rather than scoring
       # nothing and reporting a pass nobody measured. Point it at an alias
       # other than the one under test -- a model grading itself agrees with
       # itself.
       JUDGE_ALIAS: ${JUDGE_ALIAS:-}
+      # And a judge that grades has to have been measured against the labels
+      # first (ADR-028). Mounted read-only with everything else in evals/: a
+      # record the graded system could rewrite would not be evidence.
+      JUDGE_CALIBRATION_MAX_AGE_DAYS: ${JUDGE_CALIBRATION_MAX_AGE_DAYS:-90}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
     volumes:
-      # The suites and datasets are versioned in Git, and read from there.
+      # The suites, datasets, labels and calibration records are versioned in
+      # Git, and read from there.
       - ../../evals:/app/evals:ro
     ports: ['8003:8003']
     depends_on:
@@ -571,6 +599,54 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    labels:
+      traefik.enable: 'true'
+      traefik.http.routers.evaluation.rule: 'PathPrefix(`/v1/evaluations`) || PathPrefix(`/v1/annotations`) || PathPrefix(`/v1/samples`)'
+      traefik.http.services.evaluation.loadbalancer.server.port: '8003'
+
+  # Online sampling: scores a fraction of real traffic, after the fact.
+  #
+  # A separate process from the API on purpose. It consumes a stream and has no
+  # listener, so it scales and fails on its own -- and it holds the platform's
+  # most privileged credential, which should not also be serving HTTP.
+  #
+  # It exits immediately, printing why, unless ONLINE_SAMPLE_RATE, JUDGE_ALIAS
+  # and a service credential are all set. Off is the default: sampling spends
+  # inference on production traffic and reads what real people wrote.
+  evaluation-sampler:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: deploy/docker/python.Dockerfile
+      args: { SERVICE: evaluation }
+    command: ['python', '-m', 'evaluation.sampler']
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      IDENTITY_ISSUER: http://identity:3001
+      IDENTITY_AUDIENCE: aia-platform
+      INFERENCE_ROUTER_URL: http://inference-router:3000
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DATABASE: aia_evaluation
+      REDIS_URL: redis://redis:6379
+      CALIBRATIONS_PATH: /app/evals/calibration
+      JUDGE_ALIAS: ${JUDGE_ALIAS:-}
+      JUDGE_CALIBRATION_MAX_AGE_DAYS: ${JUDGE_CALIBRATION_MAX_AGE_DAYS:-90}
+      ONLINE_SAMPLE_RATE: ${ONLINE_SAMPLE_RATE:-0}
+      # `audit:read` is what lets this worker read what a sampled call said;
+      # `inference:write` is what lets it ask a judge. Both are scopes on the
+      # service client above, so an operator who does not want online sampling
+      # simply does not set ONLINE_SAMPLE_RATE.
+      SERVICE_CLIENT_ID: ${EVALUATION_CLIENT_ID:-}
+      SERVICE_CLIENT_SECRET: ${EVALUATION_CLIENT_SECRET:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    volumes:
+      - ../../evals:/app/evals:ro
+    ports: []
+    labels:
+      traefik.enable: 'false'
+    depends_on:
+      evaluation: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
   # The console. It is the only service the browser talks to: it reads the
   # httpOnly session cookie and attaches the platform token server-side, so a

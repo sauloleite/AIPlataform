@@ -1,13 +1,23 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { SpanKind, type Span } from '@opentelemetry/api';
+import { SpanKind, context, trace, type Span } from '@opentelemetry/api';
 import { POLICIES, ResilienceExecutor } from '@aia/resilience';
-import { AIA_ATTR, GEN_AI_ATTR, GEN_AI_SPAN, getTracer, recordSpanError } from '@aia/telemetry';
+import {
+  AIA_ATTR,
+  GEN_AI_ATTR,
+  GEN_AI_SPAN,
+  businessAttributes,
+  getTracer,
+  recordCircuitStateChange,
+  recordSpanError,
+  type BusinessContext,
+} from '@aia/telemetry';
 import { AllDeploymentsFailedError } from '../../domain/errors/index.js';
 import { sameWidth } from '../../domain/services/model-selection-policy.js';
 import type { Deployment } from '../../domain/entities/deployment.js';
 import {
   MODEL_PROVIDERS,
   type ChatChunk,
+  type TokenUsage,
   type ChatRequestInput,
   type ChatResult,
   type EmbeddingsResult,
@@ -18,6 +28,13 @@ export interface ChatAttempt {
   deployment: Deployment;
   result: ChatResult;
   attempts: number;
+}
+
+interface ModelCall {
+  operation: string;
+  deployment: Deployment;
+  request?: ChatRequestInput;
+  caller: BusinessContext;
 }
 
 export interface OpenedStream {
@@ -69,6 +86,10 @@ export class DeploymentExecutor {
       to: string;
     }): void => {
       this.logger.warn(`circuit for ${key}: ${from} -> ${to}`);
+      // The log says it happened; the counter is what a dashboard can chart and
+      // an alert can fire on. Doc 02 §11 asks for circuit state as an SLI, and
+      // a line in a log is not one.
+      recordCircuitStateChange({ key, from, to });
     };
 
     this.chatExecutor = new ResilienceExecutor(POLICIES.INFERENCE, {}, { onCircuitStateChange });
@@ -101,42 +122,55 @@ export class DeploymentExecutor {
    * rather than a convention of our own: that is what makes the telemetry
    * readable by any observability tool without a translator (ADR-009).
    */
-  private async traced<T>(
-    operation: string,
-    deployment: Deployment,
-    request: ChatRequestInput | undefined,
-    fn: (span: Span) => Promise<T>,
-  ): Promise<T> {
+  private async traced<T>(call: ModelCall, fn: (span: Span) => Promise<T>): Promise<T> {
+    const span = this.startModelSpan(call);
+    return context.with(trace.setSpan(context.active(), span), async () => {
+      try {
+        return await fn(span);
+      } catch (error) {
+        recordSpanError(span, error, (error as { code?: string }).code);
+        throw error;
+      } finally {
+        span.end();
+      }
+    });
+  }
+
+  /**
+   * Opens the span WITHOUT deciding when it closes.
+   *
+   * Streaming needs that separation. `traced` ends the span when its callback
+   * returns, and for a stream the callback returns as soon as the first chunk
+   * arrives -- so the span used to measure the handshake and stop, before a
+   * single token of the answer had been generated. Every streamed call had a
+   * duration that was really its time to first token, and none of them could
+   * carry `gen_ai.usage.*`, which is only known once the stream ends.
+   */
+  private startModelSpan(call: ModelCall): Span {
+    const { operation, deployment, request, caller } = call;
     // `{operation} {model}` is the name the GenAI conventions recommend.
-    return this.tracer.startActiveSpan(
-      `${operation} ${deployment.model}`,
-      {
-        kind: SpanKind.CLIENT,
-        attributes: {
-          [GEN_AI_ATTR.OPERATION_NAME]: operation,
-          [GEN_AI_ATTR.SYSTEM]: deployment.provider,
-          [GEN_AI_ATTR.REQUEST_MODEL]: deployment.model,
-          [AIA_ATTR.DEPLOYMENT_ID]: deployment.id,
-          [AIA_ATTR.DATA_ZONE]: deployment.dataZone,
-          ...(request !== undefined && {
-            [GEN_AI_ATTR.REQUEST_MAX_TOKENS]: request.maxOutputTokens,
-            ...(request.temperature !== undefined && {
-              [GEN_AI_ATTR.REQUEST_TEMPERATURE]: request.temperature,
-            }),
+    return this.tracer.startSpan(`${operation} ${deployment.model}`, {
+      kind: SpanKind.CLIENT,
+      attributes: {
+        // The tenant, on the span as on every other (ADR-009). It was missing
+        // here, and this is the one span in the platform that says what a
+        // model call cost -- so the cost per project could be read from the
+        // audit and from nowhere a trace query could reach.
+        ...businessAttributes(caller),
+        [GEN_AI_ATTR.OPERATION_NAME]: operation,
+        [GEN_AI_ATTR.SYSTEM]: deployment.provider,
+        [GEN_AI_ATTR.PROVIDER_NAME]: deployment.provider,
+        [GEN_AI_ATTR.REQUEST_MODEL]: deployment.model,
+        [AIA_ATTR.DEPLOYMENT_ID]: deployment.id,
+        [AIA_ATTR.DATA_ZONE]: deployment.dataZone,
+        ...(request !== undefined && {
+          [GEN_AI_ATTR.REQUEST_MAX_TOKENS]: request.maxOutputTokens,
+          ...(request.temperature !== undefined && {
+            [GEN_AI_ATTR.REQUEST_TEMPERATURE]: request.temperature,
           }),
-        },
+        }),
       },
-      async (span) => {
-        try {
-          return await fn(span);
-        } catch (error) {
-          recordSpanError(span, error, (error as { code?: string }).code);
-          throw error;
-        } finally {
-          span.end();
-        }
-      },
-    );
+    });
   }
 
   /**
@@ -169,6 +203,7 @@ export class DeploymentExecutor {
     request: ChatRequestInput,
     deployments: readonly Deployment[],
     options: { stream: false },
+    caller: BusinessContext,
   ): Promise<ChatAttempt> {
     void options;
     const candidates = this.usable(deployments);
@@ -181,34 +216,36 @@ export class DeploymentExecutor {
       attempts += 1;
 
       try {
-        const result = await this.traced(GEN_AI_SPAN.CHAT, deployment, request, (span) =>
-          this.executorFor(deployment, false)
-            .execute(
-              (signal) =>
-                provider.chat(
-                  {
-                    ...request,
-                    maxOutputTokens: deployment.clampOutputTokens(request.maxOutputTokens),
-                  },
-                  deployment,
-                  signal,
-                ),
-              { key: deployment.id },
-            )
-            .then((chatResult) => {
-              span.setAttributes({
-                [GEN_AI_ATTR.RESPONSE_MODEL]: deployment.model,
-                [GEN_AI_ATTR.USAGE_INPUT_TOKENS]: chatResult.usage.promptTokens,
-                [GEN_AI_ATTR.USAGE_OUTPUT_TOKENS]: chatResult.usage.completionTokens,
-                ...(chatResult.finishReason !== null && {
-                  [GEN_AI_ATTR.RESPONSE_FINISH_REASONS]: [chatResult.finishReason],
-                }),
-                ...(chatResult.providerResponseId !== undefined && {
-                  [GEN_AI_ATTR.RESPONSE_ID]: chatResult.providerResponseId,
-                }),
-              });
-              return chatResult;
-            }),
+        const result = await this.traced(
+          { operation: GEN_AI_SPAN.CHAT, deployment, request, caller },
+          (span) =>
+            this.executorFor(deployment, false)
+              .execute(
+                (signal) =>
+                  provider.chat(
+                    {
+                      ...request,
+                      maxOutputTokens: deployment.clampOutputTokens(request.maxOutputTokens),
+                    },
+                    deployment,
+                    signal,
+                  ),
+                { key: deployment.id },
+              )
+              .then((chatResult) => {
+                span.setAttributes({
+                  [GEN_AI_ATTR.RESPONSE_MODEL]: deployment.model,
+                  [GEN_AI_ATTR.USAGE_INPUT_TOKENS]: chatResult.usage.promptTokens,
+                  [GEN_AI_ATTR.USAGE_OUTPUT_TOKENS]: chatResult.usage.completionTokens,
+                  ...(chatResult.finishReason !== null && {
+                    [GEN_AI_ATTR.RESPONSE_FINISH_REASONS]: [chatResult.finishReason],
+                  }),
+                  ...(chatResult.providerResponseId !== undefined && {
+                    [GEN_AI_ATTR.RESPONSE_ID]: chatResult.providerResponseId,
+                  }),
+                });
+                return chatResult;
+              }),
         );
         return { deployment, result, attempts };
       } catch (error) {
@@ -236,6 +273,7 @@ export class DeploymentExecutor {
   async openStream(
     request: ChatRequestInput,
     deployments: readonly Deployment[],
+    caller: BusinessContext,
   ): Promise<OpenedStream> {
     const candidates = this.usable(deployments);
     let attempts = 0;
@@ -246,8 +284,18 @@ export class DeploymentExecutor {
       if (provider === undefined) continue;
       attempts += 1;
 
+      // The span outlives this method on purpose: it belongs to the
+      // GENERATION, and generation happens while the CALLER drains the
+      // iterator. `streamed` below is what ends it.
+      const span = this.startModelSpan({
+        operation: GEN_AI_SPAN.CHAT,
+        deployment,
+        request,
+        caller,
+      });
+
       try {
-        const chunks = await this.traced(GEN_AI_SPAN.CHAT, deployment, request, () =>
+        const opened = await context.with(trace.setSpan(context.active(), span), () =>
           this.executorFor(deployment, true).execute(
             async (signal) => {
               const iterator = provider
@@ -268,8 +316,14 @@ export class DeploymentExecutor {
           ),
         );
 
-        return { deployment, chunks: replay(chunks.first, chunks.iterator), attempts };
+        return {
+          deployment,
+          chunks: streamed(span, deployment, opened.first, opened.iterator),
+          attempts,
+        };
       } catch (error) {
+        recordSpanError(span, error, (error as { code?: string }).code);
+        span.end();
         lastError = error;
         this.logger.warn(
           `stream for ${deployment.id} did not open (${describe(error)}); trying the next one`,
@@ -287,6 +341,7 @@ export class DeploymentExecutor {
   async embed(
     input: string[],
     deployments: readonly Deployment[],
+    caller: BusinessContext,
   ): Promise<{ deployment: Deployment; result: EmbeddingsResult; attempts: number }> {
     // Only across deployments of the SAME vector width. A chat answer from
     // another model is still an answer; an embedding of another width is a
@@ -302,13 +357,17 @@ export class DeploymentExecutor {
       attempts += 1;
 
       try {
-        const result = await this.traced(GEN_AI_SPAN.EMBEDDINGS, deployment, undefined, (span) =>
-          this.embeddingsExecutor
-            .execute((signal) => provider.embed(input, deployment, signal), { key: deployment.id })
-            .then((embedResult) => {
-              span.setAttribute(GEN_AI_ATTR.USAGE_INPUT_TOKENS, embedResult.usage.promptTokens);
-              return embedResult;
-            }),
+        const result = await this.traced(
+          { operation: GEN_AI_SPAN.EMBEDDINGS, deployment, caller },
+          (span) =>
+            this.embeddingsExecutor
+              .execute((signal) => provider.embed(input, deployment, signal), {
+                key: deployment.id,
+              })
+              .then((embedResult) => {
+                span.setAttribute(GEN_AI_ATTR.USAGE_INPUT_TOKENS, embedResult.usage.promptTokens);
+                return embedResult;
+              }),
         );
         return { deployment, result, attempts };
       } catch (error) {
@@ -321,6 +380,53 @@ export class DeploymentExecutor {
       attempts,
       describe(lastError),
     );
+  }
+}
+
+/**
+ * Drains the stream, and closes the span when it is done.
+ *
+ * The span belongs to the whole generation, so it cannot end where the stream
+ * was opened. `finally` rather than a line after the loop, because a caller
+ * abandoning the iterator -- a `break`, a dropped connection -- calls `return()`
+ * on this generator, which runs the `finally` and nothing else. Without it a
+ * client hanging up would leak an unfinished span for every interrupted answer,
+ * and those are exactly the ones worth looking at.
+ */
+async function* streamed(
+  span: Span,
+  deployment: Deployment,
+  first: IteratorResult<ChatChunk>,
+  iterator: AsyncIterator<ChatChunk>,
+): AsyncGenerator<ChatChunk> {
+  let usage: TokenUsage | undefined;
+  let finishReason: string | null | undefined;
+
+  try {
+    for await (const chunk of replay(first, iterator)) {
+      if (chunk.usage !== undefined) usage = chunk.usage;
+      if (chunk.finishReason !== undefined && chunk.finishReason !== null) {
+        finishReason = chunk.finishReason;
+      }
+      yield chunk;
+    }
+  } catch (error) {
+    recordSpanError(span, error, (error as { code?: string }).code);
+    throw error;
+  } finally {
+    // These are only knowable once the stream ends, which is why a span that
+    // closed at the first token could never carry them.
+    span.setAttribute(GEN_AI_ATTR.RESPONSE_MODEL, deployment.model);
+    if (usage !== undefined) {
+      span.setAttributes({
+        [GEN_AI_ATTR.USAGE_INPUT_TOKENS]: usage.promptTokens,
+        [GEN_AI_ATTR.USAGE_OUTPUT_TOKENS]: usage.completionTokens,
+      });
+    }
+    if (finishReason !== undefined) {
+      span.setAttribute(GEN_AI_ATTR.RESPONSE_FINISH_REASONS, [finishReason]);
+    }
+    span.end();
   }
 }
 

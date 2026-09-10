@@ -211,6 +211,14 @@ export interface components {
              * @default false
              */
             content_capture: boolean;
+            /**
+             * @description How long an audit record for this project is kept. Per project
+             *     rather than per service because it is a decision about personal
+             *     data, and a classification that changes should be able to change it
+             *     (reference doc 02 §10.2, LGPD).
+             * @default 90
+             */
+            content_retention_days: number;
             /** @description Increments on every change. The router uses it to invalidate its cache. */
             version: number;
         };
@@ -219,6 +227,7 @@ export interface components {
             model_rules?: components["schemas"]["ModelRule"][];
             max_concurrent_requests?: number;
             content_capture?: boolean;
+            content_retention_days?: number;
         };
         Page: {
             items: unknown[];
@@ -240,7 +249,7 @@ export interface components {
             detail?: string;
             instance?: string;
             /** @enum {string} */
-            code: "budget_exhausted" | "quota_exceeded" | "concurrency_limit" | "no_compatible_deployment" | "alias_not_found" | "provider_unavailable" | "all_deployments_failed" | "stream_interrupted" | "guardrail_blocked" | "prompt_injection_suspected" | "unauthenticated" | "forbidden" | "token_expired" | "invalid_token" | "project_required" | "project_not_found" | "validation_failed" | "idempotency_conflict" | "not_found" | "conflict" | "asset_not_found" | "asset_not_published" | "asset_version_conflict" | "store_not_found" | "document_not_found" | "unsupported_media_type" | "embedding_dimension_mismatch" | "ingestion_failed" | "tool_not_found" | "tool_not_allowed" | "tool_rate_limited" | "approval_required" | "tool_execution_failed" | "agent_step_limit" | "upstream_timeout" | "circuit_open" | "internal_error";
+            code: "budget_exhausted" | "quota_exceeded" | "concurrency_limit" | "no_compatible_deployment" | "alias_not_found" | "provider_unavailable" | "all_deployments_failed" | "stream_interrupted" | "guardrail_blocked" | "guardrail_unavailable" | "prompt_injection_suspected" | "unauthenticated" | "forbidden" | "token_expired" | "invalid_token" | "project_required" | "project_not_found" | "validation_failed" | "idempotency_conflict" | "not_found" | "conflict" | "asset_not_found" | "asset_not_published" | "asset_version_conflict" | "store_not_found" | "document_not_found" | "unsupported_media_type" | "embedding_dimension_mismatch" | "ingestion_failed" | "tool_not_found" | "tool_not_allowed" | "tool_arguments_invalid" | "tool_rate_limited" | "approval_required" | "tool_execution_failed" | "agent_step_limit" | "upstream_timeout" | "circuit_open" | "internal_error";
             trace_id?: string;
             /** @description Seconds until a retry is worth attempting. */
             retry_after?: number;

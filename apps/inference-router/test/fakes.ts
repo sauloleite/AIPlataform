@@ -1,3 +1,4 @@
+import { ConcurrencyLimitError, type Bulkhead, type BulkheadLease } from '@aia/resilience';
 import { BudgetReservation } from '../src/modules/completions/domain/entities/budget-reservation.js';
 import { BudgetExhaustedError } from '../src/modules/completions/domain/errors/index.js';
 import { Cost } from '../src/modules/completions/domain/value-objects/index.js';
@@ -82,6 +83,12 @@ export class FakeBudgetLedger implements BudgetLedger {
   }
 
   async release(reservation: BudgetReservation): Promise<void> {
+    // The same two guards `RedisBudgetLedger.release` applies. Without them the
+    // fake recorded a release the real ledger would have ignored, so a caller
+    // that releases defensively -- in a `finally`, after a commit that may or
+    // may not have happened -- failed here and worked in production.
+    if (reservation.isUnverified || reservation.state !== 'held') return;
+
     this.released.push(reservation);
     reservation.release();
   }
@@ -118,6 +125,7 @@ export class FakePolicyReader implements PolicyReader {
       periodEndsInSeconds: 86_400,
       maxConcurrentRequests: 20,
       contentCapture: false,
+      contentRetentionDays: 90,
       stale: false,
       ...overrides,
     };
@@ -243,6 +251,14 @@ export class FakeAuditRepository implements AuditRepository {
     this.records.push(entry);
   }
 
+  async find(projectId: string, requestId: string): Promise<AuditRecord | null> {
+    return (
+      this.records.find(
+        (entry) => entry.requestId === requestId && entry.projectId === projectId,
+      ) ?? null
+    );
+  }
+
   last(): AuditRecord | undefined {
     return this.records.at(-1);
   }
@@ -279,8 +295,14 @@ export class FakeGuardrail implements Guardrail {
       injectionScore: 0,
       injectionSignals: [],
       decision: 'allow',
+      unverified: false,
       ...this.verdict,
     };
+  }
+
+  /** Simulates aia-guardrails being unreachable: it fails open, and says so. */
+  goDown(): void {
+    this.verdict = { ...this.verdict, unverified: true };
   }
 }
 
@@ -330,5 +352,47 @@ export class FixedClock implements Clock {
 
   advance(ms: number): void {
     this.current = new Date(this.current.getTime() + ms);
+  }
+}
+
+/**
+ * A bulkhead that counts, so a test can assert what was admitted and refused.
+ *
+ * A fake rather than a mock: it enforces the limit for real, so a test that
+ * says "the twenty-first request is refused" is testing the rule and not a
+ * recorded call. `waiting` is deliberately absent -- the real one queues for
+ * `acquireTimeoutMs`, and a test that had to wait two seconds to see a refusal
+ * would be a slow test measuring a timer.
+ */
+export class CountingBulkhead implements Bulkhead {
+  readonly acquired: { key: string; limit: number | undefined }[] = [];
+  private readonly inFlight = new Map<string, number>();
+  peak = 0;
+
+  acquire(key: string, maxConcurrent?: number): Promise<BulkheadLease> {
+    this.acquired.push({ key, limit: maxConcurrent });
+
+    const current = this.inFlight.get(key) ?? 0;
+    if (maxConcurrent !== undefined && current >= maxConcurrent) {
+      return Promise.reject(new ConcurrencyLimitError(key, maxConcurrent));
+    }
+
+    this.inFlight.set(key, current + 1);
+    this.peak = Math.max(this.peak, current + 1);
+
+    let released = false;
+    return Promise.resolve({
+      release: (): Promise<void> => {
+        if (released) return Promise.resolve();
+        released = true;
+        this.inFlight.set(key, Math.max(0, (this.inFlight.get(key) ?? 1) - 1));
+        return Promise.resolve();
+      },
+    });
+  }
+
+  /** How many slots this key is holding right now. */
+  inFlightFor(key: string): number {
+    return this.inFlight.get(key) ?? 0;
   }
 }

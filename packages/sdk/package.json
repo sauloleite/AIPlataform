@@ -16,14 +16,15 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "lint": "eslint src --max-warnings 0"
   },
   "dependencies": {
     "@aia/contracts": "workspace:*",
-    "@aia/errors": "workspace:*"
+    "@aia/errors": "workspace:*",
+    "@aia/resilience": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.11"

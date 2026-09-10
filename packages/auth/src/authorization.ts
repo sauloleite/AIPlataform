@@ -1,3 +1,4 @@
+import { MAX_ZONES_BY_CLASSIFICATION } from '@aia/contracts';
 import { ForbiddenError } from '@aia/errors';
 import { ROLES, type Principal, type Role, isPlatformAdmin, rolesInProject } from './principal.js';
 import { Specification, allow, deny, spec } from './specification.js';
@@ -43,6 +44,24 @@ export const isMemberOfProject = spec<AccessRequest>(
   'principal does not belong to the project',
 );
 
+/**
+ * A service calling another service on nobody's behalf.
+ *
+ * The counterpart of `is_internal_service` in `aia_auth`, which has had it
+ * since the Python services stopped writing `if principal.type != 'service'`
+ * by hand. Named rather than inlined for the same reason: written as a rule it
+ * composes, and the decision records WHICH branch allowed the call.
+ *
+ * On its own it is the widest bypass on the platform -- an internal service
+ * reaching a project it is not a member of -- so it is only ever used narrowed
+ * by something else, such as a scope.
+ */
+export const isInternalService = spec<AccessRequest>(
+  'is an internal service',
+  (request) => request.principal.type === 'service',
+  'principal is not an internal service',
+);
+
 export const hasScope = (scope: string): Specification<AccessRequest> =>
   spec(
     `has the ${scope} scope`,
@@ -56,13 +75,12 @@ export const hasScope = (scope: string): Specification<AccessRequest> =>
  *
  * The order matters: `restricted` accepts only `local`, `confidential` also
  * accepts in-country, and so on. Public data may go anywhere.
+ *
+ * Read from the contract rather than written here (ADR-027). The same table
+ * used to exist in this file, in `python/aia_auth`, in aia-governance's domain
+ * and in the console's, and nothing compared the four.
  */
-const ZONES_BY_CLASSIFICATION: Record<string, readonly string[]> = {
-  public: ['local', 'br', 'us', 'eu', 'global'],
-  internal: ['local', 'br', 'us', 'eu', 'global'],
-  confidential: ['local', 'br'],
-  restricted: ['local'],
-};
+const ZONES_BY_CLASSIFICATION: Record<string, readonly string[]> = MAX_ZONES_BY_CLASSIFICATION;
 
 export const dataZoneIsCompatible = spec<AccessRequest>(
   'data zone compatible with the classification',
@@ -77,12 +95,30 @@ export const dataZoneIsCompatible = spec<AccessRequest>(
   "the target's data zone is not compatible with the project classification",
 );
 
-/** OWASP LLM06: a high-risk tool requires an owner or admin role. */
+/**
+ * OWASP LLM06: a high-risk tool requires an owner or admin role.
+ *
+ * Fails CLOSED on a level it does not recognise, the way
+ * `dataZoneIsCompatible` above does — the two are the same kind of ABAC rule
+ * and used to disagree on the default. This one tested `!== 'high'` and
+ * allowed everything else, so a definition carrying `critical`, or `HIGH`, or a
+ * typo, needed no elevated role at all.
+ *
+ * The registry refuses an unknown level at publish, which makes that hard to
+ * reach rather than impossible: `registry-tool-catalog.ts` casts `risk_level`
+ * out of another service's JSON without re-validating it, and a tool stored
+ * before the list was fixed would still be there. A control that gates the
+ * dangerous tools is the wrong place to trust an upstream.
+ */
 export const canInvokeToolRisk = new (class extends Specification<AccessRequest> {
   readonly name = 'may invoke a tool at this risk level';
 
   evaluate(request: AccessRequest): ReturnType<Specification<AccessRequest>['evaluate']> {
-    if (request.toolRiskLevel !== 'high') return allow('risk level needs no elevated role');
+    const level = request.toolRiskLevel;
+    if (level === undefined) return allow('not a tool invocation');
+    if (level === 'low' || level === 'medium') return allow('risk level needs no elevated role');
+    // 'high', and anything this does not recognise, which is treated as the
+    // most dangerous rather than the least.
     return hasRole(ROLES.PROJECT_OWNER).evaluate(request);
   }
 })();
@@ -94,6 +130,37 @@ export const POLICY = {
   EDIT_ASSETS: hasRole(ROLES.PROJECT_OWNER, ROLES.PROJECT_EDITOR),
   MANAGE_BUDGET: hasRole(ROLES.PROJECT_OWNER),
   READ_AUDIT: hasRole(ROLES.PROJECT_OWNER, ROLES.AUDITOR),
+  /**
+   * Reading what a conversation contained, for a person OR for the platform.
+   *
+   * The second half is what makes online sampling possible at all: the sampler
+   * consumes a queue, so it acts as itself, and a `client_credentials`
+   * principal is signed with no roles and no memberships -- it can never
+   * satisfy `READ_AUDIT`, so every sample it took would have been unscorable
+   * forever (ADR-030).
+   *
+   * Narrowed by a scope rather than opened to every service token: a service
+   * client's scopes are configuration, so an operator grants `audit:read` to
+   * the one worker that needs it and to nothing else. That is the narrowest
+   * identity the platform can express for this, and it is why the scope is
+   * named after the thing rather than after the service.
+   */
+  READ_AUDIT_CONTENT: hasRole(ROLES.PROJECT_OWNER, ROLES.AUDITOR).or(
+    isInternalService.and(hasScope('audit:read')),
+  ),
+  /**
+   * Who may spend a project's budget on a model call.
+   *
+   * Membership, as before, OR a service token carrying `inference:write` --
+   * the scope the router and the agent runtime are already issued. A queue
+   * consumer has no caller to act as, so without this branch the online
+   * sampler could read what a call said and never ask a judge about it.
+   *
+   * It widens nothing by itself: a service client is granted its scopes in
+   * configuration, and a token without `inference:write` is refused exactly as
+   * it was.
+   */
+  CALL_MODEL: isMemberOfProject.or(isInternalService.and(hasScope('inference:write'))),
 } as const;
 
 /**

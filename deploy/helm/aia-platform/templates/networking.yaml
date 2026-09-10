@@ -1,11 +1,66 @@
 {{/*
-Ingress and network isolation.
+Routing and network isolation.
 
-The Ingress maps each prefix to the service that owns that contract — the same
-routing Traefik performs under compose.
+Each prefix goes to the service that owns that contract -- the same routing
+Traefik performs under compose.
+
+TWO implementations of one routing table, and the table is defined once in
+`aia.routeTable` below. Duplicating it is how `/v1/agents` came to be routed
+while `/v1/runs` fell through to the console: an agent run could be started and
+neither read back nor approved.
+
+The Gateway API is the default. Kubernetes froze the Ingress API, and
+ingress-nginx was retired in March 2026 with no further security patches; the
+Gateway API is also what gives canary by weight, which model promotion needs
+(ADR-024). `networking.mode=ingress` keeps the old manifest for clusters that
+have no Gateway controller installed.
 */}}
 
-{{- if .Values.ingress.enabled }}
+{{/*
+  The routing table: one entry per service, longest prefix winning.
+
+  `/` is deliberately absent and appended last by each implementation, because
+  the two express "everything else" differently.
+*/}}
+{{- define "aia.routeTable" -}}
+{{- $routes := list -}}
+{{- if .Values.identity.enabled -}}
+{{- $routes = append $routes (dict "service" "identity" "port" .Values.identity.port "paths" (list "/v1/auth" "/v1/pats" "/v1/me" "/.well-known")) -}}
+{{- end -}}
+{{- if .Values.governance.enabled -}}
+{{- $routes = append $routes (dict "service" "governance" "port" .Values.governance.port "paths" (list "/v1/projects")) -}}
+{{- end -}}
+{{- if .Values.inferenceRouter.enabled -}}
+{{/* `/v1/completions` is the audit read, not the OpenAI-compatible completions
+     endpoint: what one call recorded, including its redacted content. */}}
+{{- $routes = append $routes (dict "service" "inference-router" "port" .Values.inferenceRouter.port "paths" (list "/v1/chat" "/v1/embeddings" "/v1/models" "/v1/completions")) -}}
+{{- end -}}
+{{- if .Values.registry.enabled -}}
+{{- $routes = append $routes (dict "service" "registry" "port" .Values.registry.port "paths" (list "/v1/assets")) -}}
+{{- end -}}
+{{- if .Values.knowledge.enabled -}}
+{{- $routes = append $routes (dict "service" "knowledge" "port" .Values.knowledge.port "paths" (list "/v1/stores")) -}}
+{{- end -}}
+{{- if .Values.mcpGateway.enabled -}}
+{{- $routes = append $routes (dict "service" "mcp-gateway" "port" .Values.mcpGateway.port "paths" (list "/v1/tools" "/v1/bindings" "/v1/connections")) -}}
+{{- end -}}
+{{- if .Values.agentRuntime.enabled -}}
+{{/* `/v1/runs` as well as `/v1/agents`: reading a run and approving a tool call
+     both live there, and without it they reach the console instead. */}}
+{{- $routes = append $routes (dict "service" "agent-runtime" "port" .Values.agentRuntime.port "paths" (list "/v1/agents" "/v1/runs")) -}}
+{{- end -}}
+{{- if .Values.evaluation.enabled -}}
+{{/* Annotations and samples are on this service too, and a route table that
+     lists only `/v1/evaluations` sends them to the console's 404 -- the same
+     drift as `/v1/runs`, two entries below. */}}
+{{- $routes = append $routes (dict "service" "evaluation" "port" .Values.evaluation.port "paths" (list "/v1/evaluations" "/v1/annotations" "/v1/samples")) -}}
+{{- end -}}
+{{- toJson $routes -}}
+{{- end }}
+
+{{- $table := fromJsonArray (include "aia.routeTable" .) }}
+
+{{- if eq (.Values.networking).mode "ingress" }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -29,41 +84,15 @@ spec:
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
-          {{- if .Values.identity.enabled }}
-          {{- range $path := list "/v1/auth" "/v1/pats" "/v1/me" "/.well-known" }}
+          {{- range $route := $table }}
+          {{- range $path := $route.paths }}
           - path: {{ $path }}
             pathType: Prefix
             backend:
               service:
-                name: {{ include "aia.fullname" $ }}-identity
-                port: { number: {{ $.Values.identity.port }} }
+                name: {{ include "aia.fullname" $ }}-{{ $route.service }}
+                port: { number: {{ $route.port }} }
           {{- end }}
-          {{- end }}
-          {{- if .Values.governance.enabled }}
-          - path: /v1/projects
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "aia.fullname" . }}-governance
-                port: { number: {{ .Values.governance.port }} }
-          {{- end }}
-          {{- if .Values.inferenceRouter.enabled }}
-          {{- range $path := list "/v1/chat" "/v1/embeddings" "/v1/models" }}
-          - path: {{ $path }}
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "aia.fullname" $ }}-inference-router
-                port: { number: {{ $.Values.inferenceRouter.port }} }
-          {{- end }}
-          {{- end }}
-          {{- if .Values.agentRuntime.enabled }}
-          - path: /v1/agents
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "aia.fullname" . }}-agent-runtime
-                port: { number: {{ .Values.agentRuntime.port }} }
           {{- end }}
           {{- if .Values.web.enabled }}
           {{/*
@@ -80,15 +109,79 @@ spec:
           {{- end }}
 {{- end }}
 
+{{- if eq (.Values.networking).mode "gateway" }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ include "aia.fullname" . }}
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+spec:
+  gatewayClassName: {{ .Values.networking.gatewayClassName }}
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: {{ .Values.ingress.host | quote }}
+      allowedRoutes:
+        namespaces: { from: Same }
+    {{- if .Values.ingress.tls.enabled }}
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: {{ .Values.ingress.host | quote }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: {{ .Values.ingress.tls.secretName }}
+      allowedRoutes:
+        namespaces: { from: Same }
+    {{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "aia.fullname" . }}
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ include "aia.fullname" . }}
+  hostnames:
+    - {{ .Values.ingress.host | quote }}
+  {{/*
+    Unlike an Ingress, an HTTPRoute matches in SPECIFICITY order regardless of
+    how the rules are written, so "/" cannot shadow "/v1/chat" by accident.
+  */}}
+  rules:
+    {{- range $route := $table }}
+    - matches:
+        {{- range $path := $route.paths }}
+        - path: { type: PathPrefix, value: {{ $path }} }
+        {{- end }}
+      backendRefs:
+        - name: {{ include "aia.fullname" $ }}-{{ $route.service }}
+          port: {{ $route.port }}
+      timeouts:
+        {{/*
+          Streaming answers arrive over minutes, and the default would cut an
+          SSE response mid-generation. The heartbeat keeps the connection alive;
+          this keeps the proxy from giving up on it.
+        */}}
+        request: {{ $.Values.networking.requestTimeout | quote }}
+    {{- end }}
+    {{- if .Values.web.enabled }}
+    - matches:
+        - path: { type: PathPrefix, value: / }
+      backendRefs:
+        - name: {{ include "aia.fullname" . }}-web
+          port: {{ .Values.web.port }}
+    {{- end }}
+{{- end }}
+
 {{- if .Values.networkPolicy.enabled }}
 ---
-{{/*
-Deny everything by default.
-
-Without this, any compromised pod in the namespace reaches MongoDB and Redis
-directly, bypassing every platform control. The rules below allow only what has
-to exist.
-*/}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -113,17 +206,20 @@ spec:
       {{- include "aia.selectorLabels" . | nindent 6 }}
   policyTypes: [Ingress, Egress]
   ingress:
-    # Entre pods da plataforma.
+    # Between platform pods.
     - from:
         - podSelector:
             matchLabels:
               {{- include "aia.selectorLabels" . | nindent 14 }}
-    # Do ingress controller.
+    # From whatever terminates traffic at the edge. Matched by namespace rather
+    # than by a controller's own label: with networking.mode=gateway that pod is
+    # a Gateway implementation, and pinning `app.kubernetes.io/name:
+    # ingress-nginx` here would silently deny every request the moment the
+    # cluster switched.
     - from:
-        - namespaceSelector: {}
-          podSelector:
+        - namespaceSelector:
             matchLabels:
-              app.kubernetes.io/name: ingress-nginx
+              {{ .Values.networkPolicy.edgeNamespaceLabel.key }}: {{ .Values.networkPolicy.edgeNamespaceLabel.value | quote }}
   egress:
     - to:
         - podSelector:

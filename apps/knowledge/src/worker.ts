@@ -2,6 +2,8 @@ import 'reflect-metadata';
 import { startTelemetry } from '@aia/telemetry';
 
 // Type-only, so it is erased at compile time and runs no I/O before telemetry.
+import { context, propagation } from '@opentelemetry/api';
+
 import type { IngestionJobPayload, ObjectStore } from './modules/stores/application/ports.js';
 
 // Telemetry starts BEFORE any import that does I/O: auto-instrumentation has to
@@ -38,13 +40,19 @@ await objects.ensureBucket(app.get<string>(KNOWLEDGE_BUCKET));
 const worker = new Worker<IngestionJobPayload>(
   INGESTION_QUEUE_NAME,
   async (job) => {
-    await ingest.execute(job.data);
+    // The job carries the trace of the request that enqueued it. Restoring it
+    // here is what makes the span the use case opens a child of that request
+    // rather than the root of a trace nothing connects to.
+    const parent = propagation.extract(context.active(), job.data.carrier ?? {});
+    await context.with(parent, () => ingest.execute(job.data));
   },
   {
     connection: { url: config.REDIS_URL },
     // Ingestion is I/O bound on the embedding call, so a few in flight helps;
-    // beyond that the work just queues inside the router instead.
-    concurrency: 4,
+    // beyond that the work just queues inside the router instead. Configurable
+    // because a laptop and a cluster do not want the same number, and the
+    // deployment is where that is known.
+    concurrency: config.INGESTION_CONCURRENCY,
   },
 );
 

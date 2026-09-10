@@ -6,23 +6,30 @@ That is what makes an evaluation worse than useless — it reads as evidence.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from evaluation_fakes import (
+    FakeCalibrations,
     FakeDatasetSource,
     FakeJudge,
     FakeSafety,
     FakeSuiteSource,
     FakeTarget,
     RecordingPublisher,
+    a_calibration,
+    held_out_ids,
 )
 
 from aia_messaging import EventType
 from evaluation.application.dto import Caller, RunSuiteCommand
 from evaluation.application.use_cases.run_suite import RunSuite
+from evaluation.domain.calibration import Calibration, Pair
 from evaluation.domain.entities import DatasetCase, EvaluationRun, RunStatus
 from evaluation.domain.errors import (
     DatasetTooSmallError,
     JudgeRequiredError,
+    JudgeUncalibratedError,
     JudgeUnreadableError,
 )
 from evaluation.domain.suite import EvaluatorSpec, Suite
@@ -54,7 +61,16 @@ def a_suite(*specs: EvaluatorSpec, min_cases: int = 1) -> Suite:
 
 
 class Harness:
-    def __init__(self, suite: Suite, *, cases: int = 3, with_judge: bool = True):
+    def __init__(
+        self,
+        suite: Suite,
+        *,
+        cases: int = 3,
+        with_judge: bool = True,
+        calibrated: bool = True,
+        calibrations: list[Calibration] | None = None,
+        max_calibration_age_days: float = 0.0,
+    ):
         # Built here rather than defaulted in the signature: one judge shared
         # by every harness would carry the criteria it saw in the last test.
         self.judge: FakeJudge | None = FakeJudge() if with_judge else None
@@ -62,6 +78,18 @@ class Harness:
         self.safety = FakeSafety()
         self.runs = InMemoryRunRepository()
         self.events = RecordingPublisher()
+        # A calibration for every judged evaluator the suite names. Default,
+        # rather than opt-in, so that the tests about measuring stay about
+        # measuring -- the refusal itself has its own tests below.
+        self.calibrations = FakeCalibrations(
+            calibrations
+            if calibrations is not None
+            else (
+                [a_calibration(evaluator=spec.name) for spec in suite.evaluators if spec.judged]
+                if calibrated
+                else []
+            )
+        )
         self.use_case = RunSuite(
             suites=FakeSuiteSource([suite]),
             datasets=FakeDatasetSource([a_case(f"c{n}") for n in range(1, cases + 1)]),
@@ -70,6 +98,8 @@ class Harness:
             events=self.events,
             judge=self.judge,
             safety=self.safety,
+            calibrations=self.calibrations,
+            max_calibration_age_days=max_calibration_age_days,
         )
 
     async def run(self, alias: str | None = None) -> EvaluationRun:
@@ -225,6 +255,25 @@ class TestGrounding:
         assert run.status in {RunStatus.PASSED, RunStatus.FAILED}
         assert run.metrics[0].sample_size == 1
 
+    async def test_a_case_with_neither_context_nor_reference_is_refused(self) -> None:
+        """ADR-021: refuse rather than score nothing.
+
+        `groundedness` asks whether every claim is supported by the CONTEXT. A
+        row with no context and no reference offers neither, and the runner used
+        to hand it 1.0 -- a perfect score for a measurement that never happened,
+        which is worse than a zero because a zero gets investigated.
+        """
+        harness = Harness(a_suite(EvaluatorSpec("groundedness", threshold=0.5)))
+        harness.use_case.datasets = FakeDatasetSource(
+            [DatasetCase(id="c1", input="what is the retention?")]
+        )
+
+        run = await harness.run()
+
+        assert run.status is RunStatus.ERRORED
+        # Refused BEFORE the run, so no case was answered and no token spent.
+        assert harness.target.tokens_seen == []
+
     async def test_the_judge_is_told_what_it_is_judging(self) -> None:
         harness = Harness(
             a_suite(
@@ -247,3 +296,136 @@ def test_both_kinds_of_bad_run_stop_a_merge(status: RunStatus) -> None:
     run.status = status
 
     assert run.gated
+
+
+class TestWhoGraded:
+    """A model that marks its own homework agrees with itself."""
+
+    async def test_the_run_records_which_alias_graded_it(self) -> None:
+        harness = Harness(a_suite(EvaluatorSpec("groundedness", threshold=0.5)))
+
+        run = await harness.run()
+
+        # On the RECORD, not only in a log the CLI prints: a self-graded score
+        # is indistinguishable from an independent one, and whoever reads the
+        # run later is the person who needs to be able to tell.
+        assert run.judge_alias == "judge-alias"
+
+    async def test_a_run_with_no_judge_records_none(self) -> None:
+        harness = Harness(a_suite(EvaluatorSpec("exact_match", threshold=0.5)), with_judge=False)
+
+        run = await harness.run()
+
+        assert run.judge_alias is None
+
+
+class TestAJudgeNobodyChecked:
+    """ADR-028: a judged score is only worth what the judge is worth.
+
+    The failure these guard is one level up from the rest of the file. The run
+    measures something; nobody knows what. `groundedness: 0.87` reads exactly
+    the same from a judge that tracks a careful reader and from one that likes
+    long paragraphs, and both of them stop merges.
+    """
+
+    async def test_a_judged_suite_refuses_when_no_calibration_is_on_file(self) -> None:
+        harness = Harness(a_suite(EvaluatorSpec("groundedness", threshold=0.8)), calibrated=False)
+
+        run = await harness.run()
+
+        assert run.status == RunStatus.ERRORED
+        assert run.error_code == JudgeUncalibratedError("g", "j", "r").code
+
+    async def test_it_refuses_before_spending_anything(self) -> None:
+        # Same rule as the missing judge: the cheapest moment to discover that
+        # a run cannot be trusted is before it has cost anything.
+        harness = Harness(a_suite(EvaluatorSpec("groundedness", threshold=0.8)), calibrated=False)
+
+        await harness.run()
+
+        assert harness.target.tokens_seen == []
+        assert harness.judge is not None and harness.judge.criteria_seen == []
+
+    async def test_an_unjudged_suite_needs_no_calibration(self) -> None:
+        harness = Harness(
+            a_suite(EvaluatorSpec("exact_match", threshold=0.0)),
+            calibrated=False,
+        )
+
+        run = await harness.run()
+
+        assert run.status == RunStatus.PASSED
+
+    async def test_a_calibration_for_one_evaluator_does_not_license_another(self) -> None:
+        # Telling grounded from invented and telling relevant from off-topic are
+        # different jobs, and a judge can be good at one of them.
+        harness = Harness(
+            a_suite(
+                EvaluatorSpec("groundedness", threshold=0.5),
+                EvaluatorSpec("relevance", threshold=0.5),
+            ),
+            calibrations=[a_calibration(evaluator="relevance")],
+        )
+
+        run = await harness.run()
+
+        assert run.status == RunStatus.ERRORED
+        assert run.error_code == JudgeUncalibratedError("g", "j", "r").code
+
+    async def test_a_calibration_of_a_different_judge_does_not_transfer(self) -> None:
+        harness = Harness(
+            a_suite(EvaluatorSpec("groundedness", threshold=0.5)),
+            calibrations=[a_calibration(judge_alias="a-model-nobody-is-using")],
+        )
+
+        run = await harness.run()
+
+        assert run.status == RunStatus.ERRORED
+
+    async def test_a_judge_that_agrees_by_chance_may_not_grade(self) -> None:
+        # Twelve labels, eleven of them good, and a judge that says yes to
+        # everything: 92% raw agreement, and no ability to reject anything.
+        agreeable = Calibration(
+            judge_alias="judge-alias",
+            evaluator="groundedness",
+            computed_at=datetime.now(UTC),
+            held_out=tuple(
+                Pair(id=label_id, human=1.0 if n else 0.0, judge=1.0)
+                for n, label_id in enumerate(held_out_ids(12))
+            ),
+            development=(),
+        )
+        harness = Harness(
+            a_suite(EvaluatorSpec("groundedness", threshold=0.5)), calibrations=[agreeable]
+        )
+
+        run = await harness.run()
+
+        assert run.status == RunStatus.ERRORED
+
+    async def test_an_expired_calibration_stops_counting(self) -> None:
+        harness = Harness(
+            a_suite(EvaluatorSpec("groundedness", threshold=0.5)),
+            calibrations=[a_calibration(computed_at=datetime.now(UTC) - timedelta(days=200))],
+            max_calibration_age_days=90,
+        )
+
+        run = await harness.run()
+
+        assert run.status == RunStatus.ERRORED
+
+    async def test_the_run_records_the_agreement_that_licensed_it(self) -> None:
+        # Six months later the calibration file has been recomputed twice. This
+        # is what says which number this run was allowed to trust.
+        harness = Harness(a_suite(EvaluatorSpec("groundedness", threshold=0.5)))
+
+        run = await harness.run()
+
+        assert run.judge_agreement == {"groundedness": 1.0}
+
+    async def test_an_unjudged_run_records_no_agreement(self) -> None:
+        harness = Harness(a_suite(EvaluatorSpec("exact_match", threshold=0.0)))
+
+        run = await harness.run()
+
+        assert run.judge_agreement == {}

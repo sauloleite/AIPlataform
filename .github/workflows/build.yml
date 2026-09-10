@@ -32,7 +32,17 @@ jobs:
             dockerfile: deploy/docker/node.Dockerfile
           - service: guardrails
             dockerfile: deploy/docker/python.Dockerfile
+          - service: registry
+            dockerfile: deploy/docker/node.Dockerfile
+          # One image serves the API and the ingestion worker: same build,
+          # different command (`dist/worker.js`).
+          - service: knowledge
+            dockerfile: deploy/docker/node.Dockerfile
+          - service: mcp-gateway
+            dockerfile: deploy/docker/node.Dockerfile
           - service: agent-runtime
+            dockerfile: deploy/docker/python.Dockerfile
+          - service: evaluation
             dockerfile: deploy/docker/python.Dockerfile
           # The console has its own Dockerfile: Next builds itself, so there is
           # no `tsc --build` step and no `pnpm deploy`.

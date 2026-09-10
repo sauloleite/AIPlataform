@@ -27,6 +27,7 @@ export interface UsageRecorded {
   status: UsageStatus;
   errorCode?: string;
   budgetUnverified: boolean;
+  guardrailsUnverified: boolean;
   policyStale: boolean;
   occurredAt: Date;
 }
@@ -53,6 +54,7 @@ export function usageRecordedPayload(usage: UsageRecorded): Record<string, unkno
     status: usage.status,
     error_code: usage.errorCode ?? null,
     budget_unverified: usage.budgetUnverified,
+    guardrails_unverified: usage.guardrailsUnverified,
     policy_stale: usage.policyStale,
   };
 }

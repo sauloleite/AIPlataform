@@ -20,20 +20,37 @@ production is an incident.
    ])'
    ```
 
-2. **Register the candidate** in the alias catalogue with a HIGHER priority than
-   the current one (a larger number), disabled.
+2. **Register the candidate** with a HIGHER priority than the current one (a
+   larger number), disabled.
 
-3. **Run the regression suite** against the candidate:
+   > **Today this is a code change and a deploy.** The catalogue is still
+   > compiled into the router (`defaultAliasCatalog()` in
+   > `apps/inference-router/.../registry/alias-catalog.ts`), so edit it there and
+   > release. Moving the catalogue into `aia-registry`, which is what makes this
+   > a configuration change, is roadmap M12.
 
-   ```bash
-   make eval SUITE=evals/suites/model-regression
-   ```
+3. **Run the regression suite** against the candidate.
+
+   > `make eval SUITE=path` works now and takes a file or a directory. What is
+   > still missing is `evals/suites/model-regression` itself: gate on
+   > `evals/suites/platform-runbook.yaml` in the meantime, and note that it
+   > needs a judge alias, so it measures nothing without one.
+   > Until then, compare by hand against a suite you write for the occasion and
+   > record the numbers in the change ticket. Do not skip the comparison because
+   > the automation is missing — a model swap without one is the incident this
+   > runbook exists to prevent.
 
    Compare groundedness, relevance, cost per answer and latency. A drop beyond
    the threshold blocks the swap.
 
 4. **Canary by project.** Enable the candidate for one volunteer project, leaving
    the current one as fallback. Watch it for a week.
+
+   > The Gateway API migration shipped (ADR-024), and its weights split traffic
+   > between BACKEND SERVICES — not between two model deployments behind one
+   > alias, which is what a model canary needs. Per project remains the
+   > mechanism, and it is the more useful one anyway: a project is a population
+   > whose quality you can compare, and a percentage of requests is not.
 
 5. **Swap the priorities** once the canary is clean: the candidate takes over,
    the old one becomes the fallback.

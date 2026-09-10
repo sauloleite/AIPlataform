@@ -200,7 +200,7 @@ function fromWireDefinition(raw: Record<string, unknown>): AssetDefinition {
   if (raw['kind'] === 'tool') {
     return {
       kind: 'tool',
-      toolType: raw['tool_type'] as 'mcp' | 'openapi' | 'function' | 'builtin',
+      toolType: raw['tool_type'] as 'mcp' | 'openapi' | 'builtin',
       riskLevel: raw['risk_level'] as 'low' | 'medium' | 'high',
       ...(typeof raw['endpoint'] === 'string' && { endpoint: raw['endpoint'] }),
       ...(typeof raw['builtin_id'] === 'string' && { builtinId: raw['builtin_id'] }),

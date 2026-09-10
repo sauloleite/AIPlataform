@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from evaluation.domain.annotation import Annotation
+from evaluation.domain.calibration import Calibration, LabelledAnswer
 from evaluation.domain.entities import Answer, DatasetCase, EvaluationRun
+from evaluation.domain.sampling import Sample
 from evaluation.domain.suite import Suite
 
 
@@ -42,6 +45,17 @@ class Judge(Protocol):
     a different one. A model grading itself agrees with itself.
     """
 
+    @property
+    def alias(self) -> str:
+        """Which alias grades.
+
+        On the port because the runner has to be able to notice that it matches
+        the alias under test. That warning used to live in the CLI alone, so
+        `POST /v1/evaluations` ran a self-judging suite in silence -- and a
+        self-graded score looks exactly like a real one.
+        """
+        ...
+
     async def score(
         self,
         *,
@@ -53,6 +67,84 @@ class Judge(Protocol):
         project_id: str,
         access_token: str,
     ) -> float: ...
+
+
+class LabelSource(Protocol):
+    """Where human labels come from. A directory of JSONL in the repo, today.
+
+    In the repo rather than in a database for the same reason the datasets are:
+    a label that changed shows up in a PR, and re-labelling the cases a judge
+    got wrong is the easiest way to make a judge look calibrated.
+    """
+
+    def load(self, path: str) -> list[LabelledAnswer]: ...
+
+
+class CalibrationSource(Protocol):
+    """The calibration records on file, one per judge alias and evaluator.
+
+    Returns None when there is none, which is not an error here: deciding what
+    a missing calibration means is the runner's rule, not the store's.
+    """
+
+    def find(self, *, judge_alias: str, evaluator: str) -> Calibration | None: ...
+
+
+class CalibrationWriter(Protocol):
+    """Where a fresh calibration record is written for review and commit."""
+
+    def save(self, calibration: Calibration) -> str: ...
+
+
+class AnnotationRepository(Protocol):
+    """Where what a person decided about a trace is kept.
+
+    Project-scoped in the signature rather than in the caller, because an
+    annotation names a principal and may carry conversation content: a query
+    that forgot the tenant would be a leak, not a bug in a list.
+    """
+
+    async def save(self, annotation: Annotation) -> None: ...
+
+    async def list(
+        self,
+        project_id: str,
+        *,
+        limit: int,
+        trace_id: str | None = None,
+        failure_mode: str | None = None,
+    ) -> list[Annotation]: ...
+
+
+class CompletionRecordReader(Protocol):
+    """What one production call recorded, read from aia-inference-router.
+
+    Through the contract, never out of the router's database: no service reads
+    another's collections, and the route it goes through is the one that decides
+    whether this reader may see content at all.
+    """
+
+    async def read(
+        self, *, project_id: str, request_id: str, access_token: str
+    ) -> dict[str, object] | None: ...
+
+
+class SampleRepository(Protocol):
+    async def save(self, sample: Sample) -> None: ...
+
+    async def list(self, project_id: str, *, limit: int) -> list[Sample]: ...
+
+
+class ServiceCredential(Protocol):
+    """The sampler's own token.
+
+    A queue consumer has no caller to act as (ADR-017 covers the other case), so
+    it presents its own credential. An empty string means none is configured,
+    and the sampler then does not run rather than reading production content
+    with whatever privilege happens to be lying around.
+    """
+
+    async def get(self) -> str: ...
 
 
 class SafetyInspector(Protocol):

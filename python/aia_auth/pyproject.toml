@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Local JWT validation with JWKS, Principal, RBAC and ABAC"
 requires-python = ">=3.12"
 dependencies = [
+    "aia-contracts",
     "aia-errors",
     "pyjwt[crypto]>=2.10.1",
     # Piso explicito: versoes anteriores carregam PYSEC-2026-3552/3553/3554.

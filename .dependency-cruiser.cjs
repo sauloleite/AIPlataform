@@ -7,33 +7,48 @@
  * This file fails the build. Do not relax a rule without an ADR.
  */
 
-/** Packages that mark a framework, I/O or an external provider. */
+/**
+ * Packages that mark a framework, I/O or an external provider.
+ *
+ * Written as PATH fragments, not as module names. `to.path` matches the
+ * RESOLVED path, which under pnpm looks like
+ * `node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/ajv.js`. A pattern
+ * anchored with `^` — as these were — matches none of them, so the rule below
+ * reported success for as long as it existed while the domain was free to
+ * import any of them.
+ *
+ * The trailing slash is what ends the package name: `node_modules/redis/` does
+ * not match ioredis, and `node_modules/react/` does not match react-dom.
+ */
 const FRAMEWORK_PACKAGES = [
-  '^@nestjs',
-  '^express',
-  '^fastify',
-  '^mongoose',
-  '^mongodb',
-  '^ioredis',
-  '^redis$',
-  '^bullmq',
-  '^axios',
-  '^undici',
-  '^node-fetch',
-  '^openai',
-  '^@anthropic-ai',
-  '^@google',
-  '^@qdrant',
-  '^@aws-sdk',
-  '^minio',
-  '^@opentelemetry',
-  '^jose',
-  '^class-validator',
-  '^class-transformer',
-  '^@fluentui',
-  '^@griffel',
-  '^react$',
-  '^react-dom',
+  'node_modules/@nestjs/',
+  'node_modules/express/',
+  'node_modules/fastify/',
+  'node_modules/mongoose/',
+  'node_modules/mongodb/',
+  'node_modules/ioredis/',
+  'node_modules/redis/',
+  'node_modules/bullmq/',
+  'node_modules/axios/',
+  'node_modules/undici/',
+  'node_modules/node-fetch/',
+  'node_modules/openai/',
+  'node_modules/@anthropic-ai/',
+  'node_modules/@google/',
+  'node_modules/@qdrant/',
+  'node_modules/@aws-sdk/',
+  'node_modules/minio/',
+  'node_modules/@opentelemetry/',
+  'node_modules/jose/',
+  // Ajv compiles JSON Schema. A rule about arguments belongs to the gateway;
+  // the dialect that evaluates it is an adapter's business.
+  'node_modules/ajv/',
+  'node_modules/class-validator/',
+  'node_modules/class-transformer/',
+  'node_modules/@fluentui/',
+  'node_modules/@griffel/',
+  'node_modules/react/',
+  'node_modules/react-dom/',
 ];
 
 /** Node built-ins that signal I/O inside the domain. */
@@ -167,8 +182,29 @@ module.exports = {
     },
   ],
   options: {
+    // `doNotFollow` keeps an npm package in the graph as a LEAF: the edge to it
+    // is recorded, its own imports are not traversed. `exclude` would drop the
+    // module from the graph altogether -- and with it every edge pointing at
+    // it, which is why `node_modules` must not appear below.
+    //
+    // It did, and the consequence was silent: `domain-does-not-know-frameworks`
+    // matched nothing for as long as it existed, so a domain file was free to
+    // import @nestjs, mongodb, ioredis or a provider SDK. The rule reported
+    // success because there was nothing left in the graph to report on.
     doNotFollow: { path: 'node_modules' },
-    exclude: { path: '(^|/)(node_modules|dist|coverage|\\.nx|\\.next)/' },
+    // Scoped to THIS repository's build output with a negative lookahead. The
+    // pattern used to be `(^|/)(dist|...)/`, which also matched
+    // `node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/ajv.js` -- so every
+    // package whose entry point happens to live under `dist/` vanished from the
+    // graph, and no rule could say anything about it.
+    // ANCHORED at the repository root, so it can only ever match this project's
+    // own build output. The pattern used to be `(^|/)(dist|...)/`, which also
+    // matched `node_modules/.pnpm/ajv@8.20.0/node_modules/ajv/dist/ajv.js` --
+    // so every package whose entry point happens to live under `dist/` vanished
+    // from the graph, and no rule could say anything about it.
+    exclude: {
+      path: '^(apps|packages|tools)/[^/]+/(dist|coverage|\\.next)/|^(dist|coverage|\\.nx|\\.next)/',
+    },
     tsPreCompilationDeps: true,
     tsConfig: { fileName: 'tsconfig.base.json' },
     enhancedResolveOptions: {

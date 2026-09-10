@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "aia-auth",
     "aia-errors",
+    "aia-fastapi",
     "aia-messaging",
     "aia-resilience",
     "aia-telemetry",

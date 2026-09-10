@@ -50,7 +50,10 @@ jobs:
         run: pnpm exec prettier --check .
 
       - name: ESLint
-        run: pnpm exec eslint . --max-warnings 0
+        # Same ceiling as the Makefile, and for the same reason: the type-aware
+        # rules hold one TypeScript program for the whole monorepo, and the
+        # default heap is no longer enough for it.
+        run: NODE_OPTIONS=--max-old-space-size=6144 pnpm exec eslint . --max-warnings 0
 
       - name: tsc (tests included)
         # `tsconfig.build.json` excludes the tests so they stay out of the image,
@@ -90,23 +93,101 @@ jobs:
       - name: import-linter (Python)
         run: uv run lint-imports
 
-      - name: The rule really fails when violated
-        # An architecture test that never fails protects nothing. This step
-        # introduces a violation on purpose and requires depcruise to catch it.
+      # A dependency the build graph does not know about compiles by luck --
+      # at the repository root, where everything is built anyway -- and fails
+      # in the service image, which follows references and nothing else.
+      - name: Every @aia dependency is a project reference
+        run: node tools/scripts/check-project-references.mjs
+
+      # A panel querying a metric nothing emits draws an empty chart, and an
+      # alert on an absent series never fires. Both look exactly like a quiet
+      # hour, which is why this is a check and not a review item.
+      - name: Every dashboard and alert queries a metric the platform records
+        run: node tools/scripts/check-dashboards.mjs
+
+      - name: The dashboard check really fails on a renamed metric
         run: |
           set -euo pipefail
-          VIOLATION=apps/inference-router/src/modules/completions/domain/__ci-violation.ts
+          DASHBOARD=deploy/grafana/dashboards/aia-slos.json
+          cp "$DASHBOARD" /tmp/aia-slos.json.bak
+          trap 'mv /tmp/aia-slos.json.bak "$DASHBOARD"' EXIT
+
+          sed -i 's/aia_inference_cost_micros_total/aia_inference_spend_total/' "$DASHBOARD"
+          if node tools/scripts/check-dashboards.mjs; then
+            echo "::error::the dashboard check did NOT notice a metric nothing records."
+            exit 1
+          fi
+          echo "  dashboard check: caught"
+
+      - name: The reference check really fails when a reference is missing
+        run: |
+          set -euo pipefail
+          CONFIG=packages/auth/tsconfig.build.json
+          cp "$CONFIG" /tmp/tsconfig.build.json.bak
+          trap 'mv /tmp/tsconfig.build.json.bak "$CONFIG"' EXIT
+
+          node -e '
+            const fs = require("node:fs");
+            const path = "packages/auth/tsconfig.build.json";
+            const config = JSON.parse(fs.readFileSync(path, "utf8"));
+            config.references = config.references.filter((r) => !r.path.includes("contracts"));
+            fs.writeFileSync(path, JSON.stringify(config, null, 2));
+          '
+          if node tools/scripts/check-project-references.mjs; then
+            echo "::error::the reference check did NOT detect a missing reference."
+            exit 1
+          fi
+          echo "  reference check: caught"
+
+      # An architecture test that never fails protects nothing. Each rule below
+      # is given a violation on purpose and has to catch it.
+      #
+      # This used to exercise ONE rule, and that is how
+      # `domain-does-not-know-frameworks` came to match nothing at all for as
+      # long as it existed: `exclude` dropped node_modules from the graph, and
+      # the patterns were module names where a resolved path was compared. The
+      # rule reported success because there was nothing left to report on. A
+      # negative control that covers one rule tells you about one rule.
+      - name: Every dependency rule really fails when violated
+        run: |
+          set -euo pipefail
+          DOMAIN=apps/inference-router/src/modules/completions/domain
+          VIOLATION="$DOMAIN/__ci-violation.ts"
+          trap 'rm -f "$VIOLATION"' EXIT
+
+          assert_caught() {
+            local rule="$1"
+            if pnpm exec depcruise --config .dependency-cruiser.cjs \
+                 --output-type err apps/inference-router >/dev/null; then
+              echo "::error::$rule did NOT detect a deliberate violation."
+              exit 1
+            fi
+            echo "  $rule: caught"
+          }
+
           cat > "$VIOLATION" <<'TS'
           import { MongoAuditRepository } from '../infrastructure/mongo/audit.repository.js';
           export const x = MongoAuditRepository;
           TS
-          if pnpm exec depcruise --config .dependency-cruiser.cjs --output-type err apps/inference-router; then
-            rm -f "$VIOLATION"
-            echo "::error::The dependency rule did NOT detect a deliberate violation."
-            exit 1
-          fi
+          assert_caught domain-does-not-know-infrastructure
+
+          # An npm framework in the domain. The package has to be one the
+          # service really depends on, or it fails to resolve and the graph
+          # records nothing -- which looks exactly like the rule passing.
+          cat > "$VIOLATION" <<'TS'
+          import { MongoClient } from 'mongodb';
+          export const x = MongoClient;
+          TS
+          assert_caught domain-does-not-know-frameworks
+
+          cat > "$VIOLATION" <<'TS'
+          import { readFileSync } from 'node:fs';
+          export const x = readFileSync;
+          TS
+          assert_caught domain-does-no-io
+
           rm -f "$VIOLATION"
-          echo "architecture rule confirmed"
+          echo "architecture rules confirmed"
 
   # ==========================================================================
   # Contracts: what is generated has to match what was committed.
@@ -120,10 +201,20 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22', cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: uv sync --all-packages --frozen
 
+      # `uv run python`, not `python3`. This job gained `setup-python` when the
+      # contracts grew a Python track, and that puts a clean 3.12 ahead of the
+      # runner's own interpreter -- the one that carries PyYAML. The step then
+      # failed on `import yaml` while the identical code in the `delivery` job,
+      # which has no `setup-python`, kept passing.
       - name: The OpenAPI and AsyncAPI contracts are valid YAML
         run: |
-          python3 - <<'PY'
+          uv run python - <<'PY'
           import pathlib, sys, yaml
           for path in sorted(pathlib.Path('contracts').rglob('*.yaml')):
               try:
@@ -137,10 +228,69 @@ jobs:
       - name: Generated types are in sync with the contracts
         run: |
           node tools/scripts/generate-contracts.mjs
-          if ! git diff --exit-code --stat packages/contracts/src/generated; then
-            echo "::error::The generated types differ from the contracts. Run 'make contracts' and commit."
+          # BOTH languages. The data-zone rule is emitted into each of them from
+          # one source (ADR-027), and a check that watched only TypeScript would
+          # let the Python copy drift -- which is the failure the single source
+          # exists to prevent.
+          if ! git diff --exit-code --stat \
+               packages/contracts/src/generated \
+               python/aia_contracts/src/aia_contracts/generated; then
+            echo "::error::The generated output differs from the contracts. Run 'make contracts' and commit."
             exit 1
           fi
+
+      # An assertion that never fails protects nothing, so the diff above is
+      # asked to catch a drift. Editing the generated Python by hand is exactly
+      # what the single source exists to prevent (ADR-027), and it is the case
+      # a diff over TypeScript alone would have missed.
+      - name: The generated-output check really fails when a language drifts
+        run: |
+          set -euo pipefail
+          GENERATED=python/aia_contracts/src/aia_contracts/generated/data_zones.py
+          trap 'git checkout -- "$GENERATED"' EXIT
+          sed -i 's/"restricted": ("local",)/"restricted": ("local", "us")/' "$GENERATED"
+          if git diff --exit-code --stat "$GENERATED" >/dev/null; then
+            echo "::error::the drift was not even applied; this check is not checking"
+            exit 1
+          fi
+          node tools/scripts/generate-contracts.mjs >/dev/null
+
+          # No diff means the generator put the file back the way the contract
+          # says it should be. The two branches below used to be the wrong way
+          # round, and nothing noticed because the two steps above kept failing
+          # first -- a negative control that has never run is a negative control
+          # nobody has checked.
+          if git diff --exit-code --stat "$GENERATED" >/dev/null; then
+            echo "  regenerating overwrote the hand edit, as it must"
+          else
+            echo "::error::a hand-edited generated file survived the generator"
+            exit 1
+          fi
+
+      # The two steps above prove the contracts PARSE and that the generated
+      # types match them. Neither says a word about whether the services answer
+      # what they promise -- which is how `deleteStore` stayed declared with no
+      # route behind it, and how `GET /v1/registry` shipped in no contract.
+      - name: Every registered route is declared, and every declared route exists
+        run: uv run python tools/scripts/check_routes.py
+
+      # An assertion that never fails protects nothing, so the check is asked to
+      # catch a route it has not been told about. Same reasoning as the
+      # deliberate violation in the `architecture` job.
+      - name: The route check really fails when a route drifts
+        run: |
+          set -euo pipefail
+          trap 'git checkout -- contracts/openapi/knowledge.v1.yaml' EXIT
+          python3 - <<'PY'
+          import pathlib
+          path = pathlib.Path('contracts/openapi/knowledge.v1.yaml')
+          path.write_text(path.read_text().replace('  /v1/stores/{storeId}/search:', '  /v1/stores/{storeId}/search-renamed:', 1))
+          PY
+          if uv run python tools/scripts/check_routes.py; then
+            echo "::error::check_routes.py passed with a renamed contract path. The check is not checking."
+            exit 1
+          fi
+          echo "the route check fails when it should"
 
   # ==========================================================================
   # Unit tests: domain and application, no I/O.
@@ -196,14 +346,27 @@ jobs:
         with: { node-version: '22', cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc --build tsconfig.build.json
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: uv sync --all-packages --frozen
 
       - name: Vitest (integration)
         run: pnpm exec vitest run --dir apps --testNamePattern "" --passWithNoTests
         env:
           RUN_INTEGRATION: '1'
 
+      # This job ran only vitest while `make test-integration` ran only pytest,
+      # so neither ran both and a Python integration test would have been
+      # written into a job that never executed it. Exit code 5 is pytest's
+      # "nothing collected", which is the honest state today and stops being
+      # acceptable the moment somebody writes one.
+      - name: pytest (integration)
+        run: uv run pytest -m integration || [ $? -eq 5 ]
+
   # ==========================================================================
-  # End to end: brings the whole platform up and runs flow 7.1.
+  # End to end: brings the whole platform up and runs flows 7.1, 7.2 and 7.3.
   # ==========================================================================
   e2e:
     name: End to end
@@ -224,10 +387,67 @@ jobs:
             -f deploy/compose/docker-compose.ci.yml \
             --env-file .env up -d --build --wait --wait-timeout 600
 
-      - name: Flow 7.1
+      - name: Flows 7.1, 7.2 and 7.3
         run: bash tools/scripts/e2e.sh
         env:
           COMPOSE_FILES: '-f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.ci.yml'
+
+      # The evaluation gate, on the half that can honestly run here. The model
+      # is `tools/mock-provider`, which answers the literal string `ok`, so
+      # `exact_match` and `safety` mean something against it and groundedness
+      # would not -- grading `ok` against a reference answer produces a number
+      # that measures nothing. The judged suites run nightly instead, in
+      # `judged-evals.yml`, against a real model on `platform-ci`.
+      #
+      # It reuses this job's four-minute bring-up rather than paying for a
+      # second one.
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: uv sync --all-packages --frozen
+
+      - name: Seed the project the suites run against
+        run: bash tools/scripts/seed.sh
+
+      - name: Evaluation gate (no judge)
+        run: |
+          set -euo pipefail
+          read -r TOKEN PROJECT < <(bash tools/scripts/eval-credentials.sh platform-ci)
+
+          AIA_ACCESS_TOKEN="$TOKEN" AIA_PROJECT_ID="$PROJECT" \
+            INFERENCE_ROUTER_URL=http://localhost:3003 \
+            GUARDRAILS_URL=http://localhost:8001 \
+            make eval SUITE=evals/suites/ci-smoke.yaml
+
+      # A gate that cannot fail is not a gate. The dataset is given an answer
+      # the platform does not produce, and the run has to go red -- with exit 1
+      # for a quality regression, which ADR-021 keeps distinct from the 2 an
+      # unmeasurable run returns.
+      - name: The gate really fails on a regression
+        run: |
+          set -euo pipefail
+          cp evals/datasets/ci-smoke.jsonl /tmp/ci-smoke.bak
+          trap 'mv /tmp/ci-smoke.bak evals/datasets/ci-smoke.jsonl' EXIT
+
+          sed -i 's/"expected": "ok"/"expected": "a different answer entirely"/' \
+            evals/datasets/ci-smoke.jsonl
+
+          read -r TOKEN PROJECT < <(bash tools/scripts/eval-credentials.sh platform-ci)
+
+          set +e
+          AIA_ACCESS_TOKEN="$TOKEN" AIA_PROJECT_ID="$PROJECT" \
+            INFERENCE_ROUTER_URL=http://localhost:3003 \
+            GUARDRAILS_URL=http://localhost:8001 \
+            uv run python -m evaluation.cli run --suite evals/suites/ci-smoke.yaml
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -ne 1 ]; then
+            echo "::error::a quality regression should exit 1, and this exited ${STATUS}."
+            exit 1
+          fi
+          echo "  evaluation gate: caught"
 
       - name: Logs on failure
         if: failure()
@@ -248,6 +468,57 @@ jobs:
         with:
           scandir: './tools/scripts'
 
+  # ==========================================================================
+  # Delivery: every service that runs must also be buildable, deployable and
+  # closed to the host in production. Each of these was false for five services
+  # at once, and nothing noticed, because no job compared the four lists.
+  # ==========================================================================
+  delivery:
+    name: Delivery covers every service
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose, the image matrix and the production overlay agree
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys, yaml
+
+          # The overlay uses compose's own `!override` tag, which PyYAML has
+          # never heard of. Only the service NAMES matter here, so the tag is
+          # read as whatever it wraps rather than taught to the loader.
+          class Loader(yaml.SafeLoader):
+              pass
+
+          Loader.add_multi_constructor('!', lambda loader, suffix, node: None)
+
+          def load(path):
+              return yaml.load(pathlib.Path(path).read_text(), Loader=Loader)
+
+          compose = load('deploy/compose/docker-compose.yml')
+          prod = load('deploy/compose/docker-compose.prod.yml')
+          build = load('.github/workflows/build.yml')
+
+          infra = {'mongo', 'redis', 'minio', 'qdrant', 'lgtm', 'ollama', 'traefik'}
+          services = {n for n in compose['services'] if n not in infra}
+
+          # Two workers run a sibling's image with a different command:
+          # knowledge-worker is the knowledge image, evaluation-sampler the
+          # evaluation one. Everything else needs an image of its own.
+          needs_image = services - {'knowledge-worker', 'evaluation-sampler'}
+          built = {entry['service'] for entry in build['jobs']['build']['strategy']['matrix']['include']}
+
+          failed = False
+          for missing in sorted(needs_image - built):
+              print(f'::error::{missing} runs under compose and no image is built for it')
+              failed = True
+
+          for missing in sorted(services - set(prod['services'])):
+              print(f'::error::{missing} has no entry in the production overlay, so it keeps its host port')
+              failed = True
+
+          sys.exit(1 if failed else 0)
+          PY
+
   helm:
     name: Helm
     runs-on: ubuntu-latest
@@ -263,4 +534,75 @@ jobs:
           helm template aia deploy/helm/aia-platform \
             --set mongodb.enabled=false --set mongodb.externalUri=mongodb://external:27017 \
             --set redis.enabled=false --set redis.externalUri=redis://external:6379 \
+            --set qdrant.enabled=false --set qdrant.externalUrl=http://external:6333 \
+            --set minio.enabled=false --set minio.externalUrl=http://external:9000 \
             > /dev/null
+
+      # The chart routes with the Gateway API by default; the Ingress manifest
+      # stays for clusters without a Gateway controller, so it stays rendered.
+      - name: Render with the Ingress fallback
+        run: helm template aia deploy/helm/aia-platform --set networking.mode=ingress > /dev/null
+
+      # Every service the compose file runs must be renderable, or `helm install`
+      # silently ships a smaller platform than `docker compose up` does.
+      - name: Every service in compose is in the chart
+        run: |
+          set -euo pipefail
+          rendered=$(helm template aia deploy/helm/aia-platform \
+            | grep -A2 '^kind: Deployment' | grep 'name:' | sed 's/.*aia-platform-//' | sort -u)
+
+          # Derived from compose rather than hardcoded: a list typed by hand
+          # stops mentioning whatever was added last, which is exactly the
+          # service most likely to be missing from the chart.
+          expected=$(python3 - <<'PY'
+          import pathlib, yaml
+
+          class Loader(yaml.SafeLoader):
+              pass
+
+          Loader.add_multi_constructor('!', lambda loader, suffix, node: None)
+          compose = yaml.load(pathlib.Path('deploy/compose/docker-compose.yml').read_text(), Loader)
+
+          infra = {'mongo', 'redis', 'minio', 'qdrant', 'lgtm', 'ollama', 'traefik'}
+          # evaluation-sampler is compose-only ON PURPOSE, and it is named here
+          # rather than left out of a list: the chart cannot mount evals/, so the
+          # worker would refuse to start for want of a calibration record. It
+          # joins the chart with that directory.
+          exempt = {'evaluation-sampler'}
+          print('\n'.join(sorted(set(compose['services']) - infra - exempt)))
+          PY
+          )
+
+          missing=0
+          for service in $expected; do
+            if ! grep -qx "$service" <<<"$rendered"; then
+              echo "::error::$service runs under compose and renders in no chart template"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "every service compose runs renders in the chart (evaluation-sampler exempt, on purpose)"
+
+      # A service can render, be declared in its contract, be reachable in
+      # development and still 404 in production, because nothing compared the
+      # two route tables. `/v1/runs` did exactly that (ADR-024), and then
+      # `/v1/annotations`, `/v1/samples` and `/v1/completions` did it again
+      # inside the change that claimed to have fixed it.
+      - name: The chart routes what the compose edge routes
+        run: |
+          set -euo pipefail
+          helm template aia deploy/helm/aia-platform | python3 tools/scripts/check-edge-routes.py
+
+      - name: The route-table check really fails when a path drifts
+        run: |
+          set -euo pipefail
+          trap 'git checkout -- deploy/helm/aia-platform/templates/networking.yaml' EXIT
+          sed -i 's|"/v1/evaluations" "/v1/annotations" "/v1/samples"|"/v1/evaluations"|' \
+            deploy/helm/aia-platform/templates/networking.yaml
+
+          if helm template aia deploy/helm/aia-platform \
+             | python3 tools/scripts/check-edge-routes.py; then
+            echo "::error::a path was removed from the chart and the check passed."
+            exit 1
+          fi
+          echo "  route drift: caught"

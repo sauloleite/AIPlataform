@@ -3,7 +3,7 @@ name = "aia-sdk"
 version = "0.1.0"
 description = "Client for the platform canonical API"
 requires-python = ">=3.12"
-dependencies = ["aia-contracts", "aia-errors", "httpx>=0.28.1"]
+dependencies = ["aia-contracts", "aia-errors", "aia-resilience", "httpx>=0.28.1"]
 
 [build-system]
 requires = ["hatchling"]

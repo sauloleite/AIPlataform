@@ -45,6 +45,7 @@ export function toPolicyView(project: Project, budget: Budget | null): ProjectPo
     modelRules: project.modelRules.map((rule) => ({ ...rule })),
     maxConcurrentRequests: project.maxConcurrentRequests,
     contentCapture: project.contentCapture,
+    contentRetentionDays: project.contentRetentionDays,
     version: project.policyVersion,
     ...(budget !== null && {
       budget: {

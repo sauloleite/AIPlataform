@@ -4,19 +4,22 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 
-from aia_auth import Principal, bearer_token, require_membership
-from aia_errors import ProjectRequiredError
-from aia_telemetry import AiaAttr, annotate_active_span
+from aia_auth import POLICY, AccessRequest, Principal, is_internal_service
+from aia_fastapi import AuthenticatedCaller, authenticated, health_router
 from evaluation.application.dto import Caller, RunSuiteCommand
+from evaluation.application.use_cases.annotate import RecordAnnotationCommand
 from evaluation.container import get_container
+from evaluation.domain.annotation import Annotation
 from evaluation.domain.entities import EvaluationRun
 from evaluation.domain.errors import RunNotFoundError
+from evaluation.domain.sampling import summarise
 
 router = APIRouter(prefix="/v1/evaluations", tags=["evaluation"])
-health_router = APIRouter(prefix="/health", tags=["health"])
+annotations_router = APIRouter(prefix="/v1/annotations", tags=["evaluation"])
+samples_router = APIRouter(prefix="/v1/samples", tags=["evaluation"])
 
 MAX_LIMIT = 100
 
@@ -24,23 +27,6 @@ MAX_LIMIT = 100
 class StartRunBody(BaseModel):
     suite: str | None = Field(default=None, description="A suite file or a directory.")
     alias: str | None = Field(default=None, description="Overrides the alias each suite names.")
-
-
-def _authenticate(
-    authorization: Annotated[str | None, Header()] = None,
-    x_project_id: Annotated[str | None, Header()] = None,
-) -> Caller:
-    """`Depends` exists only in presentation (reference doc 03 §3.3)."""
-    container = get_container()
-    token = bearer_token(authorization)
-    principal = container.verifier.verify(token)
-    if not x_project_id:
-        raise ProjectRequiredError()
-    if principal.type != "service":
-        require_membership(principal, x_project_id)
-
-    annotate_active_span(**{AiaAttr.PROJECT_ID: x_project_id, AiaAttr.PRINCIPAL_ID: principal.id})
-    return _caller_of(principal, x_project_id, token)
 
 
 def _caller_of(principal: Principal, project_id: str, token: str) -> Caller:
@@ -53,7 +39,35 @@ def _caller_of(principal: Principal, project_id: str, token: str) -> Caller:
     )
 
 
-Authenticated = Annotated[Caller, Depends(_authenticate)]
+def _caller(
+    identity: Annotated[AuthenticatedCaller, authenticated(lambda: get_container().verifier)],
+) -> Caller:
+    return _caller_of(identity.principal, identity.project_id, identity.token)
+
+
+Authenticated = Annotated[Caller, Depends(_caller)]
+
+
+def _may_read_content(
+    identity: Annotated[AuthenticatedCaller, authenticated(lambda: get_container().verifier)],
+) -> bool:
+    """Whether this caller may see the WORDS, as against the verdict.
+
+    An annotation can carry the question and the answer it was made about, and
+    that text came out of the router's audit -- which hands it over only to
+    `project_owner` or `auditor` (ADR-004's policy, applied by ADR-029's read
+    route). Listing annotations needs only project membership, because the
+    failure taxonomy is for everybody who works on the project; the content
+    inside them cannot be, or a `project_viewer` would read here exactly what
+    the router had just refused them.
+    """
+    decision = (POLICY.READ_AUDIT | is_internal_service).evaluate(
+        AccessRequest(principal=identity.principal, project_id=identity.project_id)
+    )
+    return decision.allowed
+
+
+MayReadContent = Annotated[bool, Depends(_may_read_content)]
 
 
 def _run_response(run: EvaluationRun, *, with_cases: bool = False) -> dict[str, Any]:
@@ -140,12 +154,152 @@ async def get_run(run_id: str, caller: Authenticated) -> dict[str, Any]:
     return _run_response(run, with_cases=True)
 
 
-@health_router.get("/live")
-def live() -> dict[str, str]:
-    return {"status": "ok"}
+class AnnotationBody(BaseModel):
+    """What the console posts after somebody reads a trace.
+
+    The text fields are optional because content capture is per project and off
+    by default: most annotations are a verdict about a trace whose words the
+    platform never stored, and requiring them would mean either an empty string
+    or no annotation at all.
+    """
+
+    trace_id: str = Field(description="The trace this is about.")
+    verdict: str = Field(description="good or bad.")
+    failure_mode: str = Field(default="", description="Required when the verdict is bad.")
+    note: str = ""
+    evaluator: str = Field(default="", description="Which evaluator should have caught it.")
+    question: str = ""
+    answer: str = ""
+    context: list[str] = Field(default_factory=list)
 
 
-@health_router.get("/ready")
-async def ready() -> dict[str, str]:
+def _annotation_response(annotation: Annotation, *, with_content: bool) -> dict[str, Any]:
+    """The annotation, with the words in it only for a caller allowed them.
+
+    `is_label` stays visible either way: whether an annotation can calibrate a
+    judge is a fact about the label set, not about the conversation, and hiding
+    it would make the count in `evaluation labels` disagree with what the
+    console shows.
+    """
+    body = {
+        "id": annotation.id,
+        "project_id": annotation.project_id,
+        "trace_id": annotation.trace_id,
+        "verdict": annotation.verdict.value,
+        "failure_mode": annotation.failure_mode,
+        "note": annotation.note or None,
+        "evaluator": annotation.evaluator,
+        "principal_id": annotation.principal_id,
+        "created_at": annotation.created_at.isoformat().replace("+00:00", "Z"),
+        "is_label": annotation.is_label,
+    }
+    content = (
+        {
+            "question": annotation.question or None,
+            "answer": annotation.answer or None,
+            "context": list(annotation.context),
+        }
+        if with_content
+        else {"question": None, "answer": None, "context": []}
+    )
+    return {**body, **content}
+
+
+@annotations_router.post("", status_code=201)
+async def record_annotation(body: AnnotationBody, caller: Authenticated) -> dict[str, Any]:
+    """Records what a person decided about one trace.
+
+    Re-annotating the same trace as the same person replaces the earlier
+    verdict: that is somebody changing their mind, and counting both would
+    inflate a failure mode by however often its reader hesitated.
+    """
+    annotation = await get_container().record_annotation.execute(
+        RecordAnnotationCommand(
+            caller=caller,
+            trace_id=body.trace_id,
+            verdict=body.verdict,
+            failure_mode=body.failure_mode,
+            note=body.note,
+            evaluator=body.evaluator,
+            question=body.question,
+            answer=body.answer,
+            context=tuple(body.context),
+        )
+    )
+    # The caller just sent this text, so it goes back to them whatever their
+    # role: echoing somebody's own request is not a disclosure.
+    return _annotation_response(annotation, with_content=True)
+
+
+@annotations_router.get("")
+async def list_annotations(
+    caller: Authenticated,
+    may_read_content: MayReadContent,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 25,
+    trace_id: Annotated[str | None, Query()] = None,
+    failure_mode: Annotated[str | None, Query()] = None,
+) -> dict[str, Any]:
+    page = await get_container().list_annotations.execute(
+        caller, limit=limit, trace_id=trace_id, failure_mode=failure_mode
+    )
+    return {
+        "items": [
+            _annotation_response(annotation, with_content=may_read_content)
+            for annotation in page.items
+        ],
+        "taxonomy": [
+            {"failure_mode": entry.failure_mode, "count": entry.count} for entry in page.taxonomy
+        ],
+        "next_cursor": None,
+    }
+
+
+@samples_router.get("")
+async def list_samples(
+    caller: Authenticated, limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 25
+) -> dict[str, Any]:
+    """What the sampled traffic scored.
+
+    The summary is over the same page the caller asked for, unlike the
+    annotation taxonomy: a mean is a statement about a set, and a mean over the
+    last 25 calls beside a list of some other 25 would be unreadable.
+    """
+    samples = await get_container().samples.list(caller.project_id, limit=limit)
+    summary = summarise(samples)
+
+    return {
+        "items": [
+            {
+                "id": sample.id,
+                "project_id": sample.project_id,
+                "request_id": sample.request_id,
+                "alias": sample.alias,
+                "scores": sample.scores,
+                "unscorable": sample.unscorable,
+                "judge_alias": sample.judge_alias,
+                "sampled_at": sample.sampled_at.isoformat().replace("+00:00", "Z"),
+            }
+            for sample in samples
+        ],
+        "summary": {
+            "evaluators": [
+                {
+                    "evaluator": entry.evaluator,
+                    "mean": round(entry.mean, 4),
+                    "sample_size": entry.sample_size,
+                }
+                for entry in summary.evaluators
+            ],
+            "scored": summary.scored,
+            "unscorable": summary.unscorable,
+        },
+        "next_cursor": None,
+    }
+
+
+async def _ready() -> dict[str, str]:
     await get_container().ready()
     return {"status": "ok"}
+
+
+health = health_router(ready=_ready)

@@ -1,0 +1,161 @@
+# The alerts sprint-0 asks for: budget at 50/80/100%, a circuit open, a queue
+# growing, an outbox stalled.
+#
+# Two of the four can be written today and two cannot, and saying which is the
+# point of this file. Budget thresholds and circuit state come from metrics this
+# platform records. Queue depth and outbox age do not exist as metrics yet --
+# the BullMQ queue and the Mongo outbox are observable only by querying them --
+# so those two alerts arrive with the instruments that feed them rather than as
+# rules that would sit here permanently firing on absent data.
+#
+# Contact points are deliberately NOT provisioned. Where an alert should go is a
+# decision about a team, not about a platform, and a default that mails nobody
+# is worse than none: it looks configured.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: aia-platform
+    folder: AIA
+    interval: 1m
+    rules:
+      - uid: aia-budget-spend
+        title: A project has spent most of its budget
+        condition: threshold
+        # 50/80/100% is not expressible as one rule, because the budget LIMIT is
+        # not a metric -- it lives in the project policy, which governance owns.
+        # What is measurable here is the spend itself, and the annotation says
+        # what a responder has to do with it. Making this a true percentage
+        # needs governance to publish the limit as a gauge, which is the work
+        # this comment exists to name rather than to hide.
+        annotations:
+          summary: 'Project {{ $labels.aia_project_id }} committed {{ $value }} micros in the last hour'
+          runbook: docs/runbooks/budget-exhausted.md
+          description: >-
+            Compare against the project's limit with
+            `GET /v1/projects/{id}/budget`. This fires on spend, not on a
+            percentage, because the limit is not published as a metric.
+        labels:
+          severity: warning
+        for: 5m
+        data:
+          - refId: spend
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: sum by (aia_project_id) (increase(aia_inference_cost_micros_total[1h]))
+              instant: true
+              refId: spend
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: spend
+              conditions:
+                - evaluator: { type: gt, params: [1000000] }
+              refId: threshold
+
+      - uid: aia-budget-rejections
+        title: Requests are being refused on budget
+        condition: threshold
+        annotations:
+          summary: '{{ $value }} requests refused for project {{ $labels.aia_project_id }}'
+          runbook: docs/runbooks/budget-exhausted.md
+          description: >-
+            The 100% case, observed from the other side: the platform is
+            already refusing. This is a conversation with the customer, not an
+            incident -- the platform is doing what it was told.
+        labels:
+          severity: warning
+        for: 5m
+        data:
+          - refId: rejections
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: sum by (aia_project_id) (increase(aia_budget_rejections_total[15m]))
+              instant: true
+              refId: rejections
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: rejections
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: threshold
+
+      - uid: aia-circuit-open
+        title: A circuit breaker has opened
+        condition: threshold
+        annotations:
+          summary: 'Circuit for {{ $labels.aia_deployment_id }} opened'
+          runbook: docs/runbooks/degraded-provider.md
+          description: >-
+            A provider is failing enough for the breaker to stop trying it.
+            Traffic fails over to the next deployment in priority order; this
+            fires so somebody knows the platform is running on its fallback.
+
+            One case it does not catch, verified against a live Prometheus:
+            the FIRST transition a deployment ever records. `increase` compares
+            samples, and a counter that goes from absent to 1 has no earlier
+            sample to be compared with, so it reports 0. Every transition after
+            that one fires normally. Closing the gap properly needs the breaker
+            to publish its current state as a gauge rather than its transitions
+            as a counter, which is a change to `AIA_METRIC` and not to this file.
+        labels:
+          severity: warning
+        for: 0m
+        data:
+          - refId: transitions
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: >-
+                sum by (aia_deployment_id)
+                (increase(aia_resilience_circuit_state_changes_total{aia_circuit_to="open"}[15m]))
+              instant: true
+              refId: transitions
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: transitions
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: threshold
+
+      - uid: aia-ttft-slo
+        title: Time to first token is over its SLO
+        condition: threshold
+        annotations:
+          summary: 'p95 time to first token is {{ $value }} ms'
+          description: >-
+            Doc 02 §11 sets 2 s. Sustained breach means the alias is routing to
+            a slower deployment than it should, or a local model is loading from
+            disk on every call.
+        labels:
+          severity: warning
+        for: 10m
+        data:
+          - refId: p95
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: >-
+                histogram_quantile(0.95, sum by (le)
+                (rate(aia_inference_time_to_first_token_milliseconds_bucket[15m])))
+              instant: true
+              refId: p95
+          - refId: threshold
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: p95
+              conditions:
+                - evaluator: { type: gt, params: [2000] }
+              refId: threshold

@@ -260,6 +260,42 @@ describe('detailOf', () => {
       ]),
     );
 
+  it('reads the provider under the name the conventions moved to', () => {
+    // `gen_ai.system` was renamed to `gen_ai.provider.name`. A console that
+    // knows only the old name shows a blank provider against a service that
+    // has moved on -- and a blank cell reads as "the platform did not record
+    // it", which is the failure this whole file's header warns about.
+    const detail = detailOf(
+      't1',
+      toSpans(
+        trace('aia-inference-router', [
+          span('POST /v1/chat/completions', 'a', {
+            attributes: { 'gen_ai.provider.name': 'anthropic' },
+          }),
+        ]),
+      ),
+    );
+
+    expect(detail.model?.provider).toBe('anthropic');
+  });
+
+  it('still reads a trace recorded under the older name', () => {
+    // Traces already in the backend carry `gen_ai.system` and nothing will
+    // rewrite them, so dropping the old name would blank every historical one.
+    const detail = detailOf(
+      't1',
+      toSpans(
+        trace('aia-inference-router', [
+          span('POST /v1/chat/completions', 'a', {
+            attributes: { 'gen_ai.system': 'openai' },
+          }),
+        ]),
+      ),
+    );
+
+    expect(detail.model?.provider).toBe('openai');
+  });
+
   it('rolls the model call up from the CHILD span', () => {
     // The model call is never the root. Reading only the root would leave
     // every gen_ai field blank on a trace that records all of them.

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -19,20 +21,20 @@ from aia_errors import DomainError, ErrorCode
 from aia_resilience import Policies, ResilienceExecutor
 from evaluation.domain.entities import Answer, DatasetCase
 from evaluation.domain.errors import JudgeUnreadableError
+from evaluation.domain.judging import JUDGE_INSTRUCTION, judge_prompt
 
 #: A judge is asked for a number and answers with a sentence often enough that
 #: parsing it is part of the job, not an edge case.
-_SCORE = re.compile(r"(?:^|[^\d.])(0(?:\.\d+)?|1(?:\.0+)?)(?:$|[^\d])")
+#: Any number in the text, in order. The RANGE check is separate on purpose --
+#: see `parse_score`.
+_NUMBER = re.compile(r"(?:^|[^\d.])(\d+(?:\.\d+)?)")
 
 #: `Policies.INFERENCE` caps a model call at 60 s, which is right for a person
 #: waiting and wrong for an offline batch: nobody is watching, and a local model
 #: on a cold start routinely takes longer. Same retry, same breaker, longer
 #: ceiling -- a documented deviation rather than a hand-rolled timeout.
-EVALUATION_INFERENCE = replace(Policies.INFERENCE, name="evaluation-inference", timeout_ms=300_000)
-
-JUDGE_INSTRUCTION = (
-    "You grade an answer. Reply with a single number between 0.0 and 1.0 and "
-    "nothing else. No explanation, no punctuation, no words."
+EVALUATION_INFERENCE = replace(
+    Policies.INFERENCE.with_total_timeout(300_000), name="evaluation-inference"
 )
 
 
@@ -55,6 +57,38 @@ def _raise_problem(response: httpx.Response, fallback: str) -> None:
         code = str(problem.get("code") or code)
         detail = str(problem.get("detail") or problem.get("title") or fallback)
     raise DomainError(detail, code=code, status=response.status_code)
+
+
+@asynccontextmanager
+async def _reachable(service: str) -> AsyncIterator[None]:
+    """Turns a transport failure into a refusal the run can report.
+
+    Without this an unreachable service escaped as a raw `httpx.ConnectError`:
+    it is not a `DomainError`, so it went past the handler that turns a broken
+    case into an `errored` run and out of the CLI as a sixty-line traceback. The
+    run recorded nothing, and ADR-021's whole subject -- a measurement that did
+    not happen must SAY it did not happen -- was answered by a stack trace.
+
+    It fires most often for the least exotic reason: `make eval` on a laptop,
+    where `http://inference-router:3000` is a container hostname that resolves
+    nowhere.
+    """
+    try:
+        yield
+    except httpx.TimeoutException as error:
+        raise DomainError(
+            f"{service} did not answer in time",
+            code=ErrorCode.UPSTREAM_TIMEOUT,
+            status=504,
+            details={"service": service},
+        ) from error
+    except httpx.HTTPError as error:
+        raise DomainError(
+            f"{service} could not be reached ({error})",
+            code=ErrorCode.PROVIDER_UNAVAILABLE,
+            status=503,
+            details={"service": service},
+        ) from error
 
 
 @dataclass(slots=True)
@@ -91,7 +125,10 @@ class RouterTargetClient:
 
         async def call() -> Answer:
             started = time.monotonic()
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with (
+                _reachable("the inference router"),
+                httpx.AsyncClient(timeout=self.timeout_seconds) as client,
+            ):
                 response = await client.post(
                     f"{self.base_url}/v1/chat/completions",
                     headers=_headers(access_token, project_id),
@@ -143,19 +180,19 @@ class ModelJudge:
         project_id: str,
         access_token: str,
     ) -> float:
-        prompt = "\n".join(
-            [
-                criterion,
-                "",
-                f"QUESTION: {question}",
-                f"ANSWER: {answer}",
-                *([f"REFERENCE ANSWER: {reference}"] if reference else []),
-                *([f"CONTEXT:\n{chr(10).join(context)}"] if context else []),
-            ]
+        prompt = judge_prompt(
+            criterion=criterion,
+            question=question,
+            answer=answer,
+            reference=reference,
+            context=context,
         )
 
         async def call() -> float:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with (
+                _reachable("the judge"),
+                httpx.AsyncClient(timeout=self.timeout_seconds) as client,
+            ):
                 response = await client.post(
                     f"{self.base_url}/v1/chat/completions",
                     headers=_headers(access_token, project_id),
@@ -198,11 +235,19 @@ def parse_score(text: str) -> float | None:
     at all the answer is None, NOT 0.0: a judge nobody could read has not
     graded anything, and a zero it did not give is a verdict this platform
     would be inventing.
+
+    A number OUTSIDE 0..1 is not a grade on the scale that was asked for, so it
+    is skipped and the next candidate is tried. This used to be worse than
+    unreadable: the pattern matched the leading `1` of `1.5` and clamped it,
+    turning a judge answering on some other scale into a perfect score. Trying
+    every number rather than only the first is what keeps "in 2026 the answer
+    is 0.9" readable while "1.5" is not.
     """
-    match = _SCORE.search(text.strip())
-    if match is None:
-        return None
-    return max(0.0, min(1.0, float(match.group(1))))
+    for match in _NUMBER.finditer(text.strip()):
+        value = float(match.group(1))
+        if 0.0 <= value <= 1.0:
+            return value
+    return None
 
 
 @dataclass(slots=True)
@@ -215,7 +260,10 @@ class GuardrailsSafetyInspector:
 
     async def is_safe(self, *, text: str, project_id: str, access_token: str) -> bool:
         async def call() -> bool:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with (
+                _reachable("guardrails"),
+                httpx.AsyncClient(timeout=self.timeout_seconds) as client,
+            ):
                 response = await client.post(
                     f"{self.base_url}/v1/guardrails/analyze",
                     headers=_headers(access_token, project_id),
@@ -228,3 +276,87 @@ class GuardrailsSafetyInspector:
             return payload.get("decision") != "block"
 
         return await self.executor.execute(call, key="eval-safety")
+
+
+@dataclass(slots=True)
+class AnnotationsClient:
+    """This service's own annotations, read over its HTTP API.
+
+    Over HTTP rather than through the repository, even though it is the same
+    service, because the caller is the CLI: it runs on a laptop and in CI with
+    no database credentials, and it should see exactly what a person's token
+    lets them see. Reading the collection directly would also skip the project
+    scoping, which is the one thing that must not be optional here -- an
+    annotation names a principal and may carry a real conversation.
+    """
+
+    base_url: str
+    #: The executor's policy is the real bound (INTERNAL: two seconds, one
+    #: retry). This is the socket's, and it is looser on purpose so that a slow
+    #: read fails as a timeout with a policy name on it rather than as a
+    #: transport error nobody can attribute.
+    timeout_seconds: float = 5.0
+    executor: ResilienceExecutor = field(
+        default_factory=lambda: ResilienceExecutor(Policies.INTERNAL)
+    )
+
+    async def list(
+        self, *, project_id: str, access_token: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        async def call() -> list[dict[str, Any]]:
+            async with (
+                _reachable("the evaluation API"),
+                httpx.AsyncClient(timeout=self.timeout_seconds) as client,
+            ):
+                response = await client.get(
+                    f"{self.base_url}/v1/annotations",
+                    headers=_headers(access_token, project_id),
+                    params={"limit": limit},
+                )
+            if response.status_code >= 400:
+                _raise_problem(response, "The annotations could not be read")
+
+            payload: dict[str, Any] = response.json()
+            items: list[dict[str, Any]] = payload.get("items") or []
+            return items
+
+        return await self.executor.execute(call, key="eval-annotations")
+
+
+@dataclass(slots=True)
+class RouterRecordClient:
+    """One production call's record, from aia-inference-router.
+
+    404 becomes None rather than an error: a record that expired under the
+    project's own retention is an ordinary outcome for a sampler that reads
+    minutes or hours after the call, and raising there would turn a policy into
+    an incident.
+    """
+
+    base_url: str
+    timeout_seconds: float = 5.0
+    executor: ResilienceExecutor = field(
+        default_factory=lambda: ResilienceExecutor(Policies.INTERNAL)
+    )
+
+    async def read(
+        self, *, project_id: str, request_id: str, access_token: str
+    ) -> dict[str, Any] | None:
+        async def call() -> dict[str, Any] | None:
+            async with (
+                _reachable("the inference router"),
+                httpx.AsyncClient(timeout=self.timeout_seconds) as client,
+            ):
+                response = await client.get(
+                    f"{self.base_url}/v1/completions/{request_id}",
+                    headers=_headers(access_token, project_id),
+                )
+            if response.status_code == 404:
+                return None
+            if response.status_code >= 400:
+                _raise_problem(response, "The inference record could not be read")
+
+            record: dict[str, Any] = response.json()
+            return record
+
+        return await self.executor.execute(call, key="eval-record")

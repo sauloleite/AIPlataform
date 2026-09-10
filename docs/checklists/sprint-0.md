@@ -28,9 +28,15 @@ What is already done in this repository is ticked.
 - [ ] Secrets moved to Vault or Infisical (ADR-015, level 3)
 - [ ] Token signing key generated and stored in the vault
 - [ ] MongoDB backup automated and **restore tested**
-- [ ] Dashboard with the SLOs from reference doc 02 §11
-- [ ] Alerts: budget at 50/80/100%, circuit open, queue growing, outbox stalled
-- [ ] A `platform-ci` project with its own budget for evaluations
+- [x] Dashboard with the SLOs from reference doc 02 §11 — `deploy/grafana/dashboards/aia-slos.json`, provisioned into Grafana by compose
+- [~] Alerts: budget spend and rejections, circuit open, TTFT over SLO —
+  `deploy/grafana/provisioning/alerting/aia-alerts.yaml`. **Queue growing and
+  outbox stalled are NOT done**: neither queue depth nor outbox age is
+  recorded as a metric, and a rule on an absent series never fires. They
+  arrive with the instruments that feed them. No contact point is
+  provisioned either — where an alert goes is a decision about a team,
+  and a default that mails nobody looks configured and is not.
+- [x] A `platform-ci` project with its own budget for evaluations — `make seed`
 - [ ] A conversation with compliance and the DPO: classification, regions, retention
 - [ ] A game day exercising at least three runbooks
 

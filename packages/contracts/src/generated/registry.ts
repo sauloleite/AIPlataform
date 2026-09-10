@@ -267,9 +267,15 @@ export interface components {
             /**
              * @description Built-in tools are executed by the platform; the rest reach an
              *     endpoint you configure.
+             *
+             *     `function` was removed: it named a tool the platform would never
+             *     call, so publishing one succeeded and invoking it failed with what
+             *     looked like a misconfiguration. A client-executed tool needs the
+             *     runtime to pause and hand the call back, which does not exist; the
+             *     type returns with it.
              * @enum {string}
              */
-            tool_type: "mcp" | "openapi" | "function" | "builtin";
+            tool_type: "mcp" | "openapi" | "builtin";
             risk_level: components["schemas"]["RiskLevel"];
             /** @description MCP server URL, or the OpenAPI document URL. */
             endpoint?: string;
@@ -278,7 +284,11 @@ export interface components {
              * @enum {string}
              */
             builtin_id?: "file_search" | "code_interpreter" | "web_search";
-            /** @description JSON Schema for the arguments, for a `function` tool. */
+            /**
+             * @description JSON Schema for the arguments. Optional, and worth declaring: the
+             *     gateway validates a call against it before dispatch (ADR-025), so a
+             *     tool without one is a tool whose arguments nobody checks.
+             */
             parameters?: {
                 [key: string]: unknown;
             };
@@ -330,7 +340,7 @@ export interface components {
             detail?: string;
             instance?: string;
             /** @enum {string} */
-            code: "budget_exhausted" | "quota_exceeded" | "concurrency_limit" | "no_compatible_deployment" | "alias_not_found" | "provider_unavailable" | "all_deployments_failed" | "stream_interrupted" | "guardrail_blocked" | "prompt_injection_suspected" | "unauthenticated" | "forbidden" | "token_expired" | "invalid_token" | "project_required" | "project_not_found" | "validation_failed" | "idempotency_conflict" | "not_found" | "conflict" | "asset_not_found" | "asset_not_published" | "asset_version_conflict" | "store_not_found" | "document_not_found" | "unsupported_media_type" | "embedding_dimension_mismatch" | "ingestion_failed" | "tool_not_found" | "tool_not_allowed" | "tool_rate_limited" | "approval_required" | "tool_execution_failed" | "agent_step_limit" | "upstream_timeout" | "circuit_open" | "internal_error";
+            code: "budget_exhausted" | "quota_exceeded" | "concurrency_limit" | "no_compatible_deployment" | "alias_not_found" | "provider_unavailable" | "all_deployments_failed" | "stream_interrupted" | "guardrail_blocked" | "guardrail_unavailable" | "prompt_injection_suspected" | "unauthenticated" | "forbidden" | "token_expired" | "invalid_token" | "project_required" | "project_not_found" | "validation_failed" | "idempotency_conflict" | "not_found" | "conflict" | "asset_not_found" | "asset_not_published" | "asset_version_conflict" | "store_not_found" | "document_not_found" | "unsupported_media_type" | "embedding_dimension_mismatch" | "ingestion_failed" | "tool_not_found" | "tool_not_allowed" | "tool_arguments_invalid" | "tool_rate_limited" | "approval_required" | "tool_execution_failed" | "agent_step_limit" | "upstream_timeout" | "circuit_open" | "internal_error";
             trace_id?: string;
             /** @description Seconds until a retry is worth attempting. */
             retry_after?: number;

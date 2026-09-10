@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { principalOf, projectIdOf, type AuthenticatedRequest } from '@aia/nest';
 import { POLICY, authorize } from '@aia/auth';
@@ -8,9 +8,21 @@ import { annotateActiveSpan, currentTraceId } from '@aia/telemetry';
 import { CreateChatCompletion } from '../../application/use-cases/create-chat-completion.js';
 import { CreateEmbeddings } from '../../application/use-cases/create-embeddings.js';
 import { ListModels } from '../../application/use-cases/list-models.js';
+import { ReadCompletionRecord } from '../../application/use-cases/read-completion-record.js';
 import { chatCompletionSchema, embeddingsSchema } from './dto.schema.js';
 import { SseWriter } from './sse.js';
 import { toChatCompletionResponse, toEmbeddingsResponse } from '../mappers/openai.mapper.js';
+import { toCompletionRecordResponse } from '../mappers/audit.mapper.js';
+
+/**
+ * How long the response may stay silent before committing to a 200.
+ *
+ * Comfortably under the sixty seconds at which ALB, GCLB and nginx drop an idle
+ * connection, and far above the time any fast failure takes: a budget refusal,
+ * an unknown alias or an incompatible data zone all happen in milliseconds and
+ * still answer with a real HTTP status.
+ */
+const COMMIT_AFTER_MS = 15_000;
 
 /**
  * The canonical inference API, OpenAI-compatible.
@@ -24,6 +36,7 @@ export class CompletionsController {
     private readonly createChatCompletion: CreateChatCompletion,
     private readonly createEmbeddings: CreateEmbeddings,
     private readonly listModels: ListModels,
+    private readonly readCompletionRecord: ReadCompletionRecord,
   ) {}
 
   @Post('chat/completions')
@@ -41,7 +54,10 @@ export class CompletionsController {
 
     const principal = principalOf(request);
     const projectId = projectIdOf(request);
-    authorize(POLICY.READ_PROJECT, { principal, projectId });
+    // `CALL_MODEL`, not `READ_PROJECT`: a queue consumer with `inference:write`
+    // has no membership to check, and asking a judge about a sampled call is a
+    // model call like any other (ADR-030).
+    authorize(POLICY.CALL_MODEL, { principal, projectId });
 
     const command = {
       requestId: randomUUID(),
@@ -90,6 +106,7 @@ export class CompletionsController {
       principalId: principal.id,
       principalType: principal.type,
       alias: command.alias,
+      requestId: command.requestId,
     });
 
     if (!command.stream) {
@@ -107,6 +124,23 @@ export class CompletionsController {
    * An error BEFORE the first event becomes Problem Details with an HTTP status.
    * After the first event the headers are already sent, so the error can only
    * arrive as an `error` event inside the stream itself.
+   *
+   * That is why the writer is created lazily -- and why it cannot wait for the
+   * first event either. Nothing is on the wire until it exists, so the wait for
+   * the first token is a silent connection, and a proxy drops one of those at
+   * sixty seconds (ALB, GCLB and nginx all default to it). A local model loads
+   * from disk on the first call and `POLICIES.INFERENCE_STREAMING_LOCAL` allows
+   * a hundred and twenty seconds for it, so the gap is not hypothetical: it is
+   * the zero-cost path this platform exists to offer.
+   *
+   * The two cannot both be had. Sending a byte commits the response to 200 and
+   * spends the HTTP status; sending nothing risks a truncated answer with no
+   * error at all, which is worse. So the commit happens as late as it safely
+   * can: if the first event has not arrived by `COMMIT_AFTER_MS`, the headers
+   * go out and the heartbeat starts, and any later failure arrives as an
+   * `error` event instead of a status. Anything that fails quickly -- an
+   * exhausted budget, an incompatible zone, an unknown alias -- still answers
+   * with Problem Details, because it fails long before this deadline.
    */
   private async streamChat(
     command: Parameters<CreateChatCompletion['stream']>[0],
@@ -114,8 +148,15 @@ export class CompletionsController {
   ): Promise<void> {
     let writer: SseWriter | undefined;
 
+    const commit = setTimeout(() => {
+      writer ??= new SseWriter(response);
+    }, COMMIT_AFTER_MS);
+    // Must not hold the process open during shutdown.
+    commit.unref();
+
     try {
       for await (const event of this.createChatCompletion.stream(command)) {
+        clearTimeout(commit);
         writer ??= new SseWriter(response);
         if (writer.isClosed) break;
 
@@ -149,6 +190,15 @@ export class CompletionsController {
         message: isDomainError(error) ? error.message : 'Internal error',
       });
       writer.close();
+    } finally {
+      // Every exit, not only the ones that reach the loop. `clearTimeout` used
+      // to live in the loop body alone, so a stream that failed BEFORE its
+      // first event -- an unusable alias, a provider with no key -- left the
+      // deadline armed. Fifteen seconds later it fired onto a response already
+      // answered with Problem Details, and setting headers on a sent response
+      // throws ERR_HTTP_HEADERS_SENT from inside a timer callback, where there
+      // is no caller to catch it. One refused stream took the router down.
+      clearTimeout(commit);
     }
   }
 
@@ -185,6 +235,30 @@ export class CompletionsController {
     authorize(POLICY.READ_PROJECT, { principal: principalOf(request), projectId });
 
     return { object: 'list', data: await this.listModels.execute(projectId) };
+  }
+
+  /**
+   * What one call actually said, as far as the project chose to keep it.
+   *
+   * `READ_AUDIT` rather than `READ_PROJECT`: everything else on this controller
+   * is a caller using the platform, and this is somebody reading what another
+   * person's conversation contained. The policy has existed since ADR-004 and
+   * nothing had ever applied it.
+   */
+  @Get('completions/:requestId')
+  async record(
+    @Req() request: AuthenticatedRequest,
+    @Param('requestId') requestId: string,
+  ): Promise<Record<string, unknown>> {
+    const projectId = projectIdOf(request);
+    authorize(POLICY.READ_AUDIT_CONTENT, { principal: principalOf(request), projectId });
+
+    return toCompletionRecordResponse(
+      await this.readCompletionRecord.execute({
+        projectId,
+        requestId,
+      }),
+    );
   }
 }
 

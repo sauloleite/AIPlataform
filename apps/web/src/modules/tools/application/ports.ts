@@ -1,7 +1,7 @@
 /** The console's view of aia-mcp-gateway. */
 
 export type RiskLevel = 'low' | 'medium' | 'high';
-export type ToolType = 'mcp' | 'openapi' | 'function' | 'builtin';
+export type ToolType = 'mcp' | 'openapi' | 'builtin';
 
 export interface EffectiveTool {
   toolId: string;

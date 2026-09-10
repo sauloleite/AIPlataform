@@ -5,7 +5,8 @@
   "description": "Platform console: projects, budget, policies and a chat playground",
   "type": "module",
   "scripts": {
-    "build": "next build",
+    "//build": "NODE_ENV pinned deliberately. `next build` sets it to production ONLY when it is unset, and nx runs a task with NODE_ENV=development -- under which the build compiles, then fails prerendering /404 with `<Html> should not be imported outside of pages/_document`, an error about a pages-router file this app does not have. `make build` failed on the console for that reason alone.",
+    "build": "NODE_ENV=production next build",
     "start": "next start -p 3005",
     "dev": "next dev -p 3005",
     "typecheck": "tsc --noEmit -p tsconfig.json",

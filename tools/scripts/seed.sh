@@ -53,6 +53,40 @@ curl -sS -X PUT "${BASE_URL}/v1/projects/${PROJECT_ID}/budget" \
   -d '{"limit":{"currency":"BRL","micros":50000000},"period":"monthly"}' \
   | python3 -m json.tool
 
+# Evaluation spends real inference, so it spends it against its OWN budget.
+# `evals/suites/platform-runbook.yaml` names this project, and without it
+# `make eval` fails on a project that does not exist -- which is part of why
+# nothing ever ran it.
+say "Creating the platform-ci project, which the evaluation suites run against"
+curl -sS -X POST "${BASE_URL}/v1/projects" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "slug": "platform-ci",
+    "name": "Platform CI",
+    "data_classification": "internal",
+    "legal_basis": "legitimate interest",
+    "purpose": "automated quality evaluation of the platform itself"
+  }' | python3 -m json.tool || echo "(the project already exists)"
+
+CI_PROJECT_ID=$(curl -sS "${BASE_URL}/v1/projects" -H "Authorization: Bearer ${TOKEN}" \
+  | python3 -c '
+import json,sys
+projects = json.load(sys.stdin)["items"]
+match = next((p for p in projects if p["slug"] == "platform-ci"), None)
+print(match["id"] if match else "")')
+
+if [ -n "${CI_PROJECT_ID}" ]; then
+  # Smaller than the sample project on purpose: a runaway suite should exhaust
+  # its own budget and stop, not the one a person is using.
+  curl -sS -X PUT "${BASE_URL}/v1/projects/${CI_PROJECT_ID}/budget" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H 'Content-Type: application/json' \
+    -d '{"limit":{"currency":"BRL","micros":10000000},"period":"monthly"}' \
+    >/dev/null
+  say "platform-ci has BRL 10.00 per month"
+fi
+
 cat <<EOF
 
 Done. Use these values to talk to the platform:

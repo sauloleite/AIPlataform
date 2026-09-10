@@ -5,6 +5,7 @@
 root_packages =
     aia_auth
     aia_contracts
+    aia_fastapi
     aia_errors
     aia_messaging
     aia_resilience
@@ -55,6 +56,7 @@ type = forbidden
 source_modules =
     guardrails.domain
 forbidden_modules =
+    aia_fastapi
     fastapi
     starlette
     pymongo
@@ -71,6 +73,7 @@ type = forbidden
 source_modules =
     agent_runtime.domain
 forbidden_modules =
+    aia_fastapi
     fastapi
     starlette
     pymongo
@@ -85,6 +88,7 @@ type = forbidden
 source_modules =
     evaluation.domain
 forbidden_modules =
+    aia_fastapi
     fastapi
     starlette
     pymongo
@@ -113,9 +117,12 @@ name = shared libraries know no service
 type = forbidden
 source_modules =
     aia_auth
+    aia_contracts
     aia_errors
+    aia_fastapi
     aia_messaging
     aia_resilience
+    aia_sdk
     aia_telemetry
 forbidden_modules =
     guardrails

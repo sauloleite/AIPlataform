@@ -73,6 +73,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/annotations": {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The annotations for this project, and the taxonomy they add up to
+         * @description The counts are the point of the endpoint. A failure mode nobody has
+         *     seen twice is an anecdote; one that appears in a third of the annotated
+         *     traces is the next evaluator to write.
+         */
+        get: operations["listAnnotations"];
+        put?: never;
+        /**
+         * Records what a person decided about one real trace
+         * @description Error analysis, made durable. Reading traces and naming what went wrong
+         *     is what produces a failure taxonomy; an evaluator written before that
+         *     measures what its author imagined rather than what the platform does.
+         *
+         *     The failure mode is free text, normalised to a slug. It is deliberately
+         *     not an enum: an enum decided up front is the same guess in a different
+         *     place, and the taxonomy this returns is the one the traces produced.
+         *
+         *     An annotation that carries the question and the answer, and names the
+         *     evaluator that should have caught the problem, is also a human LABEL —
+         *     which is what a judge is calibrated against (ADR-028).
+         */
+        post: operations["recordAnnotation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/samples": {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Production calls scored after the fact, and what they add up to
+         * @description A suite measures the platform against questions somebody wrote down.
+         *     Production asks different questions, in a different distribution, and it
+         *     keeps changing — so a suite that passed last night says nothing about
+         *     the traffic that arrived this afternoon.
+         *
+         *     The sampler scores a deterministic fraction of completed calls. It is
+         *     off by default: sampling spends inference on real traffic and reads what
+         *     real people wrote.
+         *
+         *     `unscorable` is reported beside the means rather than subtracted from
+         *     them. The commonest reason is a project that does not capture content,
+         *     and a summary that quietly dropped those would look like a healthy
+         *     measurement of a tenth of the traffic.
+         */
+        get: operations["listSamples"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -169,6 +249,110 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /**
+         * @description What the person decided about the answer. Binary on purpose: a
+         *     three-point scale collects the middle, and the middle is where
+         *     disagreement hides rather than being resolved.
+         * @enum {string}
+         */
+        AnnotationVerdict: "good" | "bad";
+        AnnotationRequest: {
+            trace_id: string;
+            verdict: components["schemas"]["AnnotationVerdict"];
+            /**
+             * @description Required when the verdict is `bad`, and refused when it is `good`.
+             *     "It was wrong" that does not say how is the annotation that teaches
+             *     nobody anything.
+             */
+            failure_mode?: string;
+            note?: string;
+            /**
+             * @description Which evaluator should have caught this, if one could have. Optional,
+             *     and it is the field that turns an annotation into a calibration
+             *     label — which is why it is asked here rather than inferred later.
+             * @enum {string}
+             */
+            evaluator?: "groundedness" | "relevance";
+            question?: string;
+            answer?: string;
+            /**
+             * @description What the answer was supposed to be grounded in. Present only when
+             *     the annotator had it: content capture is per project and off by
+             *     default, so an annotation frequently carries a verdict and no text.
+             */
+            context?: string[];
+        };
+        Annotation: {
+            id: string;
+            project_id: string;
+            trace_id: string;
+            verdict: components["schemas"]["AnnotationVerdict"];
+            failure_mode?: string | null;
+            note?: string | null;
+            evaluator?: string | null;
+            /**
+             * @description Null unless the reader may see it. The text came out of the router's
+             *     audit, which hands it to `project_owner` or `auditor` only — so
+             *     listing annotations needs project membership, and the words inside
+             *     them need the same right as the record they came from.
+             */
+            question?: string | null;
+            answer?: string | null;
+            context?: string[];
+            /** @description Who decided. An unattributed label has no authority. */
+            principal_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * @description Whether this annotation can be used to calibrate a judge: it needs
+             *     an evaluator, a question and an answer. False is the common case and
+             *     not a defect.
+             */
+            is_label?: boolean;
+        };
+        FailureModeCount: {
+            failure_mode: string;
+            count: number;
+        };
+        AnnotationPage: {
+            items: components["schemas"]["Annotation"][];
+            /** @description Every failure mode seen in this project, commonest first. */
+            taxonomy: components["schemas"]["FailureModeCount"][];
+            next_cursor?: string | null;
+        };
+        Sample: {
+            id: string;
+            project_id: string;
+            /** @description The call this scored. `GET /v1/completions/{requestId}` has what it said. */
+            request_id: string;
+            alias: string;
+            scores?: {
+                [key: string]: number;
+            };
+            /**
+             * @description Why nothing was scored. A hole in the measurement, never a zero — a
+             *     zero here would read as the platform producing terrible answers.
+             */
+            unscorable?: string | null;
+            judge_alias?: string | null;
+            /** Format: date-time */
+            sampled_at: string;
+        };
+        EvaluatorSummary: {
+            evaluator: string;
+            mean: number;
+            /** @description A mean over four calls is an anecdote with a decimal point. */
+            sample_size: number;
+        };
+        SamplePage: {
+            items: components["schemas"]["Sample"][];
+            summary: {
+                evaluators: components["schemas"]["EvaluatorSummary"][];
+                scored: number;
+                unscorable: number;
+            };
+            next_cursor?: string | null;
+        };
         RunPage: {
             items: components["schemas"]["Run"][];
             next_cursor?: string | null;
@@ -182,7 +366,7 @@ export interface components {
             detail?: string;
             instance?: string;
             /** @enum {string} */
-            code: "budget_exhausted" | "quota_exceeded" | "concurrency_limit" | "no_compatible_deployment" | "alias_not_found" | "provider_unavailable" | "all_deployments_failed" | "stream_interrupted" | "guardrail_blocked" | "prompt_injection_suspected" | "unauthenticated" | "forbidden" | "token_expired" | "invalid_token" | "project_required" | "project_not_found" | "validation_failed" | "idempotency_conflict" | "not_found" | "conflict" | "asset_not_found" | "asset_not_published" | "asset_version_conflict" | "store_not_found" | "document_not_found" | "unsupported_media_type" | "embedding_dimension_mismatch" | "ingestion_failed" | "tool_not_found" | "tool_not_allowed" | "tool_rate_limited" | "approval_required" | "tool_execution_failed" | "agent_step_limit" | "upstream_timeout" | "circuit_open" | "internal_error";
+            code: "budget_exhausted" | "quota_exceeded" | "concurrency_limit" | "no_compatible_deployment" | "alias_not_found" | "provider_unavailable" | "all_deployments_failed" | "stream_interrupted" | "guardrail_blocked" | "guardrail_unavailable" | "prompt_injection_suspected" | "unauthenticated" | "forbidden" | "token_expired" | "invalid_token" | "project_required" | "project_not_found" | "validation_failed" | "idempotency_conflict" | "not_found" | "conflict" | "asset_not_found" | "asset_not_published" | "asset_version_conflict" | "store_not_found" | "document_not_found" | "unsupported_media_type" | "embedding_dimension_mismatch" | "ingestion_failed" | "tool_not_found" | "tool_not_allowed" | "tool_arguments_invalid" | "tool_rate_limited" | "approval_required" | "tool_execution_failed" | "agent_step_limit" | "upstream_timeout" | "circuit_open" | "internal_error";
             trace_id?: string;
             /** @description Seconds until a retry is worth attempting. */
             retry_after?: number;
@@ -246,6 +430,14 @@ export type SchemaMetric = components['schemas']['Metric'];
 export type SchemaRun = components['schemas']['Run'];
 export type SchemaRunDetail = components['schemas']['RunDetail'];
 export type SchemaCaseOutcome = components['schemas']['CaseOutcome'];
+export type SchemaAnnotationVerdict = components['schemas']['AnnotationVerdict'];
+export type SchemaAnnotationRequest = components['schemas']['AnnotationRequest'];
+export type SchemaAnnotation = components['schemas']['Annotation'];
+export type SchemaFailureModeCount = components['schemas']['FailureModeCount'];
+export type SchemaAnnotationPage = components['schemas']['AnnotationPage'];
+export type SchemaSample = components['schemas']['Sample'];
+export type SchemaEvaluatorSummary = components['schemas']['EvaluatorSummary'];
+export type SchemaSamplePage = components['schemas']['SamplePage'];
 export type SchemaRunPage = components['schemas']['RunPage'];
 export type SchemaProblemDetails = components['schemas']['ProblemDetails'];
 export type ResponseBadRequest = components['responses']['BadRequest'];
@@ -352,6 +544,98 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    listAnnotations: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["Limit"];
+                /** @description Only the annotations on this trace. */
+                trace_id?: string;
+                /** @description Only this failure mode, normalised the same way it is stored. */
+                failure_mode?: string;
+            };
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The annotations, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnotationPage"];
+                };
+            };
+        };
+    };
+    recordAnnotation: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnotationRequest"];
+            };
+        };
+        responses: {
+            /** @description The annotation */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Annotation"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listSamples: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["Limit"];
+            };
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The samples, newest first, with the summary over them */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SamplePage"];
+                };
+            };
         };
     };
     evaluationLive: {

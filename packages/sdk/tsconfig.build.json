@@ -13,6 +13,9 @@
     },
     {
       "path": "../errors/tsconfig.build.json"
+    },
+    {
+      "path": "../resilience/tsconfig.build.json"
     }
   ],
   "//": "BUILD config: emits to dist/. Tests are excluded so they stay out of the image."

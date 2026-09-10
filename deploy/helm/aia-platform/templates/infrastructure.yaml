@@ -289,3 +289,182 @@ spec:
     {{- include "aia.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: ollama
 {{- end }}
+
+{{/*
+Qdrant and MinIO.
+
+aia-knowledge cannot start without either: every vector goes to Qdrant (ADR-006)
+and every uploaded document to MinIO. They used to default to `enabled: false`
+with no manifest behind them, which meant enabling knowledge produced a service
+pointing at an address nothing served.
+
+Single replica, as with Mongo and Redis above: this is the getting-started
+shape. Production runs a Qdrant cluster and real object storage, which is what
+`externalUrl` is for.
+*/}}
+{{- if .Values.qdrant.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "aia.fullname" . }}-qdrant
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+spec:
+  serviceName: {{ include "aia.fullname" . }}-qdrant
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "aia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: qdrant
+  template:
+    metadata:
+      labels:
+        {{- include "aia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: qdrant
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.12.5
+          ports:
+            - name: http
+              containerPort: 6333
+            - name: grpc
+              containerPort: 6334
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 2Gi }
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ['ReadWriteOnce']
+        resources:
+          requests:
+            storage: {{ .Values.qdrant.persistence.size | default "20Gi" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aia.fullname" . }}-qdrant
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+spec:
+  ports:
+    - { port: 6333, targetPort: http, name: http }
+    - { port: 6334, targetPort: grpc, name: grpc }
+  selector:
+    {{- include "aia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+{{- end }}
+
+{{- if .Values.minio.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "aia.fullname" . }}-minio
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  serviceName: {{ include "aia.fullname" . }}-minio
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "aia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: minio
+  template:
+    metadata:
+      labels:
+        {{- include "aia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: minio
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+          args: ['server', '/data', '--console-address', ':9001']
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          env:
+            {{- if .Values.minio.existingSecret }}
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.minio.existingSecret }}, key: root-user }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.minio.existingSecret }}, key: root-password }
+            {{- else }}
+            {{/*
+              A known credential, and it is meant to look like one. Anything
+              generated here would be regenerated on every `helm upgrade` and
+              would lock the platform out of its own bucket. Set
+              `minio.existingSecret` before this holds anything real.
+            */}}
+            - name: MINIO_ROOT_USER
+              value: aia
+            - name: MINIO_ROOT_PASSWORD
+              value: aia-local-dev-only
+            {{- end }}
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: api }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /minio/health/live, port: api }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ['ReadWriteOnce']
+        resources:
+          requests:
+            storage: {{ .Values.minio.persistence.size | default "20Gi" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aia.fullname" . }}-minio
+  labels:
+    {{- include "aia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  ports:
+    - { port: 9000, targetPort: api, name: api }
+    - { port: 9001, targetPort: console, name: console }
+  selector:
+    {{- include "aia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+{{- end }}

@@ -79,7 +79,7 @@ def view_of(run: Run, state: RunState, *, with_messages: bool = False) -> RunVie
             if run.finished_at is not None
             else None
         ),
-        messages=list(state.messages) if with_messages else [],
+        messages=[_public(message) for message in state.messages] if with_messages else [],
     )
 
 
@@ -100,3 +100,24 @@ RunEventKind = Literal[
 class RunEvent:
     kind: RunEventKind
     data: dict[str, Any]
+
+
+def _public(message: dict[str, Any]) -> dict[str, Any]:
+    """The transcript as a caller may see it.
+
+    `provider_state` is stripped: it is an opaque blob one provider requires
+    echoed back, it can be large, and a public contract that carried it would be
+    promising to keep a shape no provider guarantees. Everything a reader wants
+    -- which tool, with which arguments, in which order, answered by which
+    result -- is in what remains.
+    """
+    calls = message.get("tool_calls")
+    if not calls:
+        return message
+
+    return {
+        **message,
+        "tool_calls": [
+            {key: value for key, value in call.items() if key != "provider_state"} for call in calls
+        ],
+    }

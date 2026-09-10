@@ -69,9 +69,6 @@ const toolValidator: DefinitionValidator = {
         throw new InvalidDefinitionError('A builtin tool needs a known builtin_id');
       }
     }
-    if (tool.toolType === 'function' && tool.parameters === undefined) {
-      throw new InvalidDefinitionError('A function tool needs a parameters schema');
-    }
   },
 };
 

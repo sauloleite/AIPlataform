@@ -10,19 +10,89 @@ front of a user.
 
 ```
 evals/
-├── datasets/   questions with a reference answer, versioned
-├── suites/     what to measure and where the failing threshold sits
-└── redteam/    adversarial cases (injection, jailbreak, exfiltration)
+├── datasets/      questions with a reference answer, versioned
+├── suites/        what to measure and where the failing threshold sits
+├── trajectories/  recorded agent runs, and what each should be true of
+├── labels/        what a human decided, so the judge can be measured
+├── calibration/   what the judge decided about those, and how far apart they are
+└── redteam/       adversarial cases (injection, jailbreak, exfiltration)
 ```
 
 ## When it runs
 
-| Moment                                | What runs                     | Blocking?                         |
-| ------------------------------------- | ----------------------------- | --------------------------------- |
-| A prompt, alias or chunking change    | The affected use case's suite | Yes, below the threshold          |
-| Before swapping an alias's deployment | The model regression suite    | Yes                               |
-| Weekly and before a release           | Red team                      | Yes, if a known case gets through |
-| Production                            | A 1 to 5% traffic sample      | No, it alerts                     |
+Two columns, because they are not the same claim. **Today** is what the
+repository actually does; **intended** is what `docs/ROADMAP.md` M6 builds. A
+table that describes only the intention reads as a guarantee, and a guarantee
+nobody implemented is worse than an admitted gap.
+
+| Moment                                | What runs                        | Today                                  | Intended (M6)                     |
+| ------------------------------------- | -------------------------------- | -------------------------------------- | --------------------------------- |
+| Every pull request                    | Red team                         | **Yes**                                | Yes, if a known case gets through |
+| Every pull request                    | Agent trajectories               | **Yes**                                | Yes                               |
+| Push, or a PR labelled `e2e`          | `ci-smoke` (exact match, safety) | **Yes**, with its own negative control | Yes                               |
+| A prompt, alias or chunking change    | The affected use case's suite    | Nothing — no CI job                    | Yes, below the threshold          |
+| Before swapping an alias's deployment | The model regression suite       | Nothing — no such suite                | Yes                               |
+| Production                            | A 1 to 5% traffic sample         | **Yes**, when it is switched on        | No, it alerts                     |
+| Before a judged suite runs, at all    | The judge's own calibration      | **Yes** — it refuses without one       | Yes                               |
+| Nightly, and on demand                | The judged suites                | **Yes**, if a provider key is set      | Yes, gating a release             |
+
+The third row is not "every pull request", and the distinction is the honest
+one: `ci-smoke` needs a router and guardrails running, so it lives in the `e2e`
+job, which is skipped on an unlabelled pull request because it starts six
+containers. The two rows above it cost nothing and really do run on every
+change.
+
+The first two rows cost nothing, which is why they run per PR. The red-team
+cases go through
+`apps/guardrails/tests/test_redteam_dataset.py` and the trajectory cases through
+`apps/evaluation/tests/test_trajectory_dataset.py`; the `test-unit` job executes
+both, with no model, no containers and no network.
+
+The split is not a compromise, it is the honest reading of what a gate can
+measure. `docker-compose.ci.yml` swaps the model for `tools/mock-provider`,
+which answers the literal string `ok` — so a groundedness gate against it would
+grade `ok` against a reference answer and report a number that means nothing.
+Groundedness needs a judge, a judge needs a real model, and a real model costs
+money and time on every push. It belongs to a scheduled run against
+`platform-ci`, gating a release rather than a pull request.
+
+The judged half runs in `.github/workflows/judged-evals.yml`: nightly at 04:17
+UTC and on demand, against `platform-ci`, with the alias under test graded by a
+different one. It gates a release rather than a merge. Without a provider key
+configured it runs nothing and **says so in the run summary** — a scheduled job
+that passes green because it could not reach a model is this repository's
+favourite failure, one level up. `make eval` runs the same suites locally, and
+`tools/scripts/seed.sh` creates the `platform-ci` project they need, with its
+own budget.
+
+## Production is sampled, not watched
+
+Everything above is a rehearsal: questions somebody wrote down, asked again.
+`evaluation-sampler` scores a deterministic fraction of real completed calls
+after the fact — off by default, because it spends inference on real traffic and
+reads what real people wrote (ADR-030). `GET /v1/samples` reports what the
+sampled traffic scored and, beside it, how much of it could not be scored at
+all: a project that does not capture content produces only the second kind, and
+a summary that hid them would look like a healthy measurement of a tenth of the
+traffic.
+
+Reading traces is the other half, and it is the one that decides what gets
+measured next. The console's trace page records what a person thought of a call
+and, when it was bad, how — and those annotations accumulate into a failure
+taxonomy the next evaluator comes from (ADR-029). `evaluation labels` turns the
+ones that carry text into the labels the judge is calibrated against, so the
+same reading pays twice.
+
+## The judge is measured too
+
+A judged suite asks a model what it thinks and turns the answer into a gate.
+Nothing in that checks whether the model's opinion tracks a human's, and
+`groundedness: 0.87` reads the same either way. So a judged evaluator refuses to
+run until its judge has been graded against `evals/labels/` on a held-out half
+and cleared a bar — ADR-028, and `evals/labels/README.md` for how to produce the
+record. There is no record in the repository today, which means a judged suite
+currently refuses and says which command fixes it. That is the same refusal
+ADR-021 makes everywhere else: better than a number nobody can account for.
 
 ## Why the threshold is not 100%
 
@@ -43,7 +113,22 @@ through `aia-inference-router` with the caller's token, scores them and gates on
 the thresholds — `make eval` locally, the same use case behind
 `POST /v1/evaluations`.
 
-What is NOT here yet: online evaluation of a production traffic sample, and the
-agent-specific evaluators (correct tool use, task completion). The offline gate
-is the half that stops a regression from merging, and it is the half that is
-built.
+The agent-specific evaluators are here now, in
+`apps/evaluation/src/evaluation/domain/trajectory.py`: tool selection, forbidden
+tools, call order, argument correctness, a step budget, loop detection and
+recovery from a failing tool. They are pure functions over the shape
+`GET /v1/runs/{runId}` returns — read through the CONTRACT, so no service
+imports another's domain — which is what lets them score a recorded run with
+nothing running.
+
+The runs in `trajectories/` are RECORDED from the real runtime by
+`tools/scripts/record-trajectories.py`, never written by hand: a fixture
+somebody invented can describe a run the platform never produces, and an
+evaluator built on one measures the fixture. One of the four is a deliberate
+failure — a run that calls the same tool three times and blows its budget — and
+the checks are asserted to catch it, because a suite where everything passes
+proves only that the evaluators return true.
+
+What is NOT here yet: a model-regression suite to gate an alias swap, and a
+per-use-case suite wired to the change that should trigger it — the two rows the
+table above still marks as nothing.

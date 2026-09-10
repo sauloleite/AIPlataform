@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Flow 7.1 from reference doc 02, end to end against the local environment.
+# Flows 7.1, 7.2 and 7.3 from reference doc 02, end to end against the local
+# environment.
 #
 # It covers the happy path and, above all, the error paths that define this
 # platform: exhausted budget, routing by data classification, PII redaction and
@@ -149,6 +150,44 @@ NO_AUTH=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${BASE_URL}/v1/chat/c
   -d '{"model":"chat-local","messages":[{"role":"user","content":"hello"}]}')
 assert_eq "$NO_AUTH" "401" "a request with no token is refused"
 
+# Two problems with the assertions step 12 used to make, and the second only
+# showed up once the first was fixed.
+#
+# These stores only ever GROW, so "there is at least one record" is true on any
+# machine that ever ran this suite successfully -- including a run where every
+# call failed. It was: with the local provider disabled every chat answered 503,
+# and step 12 reported four green ticks.
+#
+# Counting the growth is not enough either. A REFUSED call is audited too, and
+# it publishes a usage event carrying `status: "failed"` -- correctly, because
+# an audit that omits the refusals is the one you cannot investigate with. So a
+# run where nothing worked still grows every counter. The filters below are what
+# make the difference: a completed call, for this project.
+mongo_count() {
+  $COMPOSE exec -T mongo mongosh "$1" --quiet --eval "db.$2.countDocuments($3)" \
+    2>/dev/null | tr -d '\r' || echo "0"
+}
+
+stream_length() {
+  $COMPOSE exec -T redis redis-cli XLEN "$1" 2>/dev/null | tr -d '\r' || echo "0"
+}
+
+assert_grew() {
+  local before="$1" after="$2" what="$3"
+  if [ "${after:-0}" -gt "${before:-0}" ] 2>/dev/null; then
+    ok "${what} (${before} -> ${after})"
+  else
+    fail "${what}: nothing was written by this run (still ${after:-0})"
+  fi
+}
+
+AUDIT_FILTER="{projectId: '${PROJECT_INTERNAL}', status: 'completed'}"
+OUTBOX_FILTER="{'event.data.project_id': '${PROJECT_INTERNAL}', 'event.data.status': 'completed'}"
+
+AUDIT_BEFORE=$(mongo_count aia_router inference_audit "$AUDIT_FILTER")
+OUTBOX_BEFORE=$(mongo_count aia_router outbox "$OUTBOX_FILTER")
+STREAM_BEFORE=$(stream_length aia:events:aia.inference.usage.recorded.v1)
+
 # ---------------------------------------------------------------------------
 step "5. Chat through Ollama (zero cost, no API key at all)"
 
@@ -231,10 +270,26 @@ fi
 # ---------------------------------------------------------------------------
 step "9. External providers (skipped when there is no key)"
 
+# Gemini takes its keys in four forms and uses every one of them together, so
+# testing the bare `GEMINI_API_KEY` alone reports "not configured" on a machine
+# where the provider works -- which is what this said while step 10 was billing
+# a Gemini call two screens further down.
+configured_key() {
+  case "$1" in
+    GEMINI)
+      printf '%s%s%s%s%s' "${GEMINI_API_KEY:-}" "${GEMINI_API_KEYS:-}" \
+        "${GEMINI_API_KEY_1:-}" "${GEMINI_API_KEY_2:-}" "${GEMINI_API_KEY_3:-}"
+      ;;
+    *)
+      local key_var="$1_API_KEY"
+      printf '%s' "${!key_var:-}"
+      ;;
+  esac
+}
+
 for provider in OPENAI GEMINI ANTHROPIC; do
-  key_var="${provider}_API_KEY"
-  if [ -z "${!key_var:-}" ]; then
-    skip "${provider}: no ${key_var} configured"
+  if [ -z "$(configured_key "$provider")" ]; then
+    skip "${provider}: no key configured"
     continue
   fi
 
@@ -352,30 +407,24 @@ fi
 # ---------------------------------------------------------------------------
 step "12. Audit trail and usage event"
 
-AUDIT_COUNT=$($COMPOSE exec -T mongo mongosh aia_router --quiet --eval \
-  "db.inference_audit.countDocuments({projectId: '${PROJECT_INTERNAL}'})" 2>/dev/null | tr -d '\r' || echo "0")
+assert_grew "$AUDIT_BEFORE" "$(mongo_count aia_router inference_audit "$AUDIT_FILTER")" \
+  "a completed call was audited"
 
-if [ "${AUDIT_COUNT:-0}" -gt 0 ] 2>/dev/null; then
-  ok "audit written (${AUDIT_COUNT} records for the project)"
-else
-  fail "no audit record found"
-fi
+assert_grew "$OUTBOX_BEFORE" "$(mongo_count aia_router outbox "$OUTBOX_FILTER")" \
+  "its UsageRecorded went through the outbox"
 
-OUTBOX_TOTAL=$($COMPOSE exec -T mongo mongosh aia_router --quiet --eval \
-  "db.outbox.countDocuments({})" 2>/dev/null | tr -d '\r' || echo "0")
-if [ "${OUTBOX_TOTAL:-0}" -gt 0 ] 2>/dev/null; then
-  ok "UsageRecorded events went through the outbox (${OUTBOX_TOTAL})"
-else
-  fail "outbox empty: the usage event was not written"
-fi
+# The stream is not filtered, and that is the honest reading: XLEN counts
+# entries and cannot ask about their contents. What this proves is the
+# transport -- that the relay drained the outbox onto the bus. Whether the call
+# succeeded is what the two assertions above are for.
+assert_grew "$STREAM_BEFORE" \
+  "$(stream_length aia:events:aia.inference.usage.recorded.v1)" \
+  "the relay published onto Redis Streams"
 
-STREAM_LEN=$($COMPOSE exec -T redis redis-cli XLEN aia:events:aia.inference.usage.recorded.v1 2>/dev/null | tr -d '\r' || echo "0")
-if [ "${STREAM_LEN:-0}" -gt 0 ] 2>/dev/null; then
-  ok "events published on the bus (${STREAM_LEN} in the stream)"
-else
-  fail "no event reached Redis Streams"
-fi
-
+# Existence, not growth, and the difference is worth stating: the counter is one
+# key per project and period, so a second call increments a value rather than
+# adding a key -- and against a zero-cost local deployment it increments by
+# nothing. What this proves is that the reservation path ran at all.
 BUDGET_KEYS=$($COMPOSE exec -T redis redis-cli --scan --pattern "aia:budget:${PROJECT_INTERNAL}:*" 2>/dev/null | tr -d '\r' | wc -l | tr -d ' ')
 if [ "${BUDGET_KEYS:-0}" -gt 0 ] 2>/dev/null; then
   ok "budget counters exist in Redis"
@@ -384,7 +433,387 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-step "13. The console (aia-web) against the live platform"
+step "13. Flow 7.3: a document becomes searchable knowledge"
+
+api() {
+  local method="$1" path="$2"
+  shift 2
+  curl -sS -X "$method" "${BASE_URL}${path}" \
+    -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+    -H 'Content-Type: application/json' "$@"
+}
+
+api_code() {
+  local method="$1" path="$2"
+  shift 2
+  curl -sS -o /dev/null -w '%{http_code}' -X "$method" "${BASE_URL}${path}" \
+    -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+    -H 'Content-Type: application/json' "$@"
+}
+
+# Every list in this platform is a page with `items`, so one finder serves
+# stores, assets and tools alike. Re-running the suite must not depend on a
+# clean database: it finds what a previous run left, or creates it.
+find_by_slug() { # path, slug, [query string]
+  curl -sS "${BASE_URL}${1}${3:-}" \
+    -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+    | python3 -c "
+import json,sys
+match = next((i for i in json.load(sys.stdin)['items'] if i['slug'] == '$2'), None)
+print(match['id'] if match else '')" 2>/dev/null || echo ""
+}
+
+# A string no model was ever trained on and no other document holds, so a hit
+# proves retrieval rather than a coincidence.
+CANARY="ZORBLAX-7741"
+DOC_BODY="# Runbook do Zorblax
+
+O identificador do procedimento e ${CANARY}.
+Quando o barramento fica indisponivel, a reconciliacao roda em modo manual.
+
+## Passo unico
+
+Reindexar a particao e registrar o resultado no relatorio diario."
+
+STORE_ID=$(find_by_slug "/v1/stores" "e2e-knowledge")
+if [ -z "$STORE_ID" ]; then
+  STORE=$(api POST /v1/stores -d '{"slug":"e2e-knowledge","name":"E2E knowledge",
+    "description":"Ingestion, flow 7.3","chunking":{"kind":"markdown-heading","max_tokens":256}}')
+  STORE_ID=$(printf '%s' "$STORE" | json 'd["id"]')
+fi
+
+if [ -z "$STORE_ID" ]; then
+  fail "store not created"
+else
+  # The width is PROBED at creation, not declared: `CreateStore` embeds a
+  # sample and measures the answer. So the collection behind the store is
+  # whatever the configured embedding provider actually returns -- 768 from
+  # nomic-embed-text locally, 3 from the CI mock -- and step 15 has to read it
+  # rather than assume it.
+  STORE_DIMENSIONS=$(curl -sS "${BASE_URL}/v1/stores/${STORE_ID}" \
+    -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+    | json 'd["dimensions"]')
+  ok "store created (${STORE_ID}, ${STORE_DIMENSIONS} dimensions)"
+
+  TICKET=$(api POST "/v1/stores/${STORE_ID}/documents" \
+    -d "{\"title\":\"Runbook Zorblax\",\"mime_type\":\"text/markdown\",\"size_bytes\":${#DOC_BODY}}")
+  DOCUMENT_ID=$(printf '%s' "$TICKET" | json 'd["document"]["id"]')
+  UPLOAD_URL=$(printf '%s' "$TICKET" | json 'd["upload_url"]')
+
+  if [ -z "$UPLOAD_URL" ]; then
+    fail "no upload ticket issued ($(printf '%s' "$TICKET" | head -c 200))"
+  else
+    ok "upload ticket issued, presigned"
+
+    # The PUT runs INSIDE the compose network, because the presigned URL names
+    # `minio:9000` and SigV4 signs the Host header: rewriting it to localhost
+    # would fail the signature rather than test the upload. In production the
+    # client that uploads is the console's SERVER, which is on this network too.
+    if $COMPOSE exec -T -e UPLOAD_URL="$UPLOAD_URL" -e BODY="$DOC_BODY" knowledge \
+        /nodejs/bin/node -e '
+        (async () => {
+          const response = await fetch(process.env.UPLOAD_URL, {
+            method: "PUT",
+            headers: { "Content-Type": "text/markdown" },
+            body: process.env.BODY,
+          });
+          if (!response.ok) {
+            console.error(response.status, await response.text());
+            process.exit(1);
+          }
+        })()' >/dev/null 2>&1; then
+      ok "bytes uploaded straight to object storage"
+    else
+      fail "the upload to object storage failed"
+    fi
+
+    COMPLETE=$(api_code POST "/v1/stores/${STORE_ID}/documents/${DOCUMENT_ID}/complete")
+    assert_eq "$COMPLETE" "202" "ingestion queued (202, not 200: nothing is indexed yet)"
+
+    # Ingestion is asynchronous by design -- parse, chunk, embed, index -- so
+    # polling is what a client does. The ceiling is generous because embedding
+    # runs through a local model.
+    INGEST_TIMEOUT="${E2E_INGEST_TIMEOUT:-240}"
+    DEADLINE=$(( $(date +%s) + INGEST_TIMEOUT ))
+    DOCUMENT='{}'
+    STATUS="pending"
+    while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+      DOCUMENT=$(curl -sS "${BASE_URL}/v1/stores/${STORE_ID}/documents" \
+        -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+        | python3 -c "
+import json,sys
+match = next((d for d in json.load(sys.stdin)['items'] if d['id'] == '${DOCUMENT_ID}'), {})
+print(json.dumps(match))" 2>/dev/null || echo '{}')
+      STATUS=$(printf '%s' "$DOCUMENT" | json 'd.get("status","")')
+      case "$STATUS" in ingested | failed) break ;; esac
+      sleep 3
+    done
+
+    if [ "$STATUS" = "ingested" ]; then
+      CHUNKS=$(printf '%s' "$DOCUMENT" | json 'd.get("chunk_count",0)')
+      if [ "${CHUNKS:-0}" -gt 0 ] 2>/dev/null; then
+        ok "document ingested into ${CHUNKS} chunks"
+      else
+        fail "ingested with no chunks: there is nothing to retrieve"
+      fi
+
+      SEARCH=$(api POST "/v1/stores/${STORE_ID}/search" \
+        -d "{\"query\":\"qual e o identificador do procedimento ${CANARY}\",\"top_k\":5}")
+      assert_contains "$SEARCH" "$CANARY" "search returns the ingested text"
+      FOUND=$(printf '%s' "$SEARCH" | json 'd["results"][0]["document_id"]')
+      assert_eq "$FOUND" "$DOCUMENT_ID" "the hit names the document it came from"
+
+      # Which ranking found it. `hybrid` fuses a vector and a lexical ranking,
+      # and an answer that cannot say which one reached a chunk cannot be
+      # debugged when retrieval degrades.
+      RETRIEVAL=$(printf '%s' "$SEARCH" | json 'd["results"][0]["retrieval"]')
+      case "$RETRIEVAL" in
+        vector | text | both) ok "the hit says which ranking found it (${RETRIEVAL})" ;;
+        *) fail "no retrieval provenance on the hit" ;;
+      esac
+    elif [ "$STATUS" = "failed" ]; then
+      fail "ingestion failed with $(printf '%s' "$DOCUMENT" | json 'd.get("error_code","")')"
+    else
+      fail "ingestion did not finish within ${INGEST_TIMEOUT}s (last status '${STATUS}')"
+    fi
+
+    # A store belongs to a project, and another project must not learn that it
+    # EXISTS: the answer is 404, not 403.
+    OUTSIDE=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+      "${BASE_URL}/v1/stores/${STORE_ID}/search" \
+      -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_RESTRICTED}" \
+      -H 'Content-Type: application/json' -d '{"query":"anything"}')
+    assert_eq "$OUTSIDE" "404" "another project cannot even learn the store exists"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+step "14. Flow 7.2: a governed tool does not run without a human"
+
+# `file_search` over the store step 13 filled, published at HIGH risk. The point
+# is not what the tool does: it is that it refuses to run until somebody
+# approves THIS call (OWASP LLM06).
+TOOL_SCHEMA='{"type":"object","required":["store_id","query"],
+  "properties":{"store_id":{"type":"string"},"query":{"type":"string","minLength":1}},
+  "additionalProperties":false}'
+
+TOOL_ID=$(find_by_slug "/v1/assets" "e2e-file-search" "?kind=tool")
+if [ -z "$TOOL_ID" ]; then
+  TOOL_ASSET=$(api POST /v1/assets -d "{\"kind\":\"tool\",\"slug\":\"e2e-file-search\",
+    \"name\":\"E2E file search\",\"definition\":{\"kind\":\"tool\",\"tool_type\":\"builtin\",
+    \"builtin_id\":\"file_search\",\"risk_level\":\"high\",\"parameters\":${TOOL_SCHEMA}}}")
+  # Creating an asset answers with the draft version it opened, not with the
+  # asset: the id is `asset_id` (registry.v1.yaml, 201 -> AssetVersion).
+  TOOL_ID=$(printf '%s' "$TOOL_ASSET" | json 'd["asset_id"]')
+fi
+
+if [ -z "$TOOL_ID" ] || [ -z "${STORE_ID:-}" ]; then
+  skip "flow 7.2 needs both a tool asset and the store from flow 7.3"
+else
+  PUBLISHED=$(api_code POST "/v1/assets/${TOOL_ID}/versions")
+  case "$PUBLISHED" in
+    201) ok "high-risk tool published in the registry" ;;
+    409) ok "high-risk tool already published (no draft to publish)" ;;
+    *) fail "publishing the tool answered ${PUBLISHED}" ;;
+  esac
+
+  api PUT "/v1/bindings/${TOOL_ID}" -d '{"enabled":true}' >/dev/null
+  EFFECTIVE=$(curl -sS "${BASE_URL}/v1/tools" \
+    -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+    | python3 -c "
+import json,sys
+match = next((t for t in json.load(sys.stdin)['items'] if t['tool_id'] == '${TOOL_ID}'), {})
+print(json.dumps(match))" 2>/dev/null || echo '{}')
+  assert_eq "$(printf '%s' "$EFFECTIVE" | json 'd.get("requires_approval")')" "True" \
+    "the effective tool declares that it needs approval"
+
+  ARGS="{\"store_id\":\"${STORE_ID}\",\"query\":\"${CANARY}\"}"
+
+  # Arguments the schema refuses never reach a reviewer (ADR-025): asking a
+  # person to approve a call that cannot run wastes the one control in this
+  # chain that has a human in it.
+  BAD_ARGS=$(api_code POST "/v1/tools/${TOOL_ID}/invoke" \
+    -d "{\"arguments\":{\"store_id\":42,\"query\":\"${CANARY}\"}}")
+  assert_eq "$BAD_ARGS" "400" "an argument of the wrong type is refused before approval"
+
+  FIRST=$(api POST "/v1/tools/${TOOL_ID}/invoke" -d "{\"arguments\":${ARGS}}")
+  APPROVAL_ID=$(printf '%s' "$FIRST" | json 'd["approval_id"]')
+  if [ -z "$APPROVAL_ID" ]; then
+    fail "no approval requested: the tool ran unapproved ($(printf '%s' "$FIRST" | head -c 200))"
+  else
+    ok "the high-risk tool answered approval_required, not a result"
+    assert_eq "$(printf '%s' "$FIRST" | json 'd["risk_level"]')" "high" \
+      "the answer says at what risk level it stopped"
+
+    # The approval is for THIS call. Approving a search of one store and then
+    # searching for something else is the whole attack this control exists for.
+    #
+    # Note what this costs: the mismatched attempt CONSUMES the approval, so
+    # the legitimate call below needs a fresh one. That is the right trade --
+    # an approval that survived a mismatch could be ground against until some
+    # set of arguments fit -- and it is worth an assertion of its own rather
+    # than a comment, because it is surprising.
+    SWAPPED=$(api POST "/v1/tools/${TOOL_ID}/invoke" \
+      -d "{\"approval_id\":\"${APPROVAL_ID}\",\"arguments\":{\"store_id\":\"${STORE_ID}\",\"query\":\"something else entirely\"}}")
+    assert_contains "$SWAPPED" 'different call' "an approval cannot be reused for different arguments"
+
+    BURNED=$(api POST "/v1/tools/${TOOL_ID}/invoke" \
+      -d "{\"approval_id\":\"${APPROVAL_ID}\",\"arguments\":${ARGS}}")
+    assert_contains "$BURNED" 'already used' "a mismatched attempt spends the approval"
+
+    # So: ask again, and this time use it for what it was granted for.
+    SECOND=$(api POST "/v1/tools/${TOOL_ID}/invoke" -d "{\"arguments\":${ARGS}}")
+    APPROVAL_ID=$(printf '%s' "$SECOND" | json 'd["approval_id"]')
+
+    APPROVED=$(api POST "/v1/tools/${TOOL_ID}/invoke" \
+      -d "{\"approval_id\":\"${APPROVAL_ID}\",\"arguments\":${ARGS}}")
+    assert_eq "$(printf '%s' "$APPROVED" | json 'd["status"]')" "ok" "the approved call runs"
+    assert_contains "$APPROVED" "$CANARY" "the tool searched as the caller and found the document"
+
+    # One approval, one call. An approval that outlives its call is a signature
+    # on a blank cheque.
+    REPLAYED=$(api POST "/v1/tools/${TOOL_ID}/invoke" \
+      -d "{\"approval_id\":\"${APPROVAL_ID}\",\"arguments\":${ARGS}}")
+    assert_contains "$REPLAYED" 'already used' "an approval is single use"
+  fi
+
+  # Every invocation is audited with who asked and for which project, refusals
+  # included (doc 02 §6).
+  AUDIT=$($COMPOSE exec -T mongo mongosh aia_mcp_gateway --quiet --eval \
+    "db.tool_invocations.countDocuments({projectId: '${PROJECT_INTERNAL}', toolId: '${TOOL_ID}'})" \
+    2>/dev/null | tr -d '\r' || echo "0")
+  if [ "${AUDIT:-0}" -gt 0 ] 2>/dev/null; then
+    ok "tool invocations audited (${AUDIT} records, refusals included)"
+  else
+    fail "no invocation audit written"
+  fi
+
+  # --- and now the same tool through the agent loop -------------------------
+  # The definition names the store this run created, so it is rewritten every
+  # time rather than reused: step 15 deletes the store, and an agent left
+  # pointing at a deleted one would fail the NEXT run for a reason that has
+  # nothing to do with the platform.
+  AGENT_DEFINITION="{\"kind\":\"agent\",
+    \"instructions\":\"Use the file_search tool to answer from the store. Be brief.\",
+    \"model_alias\":\"chat-local\",\"tools\":[{\"asset_id\":\"${TOOL_ID}\"}],
+    \"knowledge\":[{\"store_id\":\"${STORE_ID}\"}],\"max_output_tokens\":128}"
+
+  AGENT_ID=$(find_by_slug "/v1/assets" "e2e-agent" "?kind=agent")
+  if [ -z "$AGENT_ID" ]; then
+    AGENT_ASSET=$(api POST /v1/assets \
+      -d "{\"kind\":\"agent\",\"slug\":\"e2e-agent\",\"name\":\"E2E agent\",
+           \"definition\":${AGENT_DEFINITION}}")
+    AGENT_ID=$(printf '%s' "$AGENT_ASSET" | json 'd["asset_id"]')
+  else
+    # The registry opens a fresh draft when the last one was published, and a
+    # fresh draft has nothing to conflict with, so any expected_version does.
+    DRAFT_VERSION=$(curl -sS "${BASE_URL}/v1/assets/${AGENT_ID}" \
+      -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+      | json 'd.get("draft_version") or d.get("published_version") or 1')
+    api PUT "/v1/assets/${AGENT_ID}/draft" \
+      -d "{\"definition\":${AGENT_DEFINITION},\"expected_version\":${DRAFT_VERSION}}" >/dev/null
+  fi
+
+  if [ -z "$AGENT_ID" ]; then
+    fail "agent asset not created"
+  else
+    PUBLISHED_AGENT=$(api_code POST "/v1/assets/${AGENT_ID}/versions")
+    case "$PUBLISHED_AGENT" in
+      201) ok "agent published with the governed tool attached" ;;
+      *) fail "publishing the agent answered ${PUBLISHED_AGENT}" ;;
+    esac
+
+    # `?stream=true`, because the same route answers either way: 201 with the
+    # run for a client that wants to poll, 200 text/event-stream for one that
+    # wants to watch. The console uses the stream, so that is what is tested.
+    RUN_SSE=$(curl -sS -N --max-time "${E2E_RUN_TIMEOUT:-300}" -X POST \
+      "${BASE_URL}/v1/agents/${AGENT_ID}/runs?stream=true" \
+      -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+      -H 'Content-Type: application/json' \
+      -d '{"input":"Qual e o identificador do procedimento no runbook do Zorblax?"}' || echo "")
+
+    assert_contains "$RUN_SSE" 'event: run.started' "the run streams a start event"
+
+    RUN_ID=$(printf '%s' "$RUN_SSE" | sed -n 's/^data: //p' | python3 -c "
+import json,sys
+for line in sys.stdin:
+    try:
+        payload = json.loads(line)
+    except ValueError:
+        continue
+    if payload.get('run_id'):
+        print(payload['run_id'])
+        break" 2>/dev/null)
+
+    if [ -z "$RUN_ID" ]; then
+      fail "the stream carried no run id"
+    else
+      ok "run ${RUN_ID} created"
+      RUN=$(curl -sS "${BASE_URL}/v1/runs/${RUN_ID}" \
+        -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}")
+      RUN_STATUS=$(printf '%s' "$RUN" | json 'd["status"]')
+
+      if [ "$RUN_STATUS" = "waiting_approval" ]; then
+        ok "the run holds at waiting_approval instead of running the tool"
+        assert_contains "$RUN_SSE" 'event: approval.requested' "the stream asked the human"
+
+        CALL_ID=$(printf '%s' "$RUN" | json 'd["pending_call"]["id"]')
+        RESUMED=$(curl -sS -X POST "${BASE_URL}/v1/runs/${RUN_ID}/approve" \
+          -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+          -H 'Content-Type: application/json' \
+          -d "{\"tool_call_id\":\"${CALL_ID}\",\"approved\":true}")
+        RESUMED_STATUS=$(printf '%s' "$RESUMED" | json 'd["status"]')
+        case "$RESUMED_STATUS" in
+          completed | running)
+            ok "the approval resumed the run from its checkpoint (${RESUMED_STATUS})" ;;
+          *)
+            fail "the approval left the run at '${RESUMED_STATUS}'" ;;
+        esac
+      else
+        # A 1B local model routinely answers without calling a tool at all.
+        # That is a property of the model, not a defect of the platform, and
+        # the gateway assertions above already proved the control. Saying so is
+        # worth more than a green tick that measured nothing.
+        skip "the model did not call the tool (run '${RUN_STATUS}'); the approval gate was proven at the gateway above"
+      fi
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+step "15. Deleting a store takes its vectors with it"
+
+if [ -z "${STORE_ID:-}" ]; then
+  skip "no store to delete"
+else
+  # Deleting the store is what proves the order in `DeleteStore`: vectors first,
+  # then chunks, objects, documents, subscriptions and finally the store. A
+  # store record removed before its vectors leaves points in Qdrant that no
+  # project owns and nothing will ever collect.
+  DELETED=$(api_code DELETE "/v1/stores/${STORE_ID}")
+  assert_eq "$DELETED" "204" "the store is deleted"
+
+  GONE=$(api_code GET "/v1/stores/${STORE_ID}")
+  assert_eq "$GONE" "404" "the store is gone"
+
+  # The collection name carries the vector width, because one collection cannot
+  # hold two -- `collectionNameFor` in the knowledge domain.
+  QDRANT_COLLECTION="aia_chunks_${STORE_DIMENSIONS:-768}_cosine"
+  ORPHANS=$(curl -sS -X POST "http://localhost:6333/collections/${QDRANT_COLLECTION}/points/scroll" \
+    -H 'Content-Type: application/json' \
+    -d "{\"filter\":{\"must\":[{\"key\":\"store_id\",\"match\":{\"value\":\"${STORE_ID}\"}}]},\"limit\":1}" \
+    2>/dev/null | json 'len(d["result"]["points"])' || echo "")
+  if [ "$ORPHANS" = "0" ]; then
+    ok "no vector survived the store"
+  elif [ -z "$ORPHANS" ]; then
+    skip "could not read Qdrant directly to check for orphaned vectors"
+  else
+    fail "${ORPHANS} vectors outlived the store they belonged to"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+step "16. The console (aia-web) against the live platform"
 
 WEB_URL="${WEB_BASE_URL:-http://localhost:3005}"
 

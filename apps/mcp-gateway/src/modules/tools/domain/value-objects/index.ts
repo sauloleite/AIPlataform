@@ -1,7 +1,8 @@
 export const RISK_LEVELS = ['low', 'medium', 'high'] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 
-export const TOOL_TYPES = ['mcp', 'openapi', 'function', 'builtin'] as const;
+/** `function` is absent: nothing here could ever execute one. See the registry. */
+export const TOOL_TYPES = ['mcp', 'openapi', 'builtin'] as const;
 export type ToolType = (typeof TOOL_TYPES)[number];
 
 /**

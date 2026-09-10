@@ -19,6 +19,10 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
+from opentelemetry import trace
+from opentelemetry.context import Context
+from opentelemetry.trace import Span, SpanKind
+
 from agent_runtime.application.dto import (
     ApproveToolCallCommand,
     Caller,
@@ -53,6 +57,7 @@ from agent_runtime.domain.errors import (
 from agent_runtime.domain.policies import ApprovalPolicy, LoopPolicy
 from aia_errors import DomainError
 from aia_messaging import EventPublisher, EventType, new_event
+from aia_telemetry import AiaAttr, GenAiAttr, GenAiSpan, get_tracer, record_span_error
 
 SOURCE = "aia-agent-runtime"
 
@@ -62,6 +67,9 @@ WRAP_UP = (
     "You have no tool calls left. Answer with what you already have, and say "
     "plainly what you could not find out."
 )
+
+
+_TRACER = get_tracer("aia-agent-runtime")
 
 
 @dataclass(slots=True)
@@ -150,8 +158,16 @@ class RunAgent:
         run.resume()
         await self.runs.save(run)
 
+        # The approved call and the queue behind it are their own segment: they
+        # run before `_advance` is reached, so without this they would hang off
+        # the HTTP span with nothing saying which run they belong to.
+        resumed = self._run_span(run, definition)
+        resumed_parent = trace.set_span_in_context(resumed)
+
         if command.approved:
-            async for event in self._invoke(call, state, caller, human_approved=True):
+            async for event in self._invoke(
+                call, state, caller, parent=resumed_parent, human_approved=True
+            ):
                 yield event
         else:
             # A refusal is not an error: it goes back as the result of the call,
@@ -167,10 +183,13 @@ class RunAgent:
                 {"tool_call_id": call.id, "tool_name": call.tool_name, "status": "denied"},
             )
 
-        async for event in self._drain_queue(state, caller, run):
-            yield event
-            if run.status == RunStatus.WAITING_APPROVAL:
-                return
+        try:
+            async for event in self._drain_queue(state, caller, run, resumed_parent):
+                yield event
+                if run.status == RunStatus.WAITING_APPROVAL:
+                    return
+        finally:
+            self._close_run_span(resumed, run, state)
 
         await self.checkpointer.save(state)
 
@@ -182,6 +201,19 @@ class RunAgent:
     async def _advance(
         self, run: Run, state: RunState, definition: AgentDefinition, caller: Caller
     ) -> AsyncIterator[RunEvent]:
+        # Started but NOT made current. `_advance` is an async generator, and a
+        # span made current here would stay attached across every `yield` --
+        # while the CONSUMER runs -- so the SSE framing, and anything else the
+        # caller does between events, would be recorded as part of the agent
+        # run. The children below are parented explicitly instead, which gives
+        # the same tree without the leak.
+        #
+        # It also ends when the run PAUSES for approval, and a fresh one opens
+        # on resume. A span held open across a human decision is a span nothing
+        # can export until somebody makes it -- which may be tomorrow.
+        span = self._run_span(run, definition)
+        parent = trace.set_span_in_context(span)
+
         try:
             while True:
                 tools = allowed_tools(
@@ -217,7 +249,7 @@ class RunAgent:
                     return
 
                 state.queued_calls = calls
-                async for event in self._drain_queue(state, caller, run):
+                async for event in self._drain_queue(state, caller, run, parent):
                     yield event
                 await self.checkpointer.save(state)
                 if run.status == RunStatus.WAITING_APPROVAL:
@@ -230,12 +262,54 @@ class RunAgent:
                     return
         except DomainError as error:
             run.fail(error.code)
+            record_span_error(span, error, error.code)
             await self._settle(run, state)
             yield RunEvent("error", {"code": error.code, "message": error.message})
             yield RunEvent("run.finished", _finished(run, state))
+        finally:
+            # Every exit, `waiting_approval` included: a generator abandoned by
+            # its consumer runs this and nothing else, and an unfinished span is
+            # never exported at all.
+            self._close_run_span(span, run, state)
+
+    def _run_span(self, run: Run, definition: AgentDefinition) -> Span:
+        """One segment of a run, as a span.
+
+        A segment and not the whole run, because a run that stops for approval
+        may wait until tomorrow, and a span held open that long is one nothing
+        can export until somebody decides. Every segment carries `aia.run.id`,
+        so a query on that id still returns the run entire.
+        """
+        return _TRACER.start_span(
+            f"{GenAiSpan.INVOKE_AGENT} {run.agent_id}",
+            attributes={
+                GenAiAttr.OPERATION_NAME: GenAiSpan.INVOKE_AGENT,
+                "gen_ai.agent.id": run.agent_id,
+                # The thread, under the name the conventions give a multi-turn
+                # conversation. It is what ties this run to the one before it.
+                "gen_ai.conversation.id": run.thread_id,
+                GenAiAttr.REQUEST_MODEL: definition.model_alias,
+                AiaAttr.PROJECT_ID: run.project_id,
+                AiaAttr.PRINCIPAL_ID: run.principal_id,
+                AiaAttr.ALIAS: definition.model_alias,
+                "aia.agent.version": run.agent_version,
+                "aia.run.id": run.id,
+            },
+        )
+
+    @staticmethod
+    def _close_run_span(span: Span, run: Run, state: RunState) -> None:
+        span.set_attributes(
+            {
+                "aia.run.status": run.status.value,
+                "aia.run.steps": state.step,
+                "aia.run.tool_calls": state.tool_calls_made,
+            }
+        )
+        span.end()
 
     async def _drain_queue(
-        self, state: RunState, caller: Caller, run: Run
+        self, state: RunState, caller: Caller, run: Run, parent: Context
     ) -> AsyncIterator[RunEvent]:
         """Runs the batch the model asked for, stopping at the first hold."""
         queued = state.take_queued()
@@ -259,11 +333,17 @@ class RunAgent:
                 )
                 return
 
-            async for event in self._invoke(call, state, caller):
+            async for event in self._invoke(call, state, caller, parent=parent):
                 yield event
 
     async def _invoke(
-        self, call: ToolCall, state: RunState, caller: Caller, *, human_approved: bool = False
+        self,
+        call: ToolCall,
+        state: RunState,
+        caller: Caller,
+        *,
+        parent: Context,
+        human_approved: bool = False,
     ) -> AsyncIterator[RunEvent]:
         yield RunEvent(
             "tool.call",
@@ -287,23 +367,48 @@ class RunAgent:
             )
             return
 
-        try:
-            result = await self.tools.invoke(
-                call=call,
-                principal_id=caller.principal_id,
-                project_id=caller.project_id,
-                access_token=caller.access_token,
-                # A person saw these exact arguments and said yes. The gateway
-                # holds high-risk calls too; without carrying the decision the
-                # two controls deadlock.
-                human_approved=human_approved,
-            )
-            status = "ok"
-        except DomainError as error:
-            # A refused or failed tool is a fact the model has to reason about,
-            # not the end of the run: rate limited, not allowed, endpoint down.
-            result = {"status": "failed", "code": error.code, "detail": error.message}
-            status = "failed"
+        # `execute_tool <name>` is the span name the GenAI conventions give this,
+        # and the highest-risk operation the platform performs had none at all.
+        # It wraps the AWAIT and not the generator: a span made current across a
+        # `yield` stays attached while the CONSUMER runs, and everything that
+        # consumer does is then recorded as part of the tool call.
+        with _TRACER.start_as_current_span(
+            f"{GenAiSpan.EXECUTE_TOOL} {call.tool_name}",
+            # The run's span, passed explicitly rather than taken from the
+            # current context, because the run's span is deliberately not
+            # current. This is what makes the trace a tree.
+            context=parent,
+            kind=SpanKind.CLIENT,
+            attributes={
+                GenAiAttr.OPERATION_NAME: GenAiSpan.EXECUTE_TOOL,
+                "gen_ai.tool.name": call.tool_name,
+                "gen_ai.tool.call.id": call.id,
+                AiaAttr.PROJECT_ID: caller.project_id,
+                AiaAttr.PRINCIPAL_ID: caller.principal_id,
+                "aia.tool.risk_level": call.risk_level,
+                # Whether a person had to say yes to this exact call, which is
+                # the fact an audit of the approval gate is looking for.
+                "aia.tool.human_approved": human_approved,
+            },
+        ) as span:
+            try:
+                result = await self.tools.invoke(
+                    call=call,
+                    principal_id=caller.principal_id,
+                    project_id=caller.project_id,
+                    access_token=caller.access_token,
+                    # A person saw these exact arguments and said yes. The gateway
+                    # holds high-risk calls too; without carrying the decision the
+                    # two controls deadlock.
+                    human_approved=human_approved,
+                )
+                status = "ok"
+            except DomainError as error:
+                # A refused or failed tool is a fact the model has to reason about,
+                # not the end of the run: rate limited, not allowed, endpoint down.
+                record_span_error(span, error, error.code)
+                result = {"status": "failed", "code": error.code, "detail": error.message}
+                status = "failed"
 
         state.record_tool_result(call, result)
         yield RunEvent(

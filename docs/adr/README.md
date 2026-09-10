@@ -34,6 +34,13 @@ change of context.
 | [021](ADR-021-an-evaluation-refuses-rather-than-scores-nothing.md) | An evaluation refuses rather than reporting a verdict it did not measure      | accepted (new)                      |
 | [022](ADR-022-search-fuses-two-rankings.md)                        | Search fuses a lexical ranking with the vector one                            | accepted (new)                      |
 | [023](ADR-023-a-store-is-shared-by-two-consents.md)                | A knowledge store is shared by two consents                                   | accepted (new)                      |
+| [024](ADR-024-gateway-api-replaces-ingress.md)                     | The Gateway API replaces the Ingress in the Helm chart                        | accepted (new)                      |
+| [025](ADR-025-tool-arguments-are-validated-at-the-gateway.md)      | Tool arguments are validated against their schema at the gateway              | accepted (new)                      |
+| [026](ADR-026-a-restricted-project-fails-closed.md)                | A restricted project fails closed when guardrails are unavailable             | accepted (new)                      |
+| [027](ADR-027-the-data-zone-rule-has-one-source.md)                | The data-zone rule has one source, generated into both languages              | accepted (new)                      |
+| [028](ADR-028-a-judge-is-calibrated-or-it-does-not-grade.md)       | A judge is calibrated against human labels, or it does not grade              | accepted (new)                      |
+| [029](ADR-029-an-evaluator-comes-from-error-analysis.md)           | An evaluator comes from error analysis, never from imagination                | accepted (new)                      |
+| [030](ADR-030-production-is-sampled-not-watched.md)                | Production is sampled deterministically, and off by default                   | accepted (new)                      |
 
 Format: context, decision, alternatives, consequences and review trigger.
 Template in [TEMPLATE.md](TEMPLATE.md).

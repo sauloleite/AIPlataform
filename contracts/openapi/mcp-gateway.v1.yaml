@@ -269,7 +269,7 @@ components:
 
     ToolType:
       type: string
-      enum: [mcp, openapi, function, builtin]
+      enum: [mcp, openapi, builtin]
 
     ToolBinding:
       type: object

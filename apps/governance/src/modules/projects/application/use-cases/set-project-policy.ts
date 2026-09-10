@@ -36,6 +36,8 @@ export class SetProjectPolicy {
     }
     if (command.contentCapture !== undefined)
       project.setContentCapture(command.contentCapture, now);
+    if (command.contentRetentionDays !== undefined)
+      project.setContentRetentionDays(command.contentRetentionDays, now);
 
     await this.projects.save(project, [
       newEvent({

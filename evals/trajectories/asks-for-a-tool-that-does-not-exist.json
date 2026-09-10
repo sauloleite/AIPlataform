@@ -1,0 +1,49 @@
+{
+  "id": "run-asks-for-a-tool-that-does-not-exist",
+  "agent_id": "agent-1",
+  "agent_version": 3,
+  "thread_id": "thread-asks-for-a-tool-that-does-not-exist",
+  "project_id": "proj-1",
+  "principal_id": "user-ana",
+  "status": "completed",
+  "step": 3,
+  "output": "You get 30 days.",
+  "pending_call": null,
+  "error_code": null,
+  "created_at": "2026-09-09T12:00:00Z",
+  "finished_at": "2026-09-09T12:00:03Z",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You help with the handbook."
+    },
+    {
+      "role": "user",
+      "content": "how much leave do I get?"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_1",
+          "type": "function",
+          "function": {
+            "name": "search-handbook",
+            "arguments": "{\"query\": \"leave policy\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_1",
+      "name": "search-handbook",
+      "content": "{\"status\": \"unknown_tool\", \"detail\": \"No tool named 'search-handbook' is available.\"}"
+    },
+    {
+      "role": "assistant",
+      "content": "You get 30 days."
+    }
+  ]
+}

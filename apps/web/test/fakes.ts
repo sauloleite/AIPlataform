@@ -2,6 +2,7 @@ import { PlatformError } from '../src/modules/console/domain/errors';
 import type {
   BudgetSnapshot,
   ChatRequest,
+  CompletionRecord,
   ChatStreamEvent,
   ModelAliasSummary,
   PlatformGateway,
@@ -24,6 +25,7 @@ export class FakePlatform implements PlatformGateway {
   policies = new Map<string, PolicySnapshot>();
   aliases = new Map<string, ModelAliasSummary[]>();
   streamEvents: ChatStreamEvent[] = [];
+  records = new Map<string, CompletionRecord>();
 
   readonly calls: string[] = [];
   /** Endpoints set to fail, keyed the same way as `calls`. */
@@ -122,6 +124,19 @@ export class FakePlatform implements PlatformGateway {
   listModels(_token: string, projectId: string): Promise<ModelAliasSummary[]> {
     this.calls.push(`listModels:${projectId}`);
     return Promise.resolve(this.aliases.get(projectId) ?? []);
+  }
+
+  readCompletionRecord(
+    _token: string,
+    projectId: string,
+    requestId: string,
+  ): Promise<CompletionRecord> {
+    this.calls.push(`readCompletionRecord:${projectId}:${requestId}`);
+    if (this.failing.has('readCompletionRecord')) throw problem('forbidden', 403);
+
+    const record = this.records.get(requestId);
+    if (record === undefined) throw problem('not_found', 404);
+    return Promise.resolve(record);
   }
 
   async *streamChat(_token: string, request: ChatRequest): AsyncIterable<ChatStreamEvent> {

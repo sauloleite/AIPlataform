@@ -12,6 +12,7 @@ from typing import Any
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
+from evaluation.domain.annotation import Annotation, AnnotationVerdict
 from evaluation.domain.entities import (
     Answer,
     CaseResult,
@@ -20,11 +21,26 @@ from evaluation.domain.entities import (
     Metric,
     RunStatus,
 )
+from evaluation.domain.sampling import Sample
 
 
 async def ensure_indexes(database: AsyncDatabase[Any]) -> None:
     await database["evaluation_runs"].create_index([("project_id", 1), ("started_at", -1)])
     await database["evaluation_runs"].create_index([("project_id", 1), ("suite", 1)])
+    await database["annotations"].create_index([("project_id", 1), ("created_at", -1)])
+    await database["online_samples"].create_index([("project_id", 1), ("sampled_at", -1)])
+    # One sample per call, whatever the stream redelivers. At-least-once
+    # delivery is the subscriber's contract, so the same usage event arrives
+    # twice after any handler failure -- and a summary that counted it twice
+    # would report the traffic the retries had, not the traffic there was.
+    await database["online_samples"].create_index([("request_id", 1)], unique=True)
+    # Two annotations of the same trace by the same person are an edit, not a
+    # second opinion: the taxonomy would otherwise count one reader's change of
+    # mind twice. Two DIFFERENT people annotating the same trace is exactly what
+    # inter-annotator disagreement looks like, and stays allowed.
+    await database["annotations"].create_index(
+        [("project_id", 1), ("trace_id", 1), ("principal_id", 1)], unique=True
+    )
 
 
 def mongo_client(uri: str) -> AsyncMongoClient[Any]:
@@ -62,6 +78,12 @@ def _from_run(run: EvaluationRun) -> dict[str, Any]:
         "suite": run.suite,
         "alias": run.alias,
         "principal_id": run.principal_id,
+        # Which alias graded, and how well it agreed with the humans when the
+        # run started. Both were computed and then thrown away: a stored run
+        # could not say who graded it, let alone whether the grader was any
+        # good, which is most of what makes an old score worth reading.
+        "judge_alias": run.judge_alias,
+        "judge_agreement": run.judge_agreement,
         "status": run.status.value,
         "started_at": run.started_at,
         "finished_at": run.finished_at,
@@ -103,6 +125,11 @@ def _to_run(document: dict[str, Any]) -> EvaluationRun:
         suite=str(document.get("suite", "")),
         alias=str(document.get("alias", "")),
         principal_id=str(document.get("principal_id", "")),
+        judge_alias=document.get("judge_alias"),
+        judge_agreement={
+            str(name): float(value)
+            for name, value in (document.get("judge_agreement") or {}).items()
+        },
         status=RunStatus(document.get("status", RunStatus.RUNNING.value)),
         started_at=_aware(document.get("started_at")),
         finished_at=document.get("finished_at"),
@@ -143,3 +170,145 @@ def _aware(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
     return datetime.now(UTC)
+
+
+@dataclass(slots=True)
+class MongoAnnotationRepository:
+    """What people decided about real traces.
+
+    Holds a principal id and, when the project captures content, real user text
+    -- which is why it is in the LGPD inventory (`docs/runbooks/`) rather than
+    quietly accumulating beside the run history.
+    """
+
+    database: AsyncDatabase[Any]
+
+    async def save(self, annotation: Annotation) -> None:
+        # Upsert on (project, trace, principal): re-annotating is a person
+        # changing their mind, and keeping both would count it twice.
+        #
+        # `_id` and `created_at` go in `$setOnInsert`, not in `$set`. Mongo
+        # refuses an update that touches `_id` -- "would modify the immutable
+        # field" -- so the second annotation of a trace by the same person used
+        # to fail with a 500, which is exactly the flow this upsert exists to
+        # support. The first one worked, because on an insert the operator
+        # applies. `created_at` stays put for a plainer reason: the record was
+        # created when it was created, and a changed verdict is not a new one.
+        identity, changeable = _from_annotation(annotation)
+        await self.database["annotations"].update_one(
+            {
+                "project_id": annotation.project_id,
+                "trace_id": annotation.trace_id,
+                "principal_id": annotation.principal_id,
+            },
+            {"$set": changeable, "$setOnInsert": identity},
+            upsert=True,
+        )
+
+    async def list(
+        self,
+        project_id: str,
+        *,
+        limit: int,
+        trace_id: str | None = None,
+        failure_mode: str | None = None,
+    ) -> list[Annotation]:
+        query: dict[str, Any] = {"project_id": project_id}
+        if trace_id is not None:
+            query["trace_id"] = trace_id
+        if failure_mode is not None:
+            query["failure_mode"] = failure_mode
+
+        cursor = self.database["annotations"].find(query).sort("created_at", -1).limit(limit)
+        return [_to_annotation(document) async for document in cursor]
+
+
+def _from_annotation(annotation: Annotation) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Splits the document into what an update may not touch and what it may.
+
+    The first half is written once, at insert. The second is what a person
+    changing their mind actually changes.
+    """
+    identity = {"_id": annotation.id, "created_at": annotation.created_at}
+    changeable = {
+        "project_id": annotation.project_id,
+        "trace_id": annotation.trace_id,
+        "verdict": annotation.verdict.value,
+        "principal_id": annotation.principal_id,
+        "failure_mode": annotation.failure_mode,
+        "note": annotation.note,
+        "evaluator": annotation.evaluator,
+        "question": annotation.question,
+        "answer": annotation.answer,
+        "context": list(annotation.context),
+    }
+    return identity, changeable
+
+
+def _to_annotation(document: dict[str, Any]) -> Annotation:
+    return Annotation(
+        id=str(document["_id"]),
+        project_id=str(document.get("project_id", "")),
+        trace_id=str(document.get("trace_id", "")),
+        verdict=AnnotationVerdict(document.get("verdict", AnnotationVerdict.BAD.value)),
+        principal_id=str(document.get("principal_id", "")),
+        failure_mode=document.get("failure_mode"),
+        note=str(document.get("note") or ""),
+        evaluator=document.get("evaluator"),
+        question=str(document.get("question") or ""),
+        answer=str(document.get("answer") or ""),
+        context=tuple(str(item) for item in document.get("context") or []),
+        created_at=_aware(document.get("created_at")),
+    )
+
+
+@dataclass(slots=True)
+class MongoSampleRepository:
+    """Production calls scored after the fact.
+
+    Holds no conversation content: the score, not what was scored. What was said
+    stays in the router's audit under the project's own retention, and copying
+    it here would quietly create a second copy with a different expiry.
+    """
+
+    database: AsyncDatabase[Any]
+
+    async def save(self, sample: Sample) -> None:
+        await self.database["online_samples"].update_one(
+            {"request_id": sample.request_id}, {"$setOnInsert": _from_sample(sample)}, upsert=True
+        )
+
+    async def list(self, project_id: str, *, limit: int) -> list[Sample]:
+        cursor = (
+            self.database["online_samples"]
+            .find({"project_id": project_id})
+            .sort("sampled_at", -1)
+            .limit(limit)
+        )
+        return [_to_sample(document) async for document in cursor]
+
+
+def _from_sample(sample: Sample) -> dict[str, Any]:
+    return {
+        "_id": sample.id,
+        "project_id": sample.project_id,
+        "request_id": sample.request_id,
+        "alias": sample.alias,
+        "scores": sample.scores,
+        "unscorable": sample.unscorable,
+        "judge_alias": sample.judge_alias,
+        "sampled_at": sample.sampled_at,
+    }
+
+
+def _to_sample(document: dict[str, Any]) -> Sample:
+    return Sample(
+        id=str(document["_id"]),
+        project_id=str(document.get("project_id", "")),
+        request_id=str(document.get("request_id", "")),
+        alias=str(document.get("alias", "")),
+        scores={str(name): float(value) for name, value in (document.get("scores") or {}).items()},
+        unscorable=document.get("unscorable"),
+        judge_alias=document.get("judge_alias"),
+        sampled_at=_aware(document.get("sampled_at")),
+    )

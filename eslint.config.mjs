@@ -13,6 +13,11 @@ export default tseslint.config(
       '.nx/**',
       '**/generated/**',
       'docs/reference/**',
+      // Agent scratch space, which holds git worktrees -- a whole second
+      // checkout with no node_modules in it. Linting those reports thousands of
+      // unresolved-type errors in files that are not ours. `.prettierignore`
+      // already excludes it for the same reason.
+      '.claude/**',
       // The Python virtualenv brings in third-party libraries' JS.
       '.venv/**',
       '**/__pycache__/**',
@@ -58,15 +63,15 @@ export default tseslint.config(
         'error',
         {
           selector: 'FunctionDeclaration[params.length>4]',
-          message: 'Mais de quatro parametros: use um objeto de comando.',
+          message: 'More than four parameters: use a command object.',
         },
         {
           selector: 'ArrowFunctionExpression[params.length>4]',
-          message: 'Mais de quatro parametros: use um objeto de comando.',
+          message: 'More than four parameters: use a command object.',
         },
         {
           selector: "MethodDefinition[kind!='constructor'] > FunctionExpression[params.length>4]",
-          message: 'Mais de quatro parametros: use um objeto de comando.',
+          message: 'More than four parameters: use a command object.',
         },
       ],
       complexity: ['error', 15],
@@ -104,7 +109,14 @@ export default tseslint.config(
     // type information cannot run on them.
     // The `disableTypeChecked` rules have to be MERGED: overwriting `rules`
     // after the spread would erase exactly what switches those rules off.
-    files: ['tools/**/*.mjs', '**/*.config.mjs', '**/*.config.ts', '*.cjs', '**/*.cjs'],
+    files: [
+      'tools/**/*.mjs',
+      'examples/**/*.mjs',
+      '**/*.config.mjs',
+      '**/*.config.ts',
+      '*.cjs',
+      '**/*.cjs',
+    ],
     ...tseslint.configs.disableTypeChecked,
     rules: {
       ...tseslint.configs.disableTypeChecked.rules,

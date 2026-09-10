@@ -201,5 +201,20 @@ class TestParseScore:
         # could read the judge is a verdict this platform would be inventing.
         assert parse_score(said) is None
 
-    def test_clamps_a_judge_that_invented_its_own_scale(self) -> None:
+    @pytest.mark.parametrize("said", ["1.5", "7", "10", "Score: 4 out of 5"])
+    def test_a_grade_on_somebody_else_s_scale_is_unreadable(self, said: str) -> None:
+        # Not clamped to 1.0, which is what used to happen: the pattern matched
+        # the leading `1` of `1.5` and reported a perfect score for an answer
+        # nobody could read. A judge answering out of 5 has not answered the
+        # question this platform asked.
+        assert parse_score(said) is None
+
+    def test_it_keeps_looking_past_a_number_that_is_not_a_grade(self) -> None:
+        # A year, a count, a citation -- the first number in a sentence is
+        # often not the verdict, and refusing on it would throw away a grade
+        # the judge did give.
+        assert parse_score("In 2026 the runbook changed, so the answer is 0.9") == 0.9
+
+    def test_the_boundaries_are_grades(self) -> None:
         assert parse_score("1.0") == 1.0
+        assert parse_score("0.0") == 0.0

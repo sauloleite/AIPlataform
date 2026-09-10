@@ -1,0 +1,158 @@
+# The half of the evaluation gate that cannot run on a pull request.
+#
+# `ci.yml` gates every push on what costs nothing: red team, agent trajectories
+# and `ci-smoke` against `tools/mock-provider`, which answers the literal string
+# `ok`. Groundedness and relevance need a judge, a judge needs a real model, and
+# a real model costs money and minutes on every push. So they run here, nightly
+# and on demand, against `platform-ci` -- gating a release rather than a merge.
+#
+# This workflow does nothing at all without a provider key. That is deliberate
+# and it is stated in the summary of every run: a scheduled job that quietly
+# passes because it could not reach a model is the exact failure ADR-021 exists
+# to prevent, one level up.
+name: Judged evaluations
+
+on:
+  schedule:
+    # 04:17 UTC. Off the hour, because everything scheduled on it queues behind
+    # everything else scheduled on it.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: The suite file or directory to run
+        default: evals/suites/platform-runbook.yaml
+      alias:
+        description: The alias under test
+        default: chat-fast
+      judge:
+        description: The alias that grades. It must not be the one under test
+        default: chat-advanced
+
+permissions:
+  contents: read
+
+concurrency:
+  group: judged-evals
+  cancel-in-progress: false
+
+env:
+  SUITE: ${{ inputs.suite || 'evals/suites/platform-runbook.yaml' }}
+  ALIAS: ${{ inputs.alias || 'chat-fast' }}
+  JUDGE_ALIAS: ${{ inputs.judge || 'chat-advanced' }}
+
+jobs:
+  judged:
+    name: Judged suites against platform-ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # A repository with no provider key cannot measure quality, and must not
+      # imply that it did. Every later step is skipped and the summary says so
+      # in words rather than leaving a green tick to be read as evidence.
+      - name: Is there a model to grade with
+        id: provider
+        env:
+          PROVIDER_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "${PROVIDER_KEY}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No OPENAI_API_KEY is configured. NOTHING was measured."
+            {
+              echo "## Nothing ran"
+              echo
+              echo "No provider key is configured, so no judged suite could run."
+              echo "**This run is not evidence of quality.** Set the \`OPENAI_API_KEY\`"
+              echo "secret to make it one."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bring the platform up
+        if: steps.provider.outputs.configured == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          cp .env.example .env
+          # The real compose file, with no CI overlay: the point of this run is
+          # to measure the platform against a model that can actually be wrong.
+          #
+          # Named services rather than the whole file. `ollama` is the reason:
+          # it pulls a model on first start, and the alias under test here is a
+          # provider one, so the wait would be spent on a model nothing calls.
+          docker compose -f deploy/compose/docker-compose.yml --env-file .env \
+            up -d --build --wait --wait-timeout 600 \
+            traefik identity governance guardrails inference-router
+
+      - uses: astral-sh/setup-uv@v5
+        if: steps.provider.outputs.configured == 'true'
+        with: { enable-cache: true }
+      - uses: actions/setup-python@v5
+        if: steps.provider.outputs.configured == 'true'
+        with: { python-version: '3.12' }
+      - run: uv sync --all-packages --frozen
+        if: steps.provider.outputs.configured == 'true'
+
+      - name: Seed the project the suites run against
+        if: steps.provider.outputs.configured == 'true'
+        run: bash tools/scripts/seed.sh
+
+      # Before a token is spent. This is where an uncalibrated judge (ADR-028),
+      # an evaluator name with a typo in it, or a missing dataset shows up --
+      # each of them for the price of reading a file.
+      - name: The suites are runnable at all
+        if: steps.provider.outputs.configured == 'true'
+        run: |
+          uv run python -m evaluation.cli run --dry-run --suite "$SUITE"
+
+      - name: Judged suites
+        if: steps.provider.outputs.configured == 'true'
+        id: run
+        run: |
+          set -uo pipefail
+          read -r TOKEN PROJECT < <(bash tools/scripts/eval-credentials.sh platform-ci)
+
+          # -e off around the run itself: the exit code IS the result here, and
+          # with -e on, a suite below its threshold would kill the step before
+          # the code could be read or the summary written.
+          set +e
+          AIA_ACCESS_TOKEN="$TOKEN" AIA_PROJECT_ID="$PROJECT" \
+            INFERENCE_ROUTER_URL=http://localhost:3003 \
+            GUARDRAILS_URL=http://localhost:8001 \
+            uv run python -m evaluation.cli run --suite "$SUITE" --alias "$ALIAS" \
+            | tee /tmp/judged.txt
+          STATUS=${PIPESTATUS[0]}
+          set -e
+
+          {
+            echo "## \`$SUITE\` on \`$ALIAS\`, graded by \`$JUDGE_ALIAS\`"
+            echo
+            echo '```'
+            cat /tmp/judged.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # ADR-021 keeps these apart all the way to the pipeline. 1 is quality
+          # below a threshold: look at the prompts. 2 is a measurement that did
+          # not happen: look at the wiring. Collapsing them into "red" sends
+          # half the people to the wrong place.
+          case "$STATUS" in
+            0) echo "::notice::every judged suite passed" ;;
+            1) echo "::error::a judged suite fell below its threshold" ;;
+            *) echo "::error::a judged run could not be measured (exit ${STATUS})" ;;
+          esac
+          exit "$STATUS"
+
+      - name: Logs on failure
+        if: failure() && steps.provider.outputs.configured == 'true'
+        run: docker compose -f deploy/compose/docker-compose.yml logs --tail 200
+
+      # A judged suite runs against a real provider and spends real money. The
+      # stack outlives the step that started it, so it is stopped explicitly
+      # rather than left to the runner going away.
+      - name: Stop the platform
+        if: always() && steps.provider.outputs.configured == 'true'
+        run: docker compose -f deploy/compose/docker-compose.yml down -v

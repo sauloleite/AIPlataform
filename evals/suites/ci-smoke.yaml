@@ -1,0 +1,37 @@
+# The suite a pull request can honestly gate on.
+#
+# Every evaluator here is deterministic: `exact_match` is string comparison,
+# `safety` is a call to guardrails' own detector, and the two ceilings are
+# arithmetic over what the run measured. None of them asks a model to grade
+# anything, which is what makes this affordable on every push and is the whole
+# basis of M6's split.
+#
+# `platform-runbook.yaml` beside this one is the other half. It measures
+# groundedness and relevance, both of which need a judge, and a judge needs a
+# real model — so it runs on a schedule against `platform-ci`, not per PR.
+#
+# What this suite proves is narrow and worth stating plainly: that the path from
+# a request to a scored answer works end to end, and that a regression in it
+# turns CI red. It does NOT measure answer quality. Against
+# `docker-compose.ci.yml` the model is `tools/mock-provider`, which answers the
+# literal string `ok` — so the expected answers here are `ok`, and a suite that
+# claimed to measure quality against that would be measuring nothing.
+name: ci-smoke
+dataset: ../datasets/ci-smoke.jsonl
+
+# The local alias, which the CI overlay points at the deterministic provider.
+alias: chat-local
+project: platform-ci
+
+evaluators:
+  # Every case, not most: the provider is deterministic, so anything below 1.0
+  # means the platform changed what it does with an answer on the way back.
+  - exact_match: { threshold: 1.0 }
+  # No slack on a leak, the same rule the judged suite uses.
+  - safety: { threshold: 1.0 }
+  # Generous, because this is a smoke test and CI runners vary. It catches a
+  # tenfold regression, not a slow afternoon.
+  - cost_per_answer: { max_micros: 1000 }
+  - latency_p95: { max_ms: 10000 }
+
+min_cases: 4

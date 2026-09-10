@@ -7,9 +7,11 @@ it is a green run that measured nothing. These make that reachable.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from aia_errors import DomainError, ErrorCode
 from aia_messaging import CloudEvent
+from evaluation.domain.calibration import Calibration, LabelledAnswer, Pair, held_out
 from evaluation.domain.entities import Answer, DatasetCase
 from evaluation.domain.suite import Suite
 
@@ -58,6 +60,9 @@ class FakeTarget:
 
 @dataclass(slots=True)
 class FakeJudge:
+    #: The alias that grades. A fake honours the port, and the port names it so
+    #: the runner can notice a model marking its own homework.
+    alias: str = "judge-alias"
     verdict: float = 1.0
     criteria_seen: list[str] = field(default_factory=list)
     #: Set to simulate a judge that answered something unreadable.
@@ -96,3 +101,71 @@ class RecordingPublisher:
 
     async def publish(self, event: CloudEvent) -> None:
         self.published.append(event)
+
+
+def held_out_ids(count: int, *, prefix: str = "label") -> list[str]:
+    """Ids that land in the held-out half.
+
+    Generated rather than written down because the split is decided by the
+    HASH of the id: a test that hard-coded `c1`, `c2`, `c3` would silently be
+    testing the development half the day somebody changed the fraction.
+    """
+    found: list[str] = []
+    number = 0
+    while len(found) < count:
+        number += 1
+        candidate = f"{prefix}-{number}"
+        if held_out(candidate):
+            found.append(candidate)
+    return found
+
+
+def a_calibration(
+    *,
+    judge_alias: str = "judge-alias",
+    evaluator: str = "groundedness",
+    size: int = 12,
+    computed_at: datetime | None = None,
+) -> Calibration:
+    """A record that clears the bar: the judge agreed with every label.
+
+    Alternating pass and fail on purpose. A calibration where every label is
+    good has an undefined kappa, and that is a refusal of its own -- so a fake
+    built that way would make every test about something else fail for a reason
+    that has nothing to do with what it was testing.
+    """
+    pairs = tuple(
+        Pair(id=label_id, human=float(index % 2), judge=float(index % 2))
+        for index, label_id in enumerate(held_out_ids(size))
+    )
+    return Calibration(
+        judge_alias=judge_alias,
+        evaluator=evaluator,
+        computed_at=computed_at or datetime.now(UTC),
+        held_out=pairs,
+        development=(),
+    )
+
+
+@dataclass(slots=True)
+class FakeCalibrations:
+    """The records on file. Empty means nobody ever checked the judge."""
+
+    records: list[Calibration] = field(default_factory=list)
+    asked: list[tuple[str, str]] = field(default_factory=list)
+
+    def find(self, *, judge_alias: str, evaluator: str) -> Calibration | None:
+        self.asked.append((judge_alias, evaluator))
+        for record in self.records:
+            if record.judge_alias == judge_alias and record.evaluator == evaluator:
+                return record
+        return None
+
+
+@dataclass(slots=True)
+class FakeLabels:
+    labels: list[LabelledAnswer] = field(default_factory=list)
+
+    def load(self, path: str) -> list[LabelledAnswer]:
+        _ = path
+        return list(self.labels)

@@ -40,6 +40,15 @@ export interface RoutingInfo {
   cacheHit: boolean;
   policyStale: boolean;
   budgetUnverified: boolean;
+  /**
+   * The content reached the provider without being inspected.
+   *
+   * Beside `budgetUnverified` because it is the same kind of fact: the platform
+   * answered while one of its controls was not working, and the caller is
+   * entitled to know which. A restricted project never sees this true -- it is
+   * refused instead (ADR-026).
+   */
+  guardrailsUnverified: boolean;
   attempts: number;
 }
 

@@ -292,6 +292,16 @@ components:
           type: boolean
           default: false
           description: Stores prompt and answer in the audit, after PII redaction.
+        content_retention_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+          default: 90
+          description: |
+            How long an audit record for this project is kept. Per project
+            rather than per service because it is a decision about personal
+            data, and a classification that changes should be able to change it
+            (reference doc 02 §10.2, LGPD).
         version:
           type: integer
           description: Increments on every change. The router uses it to invalidate its cache.
@@ -305,4 +315,5 @@ components:
         model_rules: { type: array, items: { $ref: '#/components/schemas/ModelRule' } }
         max_concurrent_requests: { type: integer, minimum: 1 }
         content_capture: { type: boolean }
+        content_retention_days: { type: integer, minimum: 1, maximum: 3650 }
       additionalProperties: false

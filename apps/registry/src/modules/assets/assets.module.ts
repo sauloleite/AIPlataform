@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Module, type Provider } from '@nestjs/common';
 import { Db, MongoClient } from 'mongodb';
+import { Redis } from 'ioredis';
+import { HEALTH_CHECKS, HealthController, type DependencyCheck } from '@aia/nest';
 
 import { CONFIG, type RegistryConfig } from '../../config/index.js';
 import {
@@ -31,6 +33,31 @@ import { AssetsController } from './presentation/http/assets.controller.js';
 const adapters: Provider[] = [
   { provide: CLOCK, useValue: { now: (): Date => new Date() } satisfies Clock },
   { provide: ID_GENERATOR, useValue: { next: (): string => randomUUID() } satisfies IdGenerator },
+  {
+    provide: HEALTH_CHECKS,
+    useFactory: (db: Db, redis: Redis): DependencyCheck[] => [
+      {
+        name: 'mongodb',
+        critical: true,
+        check: async () => {
+          await db.command({ ping: 1 });
+          return { status: 'ok' as const };
+        },
+      },
+      // Non-critical: the registry serves definitions from Mongo. Redis backs
+      // the outbox relay, and a relay that is behind delays an event rather
+      // than making a read wrong.
+      {
+        name: 'redis',
+        critical: false,
+        check: async () => {
+          await redis.ping();
+          return { status: 'ok' as const };
+        },
+      },
+    ],
+    inject: [Db, Redis],
+  },
   {
     provide: ASSET_REPOSITORY,
     useFactory: (client: MongoClient, db: Db): AssetRepository =>
@@ -97,7 +124,7 @@ const useCases: Provider[] = [
 ];
 
 @Module({
-  controllers: [AssetsController],
+  controllers: [AssetsController, HealthController],
   providers: [...adapters, ...useCases],
   exports: [ASSET_REPOSITORY, VERSION_REPOSITORY],
 })

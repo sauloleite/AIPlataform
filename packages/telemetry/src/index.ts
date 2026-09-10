@@ -1,10 +1,13 @@
 export { AIA_ATTR, AIA_METRIC, GEN_AI_ATTR, GEN_AI_SPAN } from './attributes.js';
 export {
   annotateActiveSpan,
+  annotateOutcome,
   businessAttributes,
   currentTraceId,
+  outcomeAttributes,
   recordSpanError,
   type BusinessContext,
+  type RequestOutcome,
 } from './context.js';
 export {
   getMeter,
@@ -13,3 +16,11 @@ export {
   stopTelemetry,
   type TelemetryOptions,
 } from './bootstrap.js';
+export {
+  recordBudgetRejection,
+  recordCircuitStateChange,
+  recordInference,
+  resetInstruments,
+  type InferenceLabels,
+  type InferenceMeasurement,
+} from './metrics.js';

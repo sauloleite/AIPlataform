@@ -334,7 +334,13 @@ components:
           description: |
             Built-in tools are executed by the platform; the rest reach an
             endpoint you configure.
-          enum: [mcp, openapi, function, builtin]
+
+            `function` was removed: it named a tool the platform would never
+            call, so publishing one succeeded and invoking it failed with what
+            looked like a misconfiguration. A client-executed tool needs the
+            runtime to pause and hand the call back, which does not exist; the
+            type returns with it.
+          enum: [mcp, openapi, builtin]
         risk_level: { $ref: '#/components/schemas/RiskLevel' }
         endpoint:
           type: string
@@ -345,7 +351,10 @@ components:
           enum: [file_search, code_interpreter, web_search]
         parameters:
           type: object
-          description: JSON Schema for the arguments, for a `function` tool.
+          description: |
+            JSON Schema for the arguments. Optional, and worth declaring: the
+            gateway validates a call against it before dispatch (ADR-025), so a
+            tool without one is a tool whose arguments nobody checks.
           additionalProperties: true
         connection_id:
           type: string

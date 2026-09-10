@@ -18,6 +18,7 @@ import { CompleteDocumentUpload } from '../../application/use-cases/complete-upl
 import { CreateStore } from '../../application/use-cases/create-store.js';
 import {
   DeleteDocument,
+  DeleteStore,
   GetStore,
   ListDocuments,
   ListStores,
@@ -59,6 +60,7 @@ export class StoresController {
     @Inject(CompleteDocumentUpload) private readonly completeUpload: CompleteDocumentUpload,
     @Inject(ListDocuments) private readonly listDocuments: ListDocuments,
     @Inject(DeleteDocument) private readonly deleteDocument: DeleteDocument,
+    @Inject(DeleteStore) private readonly deleteStore: DeleteStore,
     @Inject(SearchStore) private readonly searchStore: SearchStore,
     @Inject(ChangeStoreVisibility) private readonly changeVisibility: ChangeStoreVisibility,
     @Inject(SubscribeToStore) private readonly subscribe: SubscribeToStore,
@@ -189,6 +191,17 @@ export class StoresController {
     const projectId = projectIdOf(request);
     authorize(POLICY.READ_PROJECT, { principal: principalOf(request), projectId });
     return toStoreResponse(await this.getStore.execute(projectId, storeId));
+  }
+
+  @Delete(':storeId')
+  @HttpCode(204)
+  async remove(
+    @Req() request: AuthenticatedRequest,
+    @Param('storeId') storeId: string,
+  ): Promise<void> {
+    const projectId = projectIdOf(request);
+    authorize(POLICY.EDIT_ASSETS, { principal: principalOf(request), projectId });
+    await this.deleteStore.execute(projectId, storeId);
   }
 
   @Post(':storeId/documents')

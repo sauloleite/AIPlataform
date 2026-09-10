@@ -504,3 +504,50 @@ export async function deleteConnectionAction(
 function isConnectionKind(value: string): value is ConnectionKind {
   return value === 'bearer' || value === 'api_key' || value === 'basic' || value === 'none';
 }
+
+/**
+ * Records what somebody decided about a trace they just read.
+ *
+ * The one write in the console that produces evidence rather than
+ * configuration: this is where a failure taxonomy comes from, and where the
+ * labels that calibrate a judge come from when the trace carries its text.
+ */
+export async function annotateTraceAction(
+  _previous: ActionResult,
+  form: FormData,
+): Promise<ActionResult> {
+  const projectId = text(form, 'projectId');
+  const traceId = text(form, 'traceId');
+  const verdict = text(form, 'verdict');
+
+  if (verdict !== 'good' && verdict !== 'bad') {
+    return { error: 'Say whether the answer was good or bad.' };
+  }
+
+  // Checked here as well as in the service. The service is what enforces it —
+  // this is so the person gets the sentence back in the form rather than a
+  // round trip and a Problem Details title.
+  if (verdict === 'bad' && text(form, 'failureMode').trim() === '') {
+    return { error: 'Say what went wrong: a verdict nobody can act on teaches nothing.' };
+  }
+
+  const { authorize, annotateTrace } = await getContainer();
+
+  try {
+    const { accessToken } = await authorize.execute();
+    await annotateTrace.execute(accessToken, projectId, {
+      traceId,
+      verdict,
+      failureMode: verdict === 'bad' ? text(form, 'failureMode') : '',
+      note: text(form, 'note'),
+      evaluator: text(form, 'evaluator'),
+      question: text(form, 'question'),
+      answer: text(form, 'answer'),
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+
+  revalidatePath(`/projects/${projectId}/traces/${traceId}`);
+  return {};
+}

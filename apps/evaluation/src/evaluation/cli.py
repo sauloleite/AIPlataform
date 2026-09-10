@@ -15,15 +15,33 @@ import argparse
 import asyncio
 import os
 import sys
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import Any
 
 from aia_errors import DomainError
 from evaluation.application.dto import Caller, RunSuiteCommand
+from evaluation.application.use_cases.calibrate_judge import (
+    CalibrateJudge,
+    CalibrateJudgeCommand,
+)
+from evaluation.application.use_cases.labels_from_annotations import LabelsFromAnnotations
 from evaluation.application.use_cases.run_suite import RunSuite
 from evaluation.config import get_settings
+from evaluation.domain.annotation import Annotation, AnnotationVerdict
+from evaluation.domain.calibration import DEFAULT_BAR, Calibration, refusal
 from evaluation.domain.entities import EvaluationRun, RunStatus
-from evaluation.infrastructure.files import JsonlDatasetSource, YamlSuiteSource
+from evaluation.domain.suite import Suite
+from evaluation.infrastructure.files import (
+    JsonCalibrationStore,
+    JsonlDatasetSource,
+    JsonlLabelSource,
+    JsonlLabelWriter,
+    YamlSuiteSource,
+)
 from evaluation.infrastructure.in_memory import InMemoryRunRepository
 from evaluation.infrastructure.platform_clients import (
+    AnnotationsClient,
     GuardrailsSafetyInspector,
     ModelJudge,
     RouterTargetClient,
@@ -59,6 +77,35 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Loads and validates the suites without calling a model",
     )
+
+    calibrate = sub.add_parser(
+        "calibrate",
+        help="Grades human-labelled answers with the judge and writes the record",
+    )
+    calibrate.add_argument("--labels", default="evals/labels", help="A label file or directory")
+    calibrate.add_argument("--out", default="evals/calibration", help="Where the record is written")
+    calibrate.add_argument("--project", default=os.environ.get("AIA_PROJECT_ID", ""))
+    calibrate.add_argument("--token", default=os.environ.get("AIA_ACCESS_TOKEN", ""))
+    calibrate.add_argument(
+        "--evaluator",
+        action="append",
+        default=[],
+        help="Only this evaluator; repeatable. The default is every labelled one",
+    )
+
+    labels = sub.add_parser(
+        "labels",
+        help="Appends the annotations people wrote about real traces to the label files",
+    )
+    labels.add_argument("--out", default="evals/labels", help="Where the label files live")
+    labels.add_argument("--project", default=os.environ.get("AIA_PROJECT_ID", ""))
+    labels.add_argument("--token", default=os.environ.get("AIA_ACCESS_TOKEN", ""))
+    labels.add_argument("--limit", type=int, default=500, help="Annotations to read")
+    labels.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Reports what would be written without writing it",
+    )
     return parser
 
 
@@ -69,15 +116,29 @@ async def run_command(args: argparse.Namespace) -> int:
         return _validate_only(args.suite)
 
     if not args.project or not args.token:
-        print("A project id and an access token are required (AIA_PROJECT_ID, AIA_ACCESS_TOKEN).")
+        # Naming the suite's own `project` here is the only thing that field
+        # does. It is a slug and the runner needs an id, so it cannot be used
+        # directly -- but telling somebody which project a suite expects is
+        # better than a generic refusal, and better than a key nothing reads.
+        print(
+            "A project id and an access token are required "
+            "(AIA_PROJECT_ID, AIA_ACCESS_TOKEN).\n"
+            f"{_expected_projects(args.suite)}"
+        )
         return 2
 
     use_case = RunSuite(
         suites=YamlSuiteSource(),
         datasets=JsonlDatasetSource(),
         target=RouterTargetClient(base_url=settings.inference_router_url),
+        # In memory on purpose. The CLI is a GATE, not a record: it runs on a
+        # developer's laptop and in CI, where a database write would either
+        # need a connection nobody has or leave rows from an ephemeral runner.
+        # `POST /v1/evaluations` is the entry point that persists.
         runs=InMemoryRunRepository(),
         events=_NoEvents(),
+        calibrations=JsonCalibrationStore(settings.calibrations_path),
+        max_calibration_age_days=settings.judge_calibration_max_age_days,
         judge=(
             ModelJudge(base_url=settings.inference_router_url, alias=settings.judge_alias)
             if settings.judge_alias
@@ -103,6 +164,186 @@ async def run_command(args: argparse.Namespace) -> int:
     for run in runs:
         _report(run)
 
+    return exit_code_for(runs)
+
+
+async def calibrate_command(args: argparse.Namespace) -> int:
+    """Measures the judge against the labels, writes the record, reports it.
+
+    Exits non-zero when the judge does not clear the bar, because that is a
+    result somebody has to act on -- a nightly job that only logged it would
+    leave every judged suite refusing to run with nobody told why. The record is
+    written either way: a judge that failed is exactly the record worth reading.
+    """
+    settings = get_settings()
+
+    if not settings.judge_alias:
+        print("No judge alias is configured (JUDGE_ALIAS). There is nothing to calibrate.")
+        return 2
+
+    if not args.project or not args.token:
+        print("A project id and an access token are required (AIA_PROJECT_ID, AIA_ACCESS_TOKEN).")
+        return 2
+
+    use_case = CalibrateJudge(
+        labels=JsonlLabelSource(),
+        judge=ModelJudge(base_url=settings.inference_router_url, alias=settings.judge_alias),
+    )
+    store = JsonCalibrationStore(args.out)
+
+    try:
+        calibrations = await use_case.execute(
+            CalibrateJudgeCommand(
+                labels_path=args.labels,
+                caller=Caller(principal_id="cli", project_id=args.project, access_token=args.token),
+                evaluators=tuple(args.evaluator),
+            )
+        )
+    except DomainError as error:
+        print(f"{CROSS} {error.code}: {error.message} {error.details}")
+        return 2
+
+    clear = True
+    for calibration in calibrations:
+        path = store.save(calibration)
+        clear = _report_calibration(calibration, path) and clear
+
+    return 0 if clear else 1
+
+
+def _report_calibration(calibration: Calibration, path: str) -> bool:
+    measured = calibration.measured()
+    development = calibration.on_development()
+    reason = refusal(
+        calibration,
+        judge_alias=calibration.judge_alias,
+        evaluator=calibration.evaluator,
+        bar=DEFAULT_BAR,
+    )
+
+    mark = TICK if reason is None else CROSS
+    kappa = "undefined" if measured.kappa is None else f"{measured.kappa:.2f}"
+    print(f"\n{mark} {calibration.evaluator}  judge={calibration.judge_alias}  -> {path}")
+    print(
+        f"     held out   n={measured.sample_size:<4} kappa={kappa:<9} "
+        f"bias={measured.bias:+.3f}  mae={measured.mean_absolute_error:.3f}"
+    )
+    # Printed next to it because the gap between them is the only warning that
+    # a criterion was tuned until the cases somebody was reading came out right.
+    development_kappa = "undefined" if development.kappa is None else f"{development.kappa:.2f}"
+    print(
+        f"     developed  n={development.sample_size:<4} kappa={development_kappa:<9} "
+        f"bias={development.bias:+.3f}  mae={development.mean_absolute_error:.3f}"
+    )
+    if measured.false_pass is not None:
+        print(
+            f"     let through {measured.false_pass:.0%} of what a human rejected, "
+            f"held back {measured.false_fail or 0:.0%} of what a human accepted"
+        )
+    if reason is not None:
+        print(f"     {reason}")
+    return reason is None
+
+
+async def labels_command(args: argparse.Namespace) -> int:
+    """Reads this project's annotations and appends the ones that are labels.
+
+    The pairing that makes error analysis pay for itself twice: the same reading
+    that produces a failure taxonomy produces the labels a judge is calibrated
+    against, so the judge is measured on the platform's real mistakes rather
+    than on cases somebody invented.
+    """
+    settings = get_settings()
+
+    if not args.project or not args.token:
+        print("A project id and an access token are required (AIA_PROJECT_ID, AIA_ACCESS_TOKEN).")
+        return 2
+
+    client = AnnotationsClient(base_url=settings.evaluation_url)
+    try:
+        raw = await client.list(project_id=args.project, access_token=args.token, limit=args.limit)
+    except DomainError as error:
+        print(f"{CROSS} {error.code}: {error.message}")
+        return 2
+
+    writer = JsonlLabelWriter(args.out)
+    export = LabelsFromAnnotations(known=writer.existing_ids()).execute(
+        [_annotation_of(item) for item in raw]
+    )
+
+    print(f"{len(raw)} annotations read")
+    # Both numbers, always. An export that reported only what it wrote would
+    # make a project with content capture switched off look like one nobody
+    # has annotated.
+    print(f"     {export.skipped} carried no evaluator or no text, so are not labels")
+    if export.duplicates:
+        print(f"     {len(export.duplicates)} already in the label files")
+
+    if not export.labels:
+        return 0
+
+    for evaluator, labels in sorted(export.by_evaluator.items()):
+        if args.dry_run:
+            print(f"     would append {len(labels)} to {evaluator}.jsonl")
+            continue
+        path = writer.append(evaluator, labels)
+        print(f"{TICK} appended {len(labels)} to {path}")
+
+    if not args.dry_run:
+        # Appending labels changes what a calibration means: the judge on file
+        # was measured against the set as it was.
+        print("\nThe judge's calibration is now older than the labels. Re-run `make calibrate`.")
+    return 0
+
+
+def _annotation_of(raw: dict[str, Any]) -> Annotation:
+    """The API's JSON, back into the domain object.
+
+    The CLI reads its own service over HTTP rather than out of the database, so
+    this is a real boundary and not ceremony: what comes back is whatever the
+    contract says, from whichever environment the token is for.
+    """
+    return Annotation(
+        id=str(raw.get("id") or ""),
+        project_id=str(raw.get("project_id") or ""),
+        trace_id=str(raw.get("trace_id") or ""),
+        verdict=AnnotationVerdict(str(raw.get("verdict") or AnnotationVerdict.BAD.value)),
+        principal_id=str(raw.get("principal_id") or ""),
+        failure_mode=raw.get("failure_mode"),
+        note=str(raw.get("note") or ""),
+        evaluator=raw.get("evaluator"),
+        question=str(raw.get("question") or ""),
+        answer=str(raw.get("answer") or ""),
+        context=tuple(str(item) for item in raw.get("context") or []),
+    )
+
+
+def _expected_projects(suite_path: str) -> str:
+    """Which project the suites at this path say they are for."""
+    try:
+        slugs = sorted({suite.project for suite in YamlSuiteSource().load(suite_path)})
+    except DomainError:
+        return ""
+    if not slugs:
+        return ""
+    return f"The suites here expect the project {', '.join(slugs)} (`make seed` creates it)."
+
+
+def exit_code_for(runs: Sequence[EvaluationRun]) -> int:
+    """What CI is told, in one number.
+
+    ADR-021 keeps `failed` and `errored` apart, and this is where that
+    distinction reaches a pipeline. `failed` is quality below a threshold: look
+    at the prompts. `errored` is a measurement that did not happen: look at the
+    wiring. Both stop a merge, and collapsing them into "red" -- which this did,
+    returning 1 for either -- sends half the people to the wrong place.
+
+    `errored` wins over `failed` when a batch contains both, because a run that
+    could not be measured makes the whole batch's verdict provisional: the
+    suites that did fail may not be the only ones that would have.
+    """
+    if any(run.status is RunStatus.ERRORED for run in runs):
+        return 2
     return 1 if any(run.gated for run in runs) else 0
 
 
@@ -135,7 +376,9 @@ def _validate_only(path: str) -> int:
 
     Worth its own mode: a suite naming an evaluator nobody implements is a
     typo, and finding it in CI before any inference is spent is the cheapest
-    place to find it.
+    place to find it. The judge's calibration is checked here for the same
+    reason -- it is the other thing that stops a judged suite dead, and reading
+    a file is cheaper than discovering it after the first case.
     """
     try:
         suites = YamlSuiteSource().load(path)
@@ -143,10 +386,45 @@ def _validate_only(path: str) -> int:
         print(f"{CROSS} {error.code}: {error.message} {error.details}")
         return 2
 
+    runnable = True
     for suite in suites:
         evaluators = ", ".join(spec.name for spec in suite.evaluators)
-        print(f"{TICK} {suite.name}: {evaluators} (alias {suite.alias})")
-    return 0
+        reasons = _uncalibrated(suite)
+        mark = TICK if not reasons else CROSS
+        print(f"{mark} {suite.name}: {evaluators} (alias {suite.alias})")
+        for reason in reasons:
+            print(f"     {reason}")
+        runnable = runnable and not reasons
+
+    # 2, not 1: an uncalibrated judge is a measurement that cannot happen, which
+    # is the same class of problem as a missing suite and a different one from
+    # quality below a threshold.
+    return 0 if runnable else 2
+
+
+def _uncalibrated(suite: Suite) -> list[str]:
+    """Why this suite's judged evaluators could not run, if they could not."""
+    settings = get_settings()
+    if not suite.needs_judge:
+        return []
+    if not settings.judge_alias:
+        return ["no judge alias is configured (JUDGE_ALIAS), and this suite is judged"]
+
+    store = JsonCalibrationStore(settings.calibrations_path)
+    reasons = []
+    for spec in suite.evaluators:
+        if not spec.judged:
+            continue
+        reason = refusal(
+            store.find(judge_alias=settings.judge_alias, evaluator=spec.name),
+            judge_alias=settings.judge_alias,
+            evaluator=spec.name,
+            max_age_days=settings.judge_calibration_max_age_days,
+            now=datetime.now(UTC),
+        )
+        if reason is not None:
+            reasons.append(reason)
+    return reasons
 
 
 def _report(run: EvaluationRun) -> None:
@@ -173,6 +451,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "run":
         return asyncio.run(run_command(args))
+    if args.command == "calibrate":
+        return asyncio.run(calibrate_command(args))
+    if args.command == "labels":
+        return asyncio.run(labels_command(args))
     return 2
 
 

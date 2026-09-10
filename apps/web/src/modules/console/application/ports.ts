@@ -84,6 +84,32 @@ export type ChatStreamEvent =
  * it would only spread the same wiring across more files. The adapter behind it
  * is what knows that identity, governance and the router are separate services.
  */
+/** One inference call, as the router's audit kept it. */
+export interface CompletionRecord {
+  requestId: string;
+  alias: string;
+  status: string;
+  promptTokens: number;
+  completionTokens: number;
+  costMicros: number;
+  currency: string;
+  durationMs: number;
+  errorCode: string | null;
+  guardrailsUnverified: boolean;
+  /**
+   * Whether this project keeps content at all.
+   *
+   * False means `prompt` and `completion` are null BY POLICY. Rendering that
+   * as an empty conversation would send somebody to turn on a setting that is
+   * already off for a reason.
+   */
+  contentCaptured: boolean;
+  prompt: string | null;
+  completion: string | null;
+  occurredAt: string;
+  expiresAt: string;
+}
+
 export interface PlatformGateway {
   signIn(username: string, password: string): Promise<{ accessToken: string; expiresIn: number }>;
   currentPrincipal(accessToken: string): Promise<Principal>;
@@ -111,6 +137,19 @@ export interface PlatformGateway {
 
   getPolicy(accessToken: string, projectId: string): Promise<PolicySnapshot>;
   listModels(accessToken: string, projectId: string): Promise<ModelAliasSummary[]>;
+
+  /**
+   * What one inference call recorded, content included when the project keeps it.
+   *
+   * The console could show that a call was slow and never what it said, which
+   * is the half somebody is usually looking for. Requires `project_owner` or
+   * `auditor`, so a viewer sees the panel refuse rather than the content.
+   */
+  readCompletionRecord(
+    accessToken: string,
+    projectId: string,
+    requestId: string,
+  ): Promise<CompletionRecord>;
 
   streamChat(accessToken: string, request: ChatRequest): AsyncIterable<ChatStreamEvent>;
 }

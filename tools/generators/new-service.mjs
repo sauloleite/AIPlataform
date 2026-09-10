@@ -473,6 +473,7 @@ requires-python = ">=3.12"
 dependencies = [
     "aia-auth",
     "aia-errors",
+    "aia-fastapi",
     "aia-messaging",
     "aia-resilience",
     "aia-telemetry",
@@ -639,31 +640,22 @@ class InMemoryExampleRepository:
 
   await write(
     `src/${snake}/config.py`,
-    `"""Configuration validated at startup. 12-factor."""
+    `"""Configuration validated at startup. 12-factor.
+
+Only what is this service's own. The port, the issuer and the OTLP endpoint
+come from \`PlatformSettings\`, so a change to how the platform authenticates
+is one edit and not one per service.
+"""
 
 from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from aia_fastapi import PlatformSettings
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=None, extra="ignore")
-
-    node_env: str = "development"
+class Settings(PlatformSettings):
     port: int = ${port}
-    log_level: str = "info"
-
-    identity_issuer: str = "http://identity:3001"
-    identity_audience: str = "aia-platform"
-    identity_jwks_url: str | None = None
-
-    otel_exporter_otlp_endpoint: str | None = None
-
-    @property
-    def jwks_url(self) -> str:
-        return self.identity_jwks_url or f"{self.identity_issuer}/.well-known/jwks.json"
 
 
 @lru_cache(maxsize=1)
@@ -682,7 +674,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from aia_auth import JwtVerifier
-
 from ${snake}.application.use_cases.example import RunExample
 from ${snake}.config import Settings, get_settings
 from ${snake}.infrastructure.in_memory import InMemoryExampleRepository
@@ -720,111 +711,60 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from aia_auth import Principal, bearer_token, require_membership
-from aia_errors import ProjectRequiredError
-from aia_telemetry import AiaAttr, annotate_active_span
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter
 
+from aia_fastapi import AuthenticatedCaller, authenticated, health_router
 from ${snake}.application.dto import ExampleCommand
 from ${snake}.container import get_container
 
 router = APIRouter(prefix="/v1/${name}", tags=["${name}"])
-health_router = APIRouter(prefix="/health", tags=["health"])
 
-
-def _authenticate(
-    authorization: Annotated[str | None, Header()] = None,
-    x_project_id: Annotated[str | None, Header()] = None,
-) -> tuple[Principal, str]:
-    """\`Depends\` exists only in presentation (reference doc 03 §3.3)."""
-    principal = get_container().verifier.verify(bearer_token(authorization))
-    if not x_project_id:
-        raise ProjectRequiredError()
-    if principal.type != "service":
-        require_membership(principal, x_project_id)
-
-    annotate_active_span(
-        **{AiaAttr.PROJECT_ID: x_project_id, AiaAttr.PRINCIPAL_ID: principal.id}
-    )
-    return principal, x_project_id
-
-
-Authenticated = Annotated[tuple[Principal, str], Depends(_authenticate)]
+# Declared here at MODULE level, and that is not a style choice: with
+# \`from __future__ import annotations\` every annotation is a string, and FastAPI
+# resolves those against the module namespace. An alias declared inside a
+# function is invisible there and every guarded route answers 422 with no hint
+# as to why.
+Authenticated = Annotated[AuthenticatedCaller, authenticated(lambda: get_container().verifier)]
 
 
 @router.get("")
 async def list_items(auth: Authenticated) -> dict[str, str]:
-    _, project_id = auth
-    example = await get_container().example.execute(ExampleCommand(project_id=project_id))
+    example = await get_container().example.execute(ExampleCommand(project_id=auth.project_id))
     return {"id": example.id, "project_id": example.project_id}
 
 
-@health_router.get("/live")
-def live() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@health_router.get("/ready")
-def ready() -> dict[str, str]:
-    return {"status": "ok"}
+# Readiness is where a service says whether it can serve. Replace this with the
+# dependency check that is true for THIS service; liveness must stay untouched,
+# because restarting a pod when Mongo blinks turns degradation into an outage.
+health = health_router()
 `,
   );
 
   await write(
     `src/${snake}/main.py`,
-    `"""FastAPI application for aia-${name}."""
+    `"""FastAPI application for aia-${name}.
+
+Logging, telemetry and Problem Details are the platform's, not this service's:
+they come from \`aia_fastapi.create_app\`, so a service cannot accidentally
+configure them differently and go invisible in Grafana while looking healthy.
+"""
 
 from __future__ import annotations
 
-import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from fastapi import FastAPI
 
-from aia_errors import PROBLEM_CONTENT_TYPE, DomainError, problem_from_unknown
-from aia_telemetry import current_trace_id, start_telemetry
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-
+from aia_fastapi import create_app as create_platform_app
 from ${snake}.config import get_settings
-from ${snake}.presentation.http.routes import health_router, router
-
-logger = logging.getLogger(__name__)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    _ = app
-    settings = get_settings()
-    logging.basicConfig(level=settings.log_level.upper())
-    start_telemetry("aia-${name}")
-    yield
+from ${snake}.presentation.http.routes import health, router
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="AIA ${pascal}", version="1.0.0", lifespan=lifespan)
-
-    @app.exception_handler(DomainError)
-    async def handle_domain_error(request: Request, error: DomainError) -> JSONResponse:
-        return JSONResponse(
-            status_code=error.status,
-            content=error.to_problem(instance=request.url.path, trace_id=current_trace_id()),
-            media_type=PROBLEM_CONTENT_TYPE,
-        )
-
-    @app.exception_handler(Exception)
-    async def handle_unexpected(request: Request, error: Exception) -> JSONResponse:
-        # Stack in the log, correlated by trace_id; never in the response.
-        logger.exception("request failed at %s", request.url.path)
-        problem = problem_from_unknown(
-            error, instance=request.url.path, trace_id=current_trace_id()
-        )
-        return JSONResponse(
-            status_code=problem["status"], content=problem, media_type=PROBLEM_CONTENT_TYPE
-        )
-
-    app.include_router(router)
-    app.include_router(health_router)
-    return app
+    return create_platform_app(
+        service_name="aia-${name}",
+        title="AIA ${pascal}",
+        settings=get_settings(),
+        routers=(router, health),
+    )
 
 
 app = create_app()
@@ -857,24 +797,39 @@ async def test_creates_and_persists() -> None:
 console.log(`Generating apps/${name} (${runtime}, port ${port}):\n`);
 await (runtime === 'node' ? generateNode() : generatePython());
 
-const nextSteps =
+// The steps this generator does NOT do, because they edit files shared by every
+// service and a generator that rewrites those is a generator nobody trusts.
+// They are numbered continuously: a gap in the list reads as a missing step.
+const perRuntime =
   runtime === 'node'
-    ? `  1. Add "apps/${name}" to pnpm-workspace.yaml
-  2. Add { "path": "./apps/${name}/tsconfig.build.json" } to the references in
-     tsconfig.build.json at the repository root
-  3. pnpm install && pnpm exec tsc --build tsconfig.build.json`
-    : `  1. The uv workspace already includes apps/* — run: uv sync --all-packages
-  2. Add the layer contracts to .importlinter (root_packages and layers)`;
+    ? [
+        `Add "apps/${name}" to pnpm-workspace.yaml`,
+        `Add { "path": "./apps/${name}/tsconfig.build.json" } to the references in
+     tsconfig.build.json at the repository root`,
+        `pnpm install && pnpm exec tsc --build tsconfig.build.json`,
+      ]
+    : [
+        `The uv workspace already includes apps/* — run: uv sync --all-packages`,
+        `Add the layer contracts to .importlinter (root_packages and layers)`,
+        // Without this, mypy resolves the same file under two module names and
+        // gives up. `make typecheck` fails on the fresh service until it is done.
+        `Add apps/${name}/src to mypy_path in pyproject.toml`,
+      ];
+
+const steps = [
+  ...perRuntime,
+  `Add the service to deploy/compose/docker-compose.yml`,
+  `Add it to the chart in deploy/helm/aia-platform/values.yaml and services.yaml`,
+  `Write the contract in contracts/openapi/${name}.v1.yaml, and the service to
+     SERVICES in tools/scripts/check_routes.py`,
+  `Replace "Example" with a real use case and delete the skeleton`,
+];
 
 console.log(`
 Service apps/${name} created.
 
 Next steps:
-${nextSteps}
-  4. Add the service to deploy/compose/docker-compose.yml
-  5. Add it to the chart in deploy/helm/aia-platform/values.yaml and services.yaml
-  6. Write the contract in contracts/openapi/${name}.v1.yaml
-  7. Replace "Example" with a real use case and delete the skeleton
+${steps.map((step, index) => `  ${index + 1}. ${step}`).join('\n')}
 
 The dependency rule already applies: 'make arch' fails if domain/ imports from
 infrastructure/.

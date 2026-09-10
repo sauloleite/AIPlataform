@@ -1,14 +1,28 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { AliasNotFoundError, StreamInterruptedError } from '../../domain/errors/index.js';
+import type { Bulkhead, BulkheadLease } from '@aia/resilience';
+import {
+  annotateOutcome,
+  recordBudgetRejection,
+  recordInference,
+  type BusinessContext,
+} from '@aia/telemetry';
+import {
+  AliasNotFoundError,
+  BudgetExhaustedError,
+  GuardrailUnavailableError,
+  StreamInterruptedError,
+} from '../../domain/errors/index.js';
 import { BudgetReservation } from '../../domain/entities/budget-reservation.js';
 import { ModelSelectionPolicy } from '../../domain/services/model-selection-policy.js';
 import { Cost } from '../../domain/value-objects/index.js';
+import type { DataClassification } from '../../domain/value-objects/index.js';
 import type { Deployment } from '../../domain/entities/deployment.js';
 import type { UsageRecorded, UsageStatus } from '../../domain/events/usage-recorded.js';
 import {
   ALIAS_REGISTRY,
   AUDIT_REPOSITORY,
   BUDGET_LEDGER,
+  BULKHEAD,
   CLOCK,
   GUARDRAIL,
   POLICY_READER,
@@ -73,8 +87,26 @@ export class CreateChatCompletion {
     @Inject(AUDIT_REPOSITORY) private readonly audit: AuditRepository,
     @Inject(USAGE_PUBLISHER) private readonly usage: UsagePublisher,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Inject(BULKHEAD) private readonly bulkhead: Bulkhead,
     private readonly executor: DeploymentExecutor,
   ) {}
+
+  /**
+   * A slot for this project, or a 429.
+   *
+   * Taken AFTER the cache lookup on purpose: an answer already in Redis costs
+   * nothing to serve, and refusing it for concurrency would make the platform
+   * least available exactly when the cache is doing the most good.
+   *
+   * The limit comes from the project's own policy rather than from
+   * `POLICIES.INFERENCE.bulkhead`, which carries only the shape -- how long to
+   * wait for a slot, how long a lease may outlive a dead process. How many
+   * requests a project may run at once is a governance decision, changeable
+   * without a deploy.
+   */
+  private admit(plan: Plan, projectId: string): Promise<BulkheadLease> {
+    return this.bulkhead.acquire(projectId, plan.policyResult.maxConcurrentRequests);
+  }
 
   async execute(command: CreateChatCompletionCommand): Promise<ChatCompletionResult> {
     const plan = await this.prepare(command);
@@ -84,56 +116,73 @@ export class CreateChatCompletion {
       return this.finishFromCache(command, plan, startedAt);
     }
 
-    const reservation = await this.reserve(command, plan);
+    // Before the budget reservation: a request refused for concurrency must not
+    // have reserved money it will never spend, and releasing a reservation the
+    // caller never got an answer for is work with no purpose.
+    const lease = await this.admit(plan, command.projectId);
 
+    // The reservation is INSIDE the try, and that is the whole point of the
+    // nesting: `reserve` throws when the budget is exhausted, and with it
+    // outside, the `finally` below never ran. A project at its limit under load
+    // then leaked a slot per refused request until the lease TTL, so
+    // `budget_exhausted` quietly turned into `concurrency_limit` as well.
     try {
-      const attempt = await this.executor.chat(plan.request, plan.deployments, {
-        stream: false,
-      });
-      const cost = attempt.deployment.costOf(
-        attempt.result.usage.promptTokens,
-        attempt.result.usage.completionTokens,
-      );
+      const reservation = await this.reserve(command, plan);
 
-      await this.ledger.commit(reservation, cost);
-      if (plan.cacheable) {
-        await this.cache.store(command.projectId, command.alias, plan.promptForCache, {
-          content: attempt.result.content,
-          usage: attempt.result.usage,
-          deploymentId: attempt.deployment.id,
+      try {
+        const attempt = await this.executor.chat(
+          plan.request,
+          plan.deployments,
+          { stream: false },
+          this.callerOf(command, plan),
+        );
+        const cost = attempt.deployment.costOf(
+          attempt.result.usage.promptTokens,
+          attempt.result.usage.completionTokens,
+        );
+
+        await this.commit(reservation, cost);
+        if (plan.cacheable) {
+          await this.cache.store(command.projectId, command.alias, plan.promptForCache, {
+            content: attempt.result.content,
+            usage: attempt.result.usage,
+            deploymentId: attempt.deployment.id,
+          });
+        }
+
+        const routing = this.routingOf({
+          deployment: attempt.deployment,
+          cost,
+          plan,
+          attempts: attempt.attempts,
+          cacheHit: false,
         });
+        await this.settle({
+          command,
+          plan,
+          routing,
+          usage: attempt.result.usage,
+          startedAt,
+          status: 'completed',
+        });
+
+        return {
+          id: command.requestId,
+          model: command.alias,
+          content: attempt.result.content,
+          finishReason: attempt.result.finishReason,
+          usage: totals(attempt.result.usage),
+          routing,
+          ...(attempt.result.toolCalls !== undefined && { toolCalls: attempt.result.toolCalls }),
+        };
+      } catch (error) {
+        // Saga compensation: whatever was reserved must not stay locked.
+        await this.ledger.release(reservation);
+        await this.recordFailure(command, plan, error, startedAt);
+        throw error;
       }
-
-      const routing = this.routingOf({
-        deployment: attempt.deployment,
-        cost,
-        plan,
-        attempts: attempt.attempts,
-        cacheHit: false,
-      });
-      await this.settle({
-        command,
-        plan,
-        routing,
-        usage: attempt.result.usage,
-        startedAt,
-        status: 'completed',
-      });
-
-      return {
-        id: command.requestId,
-        model: command.alias,
-        content: attempt.result.content,
-        finishReason: attempt.result.finishReason,
-        usage: totals(attempt.result.usage),
-        routing,
-        ...(attempt.result.toolCalls !== undefined && { toolCalls: attempt.result.toolCalls }),
-      };
-    } catch (error) {
-      // Saga compensation: whatever was reserved must not stay locked.
-      await this.ledger.release(reservation);
-      await this.recordFailure(command, plan, error, startedAt);
-      throw error;
+    } finally {
+      await lease.release();
     }
   }
 
@@ -155,8 +204,16 @@ export class CreateChatCompletion {
       return;
     }
 
-    const reservation = await this.reserve(command, plan);
+    // Held for the whole stream, not just until the first token: a generation
+    // that runs for two minutes occupies the project's capacity for two
+    // minutes, and `POLICIES.INFERENCE_STREAMING` gives the lease a longer TTL
+    // for exactly that reason.
+    const lease = await this.admit(plan, command.projectId);
 
+    // Reserved inside the try for the same reason `execute` does it: a budget
+    // refusal must not leave the slot held. Declared out here because the catch
+    // and the finally both have to know whether there is anything to settle.
+    let reservation: BudgetReservation | undefined;
     let emitted = '';
     let firstTokenAt: Date | undefined;
     let usage: TokenUsage = { promptTokens: plan.estimatedPromptTokens, completionTokens: 0 };
@@ -166,7 +223,14 @@ export class CreateChatCompletion {
     let toolCalls: ToolCallOutput[] = [];
 
     try {
-      const opened = await this.executor.openStream(plan.request, plan.deployments);
+      // Assigns the outer binding, deliberately: a `const` here would shadow it,
+      // leaving the catch and the finally looking at an undefined reservation.
+      reservation = await this.reserve(command, plan);
+      const opened = await this.executor.openStream(
+        plan.request,
+        plan.deployments,
+        this.callerOf(command, plan),
+      );
       deployment = opened.deployment;
       attempts = opened.attempts;
 
@@ -186,7 +250,7 @@ export class CreateChatCompletion {
       }
 
       const cost = deployment.costOf(usage.promptTokens, usage.completionTokens);
-      await this.ledger.commit(reservation, cost);
+      await this.commit(reservation, cost);
 
       const routing = this.routingOf({ deployment, cost, plan, attempts, cacheHit: false });
       const result: ChatCompletionResult = {
@@ -217,14 +281,14 @@ export class CreateChatCompletion {
 
       yield { kind: 'finished', result };
     } catch (error) {
-      if (emitted !== '' && deployment !== undefined) {
+      if (emitted !== '' && deployment !== undefined && reservation !== undefined) {
         // Partial delivery already happened: commit what was consumed and flag it.
         const partialUsage = {
           promptTokens: usage.promptTokens,
           completionTokens: this.estimator.countText(emitted),
         };
         const cost = deployment.costOf(partialUsage.promptTokens, partialUsage.completionTokens);
-        await this.ledger.commit(reservation, cost);
+        await this.commit(reservation, cost);
 
         const routing = this.routingOf({ deployment, cost, plan, attempts, cacheHit: false });
         await this.settle({
@@ -245,10 +309,32 @@ export class CreateChatCompletion {
         return;
       }
 
-      await this.ledger.release(reservation);
       await this.recordFailure(command, plan, error, startedAt);
       throw error;
+    } finally {
+      await this.letGo(reservation, lease);
     }
+  }
+
+  /**
+   * Gives back whatever a stream that did not finish is still holding.
+   *
+   * In a `finally`, because a generator abandoned by its consumer runs nothing
+   * else: no catch, no commit. The slot was already released here -- a client
+   * that disconnects would otherwise hold it until the lease TTL -- and the
+   * reservation was not, so the money stayed held and the project's remaining
+   * budget under-reported until the reservation expired on its own.
+   *
+   * Releasing what was already committed or released is a no-op in the ledger,
+   * which is what lets the compensation live in one place instead of being
+   * threaded through every exit.
+   */
+  private async letGo(
+    reservation: BudgetReservation | undefined,
+    lease: BulkheadLease,
+  ): Promise<void> {
+    if (reservation !== undefined) await this.ledger.release(reservation);
+    await lease.release();
   }
 
   /* ---------------------------------------------------------------- */
@@ -270,7 +356,8 @@ export class CreateChatCompletion {
       command.alias,
     );
 
-    const messages = await this.applyGuardrails(command);
+    const guarded = await this.applyGuardrails(command, policyResult.policy.classification);
+    const messages = guarded.messages;
     const promptForCache = messages.map((message) => message.content ?? '').join('\n');
 
     const request: ChatRequestInput = {
@@ -294,6 +381,7 @@ export class CreateChatCompletion {
 
     return {
       policyResult,
+      guardrailsUnverified: guarded.unverified,
       deployments,
       request,
       promptForCache,
@@ -313,10 +401,16 @@ export class CreateChatCompletion {
    */
   private async applyGuardrails(
     command: CreateChatCompletionCommand,
-  ): Promise<CreateChatCompletionCommand['messages']> {
-    if (!this.guardrail.available) return command.messages;
+    classification: DataClassification,
+  ): Promise<{ messages: CreateChatCompletionCommand['messages']; unverified: boolean }> {
+    if (!this.guardrail.available) {
+      this.refuseUnverifiedRestricted(classification, command.projectId);
+      return { messages: command.messages, unverified: true };
+    }
 
     const inspected: CreateChatCompletionCommand['messages'] = [];
+    let unverified = false;
+
     for (const message of command.messages) {
       if (message.content === null || message.content === '') {
         inspected.push(message);
@@ -324,11 +418,42 @@ export class CreateChatCompletion {
       }
 
       const verdict = await this.guardrail.inspect(message.content, command.projectId);
+      // One unverified message makes the whole request unverified: what matters
+      // downstream is whether anything reached a provider uninspected.
+      if (verdict.unverified) {
+        this.refuseUnverifiedRestricted(classification, command.projectId);
+        unverified = true;
+      }
       // The pipeline decides whether to block; the text that proceeds is redacted.
       const context = await this.guardrailPipeline.run(verdict.text, command.projectId, verdict);
       inspected.push({ ...message, content: context.text });
     }
-    return inspected;
+    return { messages: inspected, unverified };
+  }
+
+  /**
+   * ADR-026: a restricted project fails closed.
+   *
+   * Everywhere else the platform keeps answering with the content uninspected,
+   * because refusing every request over a downed guardrail trades a risk for an
+   * outage. `restricted` is the classification that says the trade is not
+   * available: a project whose promise is that its data never leaves unredacted
+   * cannot keep that promise with the redactor unreachable.
+   */
+  private refuseUnverifiedRestricted(classification: DataClassification, projectId: string): void {
+    if (classification === 'restricted') throw new GuardrailUnavailableError(projectId);
+  }
+
+  /**
+   * Commits the real cost, and records it on the span.
+   *
+   * A method rather than three annotated call sites: the blocking path, the
+   * streaming path and the partial-delivery path all commit, and a fourth
+   * added later would otherwise be the one that forgets.
+   */
+  private async commit(reservation: BudgetReservation, cost: Cost): Promise<void> {
+    await this.ledger.commit(reservation, cost);
+    annotateOutcome({ budgetCommittedMicros: Number(cost.micros) });
   }
 
   private async reserve(
@@ -346,14 +471,32 @@ export class CreateChatCompletion {
       return BudgetReservation.unverified(command.projectId, plan.policyResult.currency);
     }
 
-    return this.ledger.reserve({
-      projectId: command.projectId,
-      estimated,
-      periodKey: plan.policyResult.periodKey,
-      periodEndsInSeconds: plan.policyResult.periodEndsInSeconds,
-      limitMicros: plan.policyResult.limitMicros,
-      blockAtLimit: plan.policyResult.blockAtLimit,
-    });
+    let reservation: BudgetReservation;
+    try {
+      reservation = await this.ledger.reserve({
+        projectId: command.projectId,
+        estimated,
+        periodKey: plan.policyResult.periodKey,
+        periodEndsInSeconds: plan.policyResult.periodEndsInSeconds,
+        limitMicros: plan.policyResult.limitMicros,
+        blockAtLimit: plan.policyResult.blockAtLimit,
+      });
+    } catch (error) {
+      // Counted apart from the failures, because a refusal on budget is not
+      // one: the platform did exactly what it was told to. A rising rejection
+      // rate is a conversation with a customer; a rising error rate is an
+      // incident, and a dashboard that mixes them tells you neither.
+      if (error instanceof BudgetExhaustedError) {
+        recordBudgetRejection({ projectId: command.projectId, alias: command.alias });
+      }
+      throw error;
+    }
+
+    // The estimate, not the cost: the gap between the two is what says whether
+    // the ceiling this platform holds against a project's balance is anywhere
+    // near what its calls actually spend.
+    annotateOutcome({ budgetReservedMicros: Number(reservation.estimated.micros) });
+    return reservation;
   }
 
   private async finishFromCache(
@@ -393,6 +536,22 @@ export class CreateChatCompletion {
     };
   }
 
+  /**
+   * Who the model call is for, for the span the executor opens.
+   *
+   * The provider-facing request deliberately carries no tenant -- it is what
+   * goes on the wire to OpenAI -- so the identity travels beside it instead of
+   * inside it.
+   */
+  private callerOf(command: CreateChatCompletionCommand, plan: Plan): BusinessContext {
+    return {
+      projectId: command.projectId,
+      principalId: command.principalId,
+      alias: command.alias,
+      dataClassification: plan.policyResult.policy.classification,
+    };
+  }
+
   private routingOf(input: {
     deployment: Deployment;
     cost: Cost;
@@ -410,6 +569,7 @@ export class CreateChatCompletion {
       cacheHit,
       policyStale: plan.policyResult.stale,
       budgetUnverified: !this.ledger.isAvailable(),
+      guardrailsUnverified: plan.guardrailsUnverified,
       attempts,
     };
   }
@@ -428,6 +588,37 @@ export class CreateChatCompletion {
     const extra = input.extra ?? {};
     const now = this.clock.now();
     const durationMs = now.getTime() - startedAt.getTime();
+
+    // Onto the request's own span, because `settle` is the one place that runs
+    // on every path -- cache hit, success and failure alike. Every one of these
+    // was already computed here for the audit and the event, and reached no
+    // span: "how much traffic did we serve on a stale policy last Tuesday" was
+    // a question only answerable by reading a database.
+    annotateOutcome({
+      cacheHit: routing.cacheHit,
+      policyStale: routing.policyStale,
+      budgetUnverified: routing.budgetUnverified,
+      guardrailsUnverified: routing.guardrailsUnverified,
+    });
+
+    // The same numbers as the event below, as METRICS. The event is the record
+    // of one call and the audit is the evidence; neither can answer "what is
+    // the p95 this hour" without a scan per panel refresh, which is what a
+    // dashboard would need on every reload.
+    recordInference({
+      projectId: command.projectId,
+      alias: command.alias,
+      provider: routing.provider,
+      dataZone: routing.dataZone,
+      status,
+      durationMs,
+      ...(extra.timeToFirstTokenMs !== undefined && {
+        timeToFirstTokenMs: extra.timeToFirstTokenMs,
+      }),
+      promptTokens: usage.promptTokens,
+      completionTokens: usage.completionTokens,
+      costMicros: Number(routing.cost.micros),
+    });
 
     const record: UsageRecorded = {
       requestId: command.requestId,
@@ -450,6 +641,7 @@ export class CreateChatCompletion {
       status,
       ...(extra.errorCode !== undefined && { errorCode: extra.errorCode }),
       budgetUnverified: routing.budgetUnverified,
+      guardrailsUnverified: routing.guardrailsUnverified,
       policyStale: routing.policyStale,
       occurredAt: now,
     };
@@ -470,6 +662,8 @@ export class CreateChatCompletion {
         currency: routing.cost.currency,
         durationMs,
         ...(extra.errorCode !== undefined && { errorCode: extra.errorCode }),
+        guardrailsUnverified: routing.guardrailsUnverified,
+        expiresAt: expiryFrom(now, plan.policyResult.contentRetentionDays),
         // Content is stored only with the project's opt-in, and it arrives
         // already redacted from the guardrail pipeline (doc 02 §10.2).
         ...(plan.policyResult.contentCapture && {
@@ -533,6 +727,7 @@ function fold(chunk: ChatChunk, totals: StreamTotals): StreamTotals {
 
 interface Plan {
   policyResult: PolicyResult;
+  guardrailsUnverified: boolean;
   deployments: Deployment[];
   request: ChatRequestInput;
   promptForCache: string;
@@ -552,4 +747,9 @@ function totals(usage: TokenUsage): {
     completionTokens: usage.completionTokens,
     totalTokens: usage.promptTokens + usage.completionTokens,
   };
+}
+
+/** When a record written now stops existing, given the project's retention. */
+function expiryFrom(now: Date, retentionDays: number): Date {
+  return new Date(now.getTime() + retentionDays * 24 * 60 * 60 * 1000);
 }

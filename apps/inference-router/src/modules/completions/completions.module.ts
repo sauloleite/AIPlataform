@@ -8,14 +8,17 @@ import {
   ServiceTokenProvider,
   type DependencyCheck,
 } from '@aia/nest';
+import { POLICIES, RedisBulkhead } from '@aia/resilience';
 import { CreateChatCompletion } from './application/use-cases/create-chat-completion.js';
 import { CreateEmbeddings } from './application/use-cases/create-embeddings.js';
 import { ListModels } from './application/use-cases/list-models.js';
+import { ReadCompletionRecord } from './application/use-cases/read-completion-record.js';
 import { DeploymentExecutor } from './application/services/deployment-executor.js';
 import {
   ALIAS_REGISTRY,
   AUDIT_REPOSITORY,
   BUDGET_LEDGER,
+  BULKHEAD,
   CLOCK,
   GUARDRAIL,
   ID_GENERATOR,
@@ -100,6 +103,15 @@ const adapters: Provider[] = [
     inject: [Redis],
   },
   {
+    provide: BULKHEAD,
+    // In Redis, not in the process. The limit is what a PROJECT may run at
+    // once, and with three router replicas a per-process semaphore would let it
+    // run three times that. The policy supplies the wait and the lease TTL; the
+    // ceiling itself arrives with each request's own policy.
+    useFactory: (redis: Redis) => new RedisBulkhead(redis, POLICIES.INFERENCE.bulkhead),
+    inject: [Redis],
+  },
+  {
     provide: ServiceTokenProvider,
     useFactory: (config: RouterConfig) =>
       new ServiceTokenProvider({
@@ -117,6 +129,7 @@ const adapters: Provider[] = [
         governanceUrl: config.GOVERNANCE_URL,
         serviceToken: () => tokens.get(),
         cacheTtlSeconds: config.POLICY_CACHE_TTL_SECONDS,
+        defaultRetentionDays: config.AUDIT_RETENTION_DAYS,
         defaultCurrency: config.DEFAULT_CURRENCY,
       }),
     inject: [CONFIG, ServiceTokenProvider],
@@ -144,9 +157,10 @@ const adapters: Provider[] = [
   },
   {
     provide: AUDIT_REPOSITORY,
-    useFactory: (db: Db, config: RouterConfig) =>
-      new MongoAuditRepository(db, config.AUDIT_RETENTION_DAYS),
-    inject: [Db, CONFIG],
+    // No retention argument any more: expiry is written per document from the
+    // project's own policy, so one collection can hold two answers.
+    useFactory: (db: Db) => new MongoAuditRepository(db),
+    inject: [Db],
   },
   {
     provide: USAGE_PUBLISHER,
@@ -209,6 +223,13 @@ const adapters: Provider[] = [
 
 @Module({
   controllers: [CompletionsController, HealthController],
-  providers: [CreateChatCompletion, CreateEmbeddings, ListModels, DeploymentExecutor, ...adapters],
+  providers: [
+    CreateChatCompletion,
+    CreateEmbeddings,
+    ListModels,
+    ReadCompletionRecord,
+    DeploymentExecutor,
+    ...adapters,
+  ],
 })
 export class CompletionsModule {}

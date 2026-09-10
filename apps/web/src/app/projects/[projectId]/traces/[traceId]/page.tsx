@@ -3,7 +3,11 @@ import { redirect } from 'next/navigation';
 
 import { getContainer } from '../../../../../container';
 import { messageFor, requiresSignIn } from '../../../../../modules/console/domain/errors';
+import type { AnnotationPage } from '../../../../../modules/observability/application/evaluation-ports';
+import type { CompletionView } from '../../../../../modules/observability/application/use-cases/inspect-completion';
 import type { TraceDetail } from '../../../../../modules/observability/domain/trace';
+import { TraceAnnotations } from '../../../../_ui/trace-annotations';
+import { TraceContent } from '../../../../_ui/trace-content';
 import { TraceDetailView } from '../../../../_ui/trace-detail';
 
 export const dynamic = 'force-dynamic';
@@ -14,14 +18,35 @@ export default async function TracePage({
   params: Promise<{ projectId: string; traceId: string }>;
 }): Promise<ReactElement> {
   const { projectId, traceId } = await params;
-  const { authorize, inspectTrace } = await getContainer();
+  const { authorize, inspectTrace, readAnnotations, inspectCompletion } = await getContainer();
 
   let trace: TraceDetail | null = null;
+  let annotations: AnnotationPage = { items: [], taxonomy: [] };
+  let completion: CompletionView = { record: null, reason: 'no-request-id' };
   let failure: string | undefined;
 
+  let annotationsUnavailable = false;
+
   try {
-    await authorize.execute();
+    const { accessToken } = await authorize.execute();
     trace = await inspectTrace.execute(traceId);
+
+    // Separately, and swallowed on purpose: the annotations are on this screen
+    // because reading a trace and saying what was wrong with it is one
+    // activity, but an evaluation service that is down must not take the trace
+    // view with it. Empty is reported as "could not read" rather than rendered
+    // as "nobody has annotated this", which is a different fact.
+    try {
+      annotations = await readAnnotations.execute(accessToken, projectId, { traceId });
+    } catch {
+      annotationsUnavailable = true;
+    }
+
+    // The content is a separate read, from a different service, under a
+    // different permission: `InspectCompletion` reports why there is nothing
+    // rather than throwing, so a viewer without `auditor` sees the trace and a
+    // sentence about what they cannot see.
+    completion = await inspectCompletion.execute(accessToken, projectId, trace?.requestId);
   } catch (error) {
     if (requiresSignIn(error)) redirect('/login');
     failure = messageFor(error);
@@ -42,5 +67,19 @@ export default async function TracePage({
     );
   }
 
-  return <TraceDetailView trace={trace} />;
+  return (
+    <>
+      <TraceDetailView trace={trace} />
+      <TraceContent completion={completion} />
+      <TraceAnnotations
+        projectId={projectId}
+        traceId={traceId}
+        annotations={annotations.items}
+        taxonomy={annotations.taxonomy}
+        unavailable={annotationsUnavailable}
+        capturedQuestion={completion.record?.prompt ?? undefined}
+        capturedAnswer={completion.record?.completion ?? undefined}
+      />
+    </>
+  );
 }

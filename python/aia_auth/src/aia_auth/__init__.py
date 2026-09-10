@@ -14,7 +14,25 @@ import httpx
 import jwt
 from jwt import PyJWKClient
 
-from aia_errors import DomainError, ErrorCode, ForbiddenError, UnauthenticatedError
+from aia_auth.authorization import (
+    POLICY,
+    AccessRequest,
+    Decision,
+    Specification,
+    allow,
+    authorize,
+    can_invoke_tool_risk,
+    data_zone_is_compatible,
+    deny,
+    has_role,
+    has_scope,
+    is_internal_service,
+    is_member_of_project,
+    spec,
+)
+from aia_auth.service_token import ServiceTokenProvider
+from aia_contracts import MAX_ZONES_BY_CLASSIFICATION
+from aia_errors import DomainError, ErrorCode, UnauthenticatedError
 
 ROLES: Final[frozenset[str]] = frozenset(
     {
@@ -26,13 +44,13 @@ ROLES: Final[frozenset[str]] = frozenset(
     }
 )
 
-# ADR-010: maximum zones per classification. A policy may narrow, never widen.
-ZONES_BY_CLASSIFICATION: Final[dict[str, tuple[str, ...]]] = {
-    "public": ("local", "br", "us", "eu", "global"),
-    "internal": ("local", "br", "us", "eu", "global"),
-    "confidential": ("local", "br"),
-    "restricted": ("local",),
-}
+#: ADR-010: maximum zones per classification. A policy may narrow, never widen.
+#:
+#: Re-exported from the contract rather than written here (ADR-027). It used to
+#: be a literal in this file AND in packages/auth AND in aia-governance's domain
+#: AND in the console's -- four independent copies of the one rule that decides
+#: whether restricted data may leave the machine, with nothing comparing them.
+ZONES_BY_CLASSIFICATION: Final[dict[str, tuple[str, ...]]] = MAX_ZONES_BY_CLASSIFICATION
 
 
 class TokenExpiredError(DomainError):
@@ -181,12 +199,6 @@ def bearer_token(authorization_header: str | None) -> str:
     return token
 
 
-def require_membership(principal: Principal, project_id: str) -> None:
-    if principal.is_platform_admin or principal.belongs_to(project_id):
-        return
-    raise ForbiddenError("principal does not belong to the project", project_id=project_id)
-
-
 def zone_is_compatible(classification: str, zone: str) -> bool:
     """ADR-010. An unknown classification fails CLOSED."""
     return zone in ZONES_BY_CLASSIFICATION.get(classification, ())
@@ -197,15 +209,29 @@ def is_expired(principal: Principal, now: float | None = None) -> bool:
 
 
 __all__ = [
+    "POLICY",
     "ROLES",
     "ZONES_BY_CLASSIFICATION",
+    "AccessRequest",
+    "Decision",
     "InvalidTokenError",
     "JwtVerifier",
     "Principal",
     "ProjectMembership",
+    "ServiceTokenProvider",
+    "Specification",
     "TokenExpiredError",
+    "allow",
+    "authorize",
     "bearer_token",
+    "can_invoke_tool_risk",
+    "data_zone_is_compatible",
+    "deny",
+    "has_role",
+    "has_scope",
     "is_expired",
-    "require_membership",
+    "is_internal_service",
+    "is_member_of_project",
+    "spec",
     "zone_is_compatible",
 ]

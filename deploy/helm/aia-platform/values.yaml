@@ -3,7 +3,7 @@
 global:
   imageRegistry: ghcr.io
   imageRepository: sauloleite/aiplataform
-  imageTag: '' # vazio usa o appVersion do Chart
+  imageTag: '' # empty uses the Chart's appVersion
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
 
@@ -31,11 +31,23 @@ redis:
   externalUri: ''
 
 qdrant:
-  enabled: false
+  # aia-knowledge stores every vector here (ADR-006), so it comes up with the
+  # chart. `false` + `externalUrl` points at Qdrant Cloud or an existing cluster.
+  enabled: true
+  persistence:
+    size: 20Gi
   externalUrl: ''
 
 minio:
-  enabled: false
+  # Uploaded documents live here until they are parsed. `false` + `externalUrl`
+  # points at S3, GCS or Blob through their S3-compatible endpoint.
+  enabled: true
+  persistence:
+    size: 20Gi
+  # A Secret holding `root-user` and `root-password`. Generated if empty, which
+  # is fine for a trial and not for production.
+  existingSecret: ''
+  bucket: aia-documents
   externalUrl: ''
 
 ollama:
@@ -157,10 +169,108 @@ inferenceRouter:
     maxReplicas: 20
     targetCPUUtilizationPercentage: 70
 
-agentRuntime:
-  enabled: false # Fase 3 do roadmap
+registry:
+  enabled: true
+  replicaCount: 2
+  port: 3004
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { memory: 512Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+knowledge:
+  enabled: true
+  replicaCount: 2
+  port: 3007
+  embeddingBatchSize: 32
+  # Empty until aia-document-processing exists (roadmap M7): only text, markdown
+  # and JSON parse locally, and any other media type fails that one job.
+  documentProcessingUrl: ''
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 768Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+# The ingestion worker: same image, no HTTP listener.
+#
+# Separate from `knowledge` because it scales on queue depth rather than on
+# request rate, and because a slow ingestion must never make the search API
+# unavailable. Enabling knowledge without this leaves uploads queued forever.
+knowledgeWorker:
+  enabled: true
   replicaCount: 1
+  concurrency: 4
+  resources:
+    requests: { cpu: 200m, memory: 384Mi }
+    limits: { memory: 1Gi }
+
+mcpGateway:
+  enabled: true
+  replicaCount: 2
+  port: 3006
+  auditRetentionDays: 365
+  # A Secret mounted at /run/secrets, holding one file per tool credential
+  # referenced by a Connection (ADR-015, ADR-020).
+  toolSecretsSecret: ''
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { memory: 512Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+agentRuntime:
+  enabled: true
+  replicaCount: 2
   port: 8002
+  maxSteps: 12
+  modelReadTimeoutSeconds: 180
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+evaluation:
+  enabled: true
+  replicaCount: 1
+  port: 8003
+  # The judge must not be the model under test. Empty means judged suites refuse
+  # to run rather than score themselves (ADR-021).
+  judgeAlias: ''
+  # And a judge that grades has to have been measured against human labels
+  # first (ADR-028), from a record under calibrationsPath.
+  judgeCalibrationMaxAgeDays: 90
+  # The online sampler (ADR-030) runs under compose and NOT here. It refuses to
+  # start without a calibration record, which lives in evals/ -- a directory the
+  # image does not contain and no volume here provides. Shipping it as a
+  # Deployment would produce a CrashLoopBackOff the moment somebody enabled
+  # sampling, which is a worse answer than its absence. It arrives with evals/.
+  samplerEnabled: false
+  # These three paths are inside the image, and the image does NOT contain
+  # evals/: deploy/docker/python.Dockerfile copies the service and the shared
+  # libraries, nothing else. In compose the directory arrives as a read-only
+  # bind mount; in Kubernetes there is no such mount, so `POST /v1/evaluations`
+  # here answers 404 for every suite. The gate runs from CI and the CLI, where
+  # the repository is checked out. Mounting evals/ as a ConfigMap is not a
+  # drop-in fix -- a ConfigMap key cannot contain a slash, and a suite refers to
+  # its dataset by relative path.
+  suitesPath: /app/evals/suites
+  labelsPath: /app/evals/labels
+  calibrationsPath: /app/evals/calibration
   resources:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 512Mi }
@@ -184,8 +294,18 @@ web:
 # ---------------------------------------------------------------------------
 # Networking
 # ---------------------------------------------------------------------------
+networking:
+  # `gateway` renders a Gateway plus an HTTPRoute; `ingress` renders the older
+  # Ingress. Kubernetes froze the Ingress API and ingress-nginx was retired in
+  # March 2026 with no further security patches, so the Gateway API is the
+  # default -- switch back only for a cluster with no Gateway controller.
+  mode: gateway
+  gatewayClassName: nginx
+  # An answer streams over minutes. The default would cut it mid-generation.
+  requestTimeout: 600s
+
 ingress:
-  enabled: true
+  # Read only when networking.mode is `ingress`.
   className: nginx
   host: aia.local
   annotations:
@@ -199,6 +319,12 @@ ingress:
 networkPolicy:
   # Denies everything by default and allows only what is needed. Leave it on.
   enabled: true
+  # Which namespace is allowed to reach the platform from outside. Kubernetes
+  # labels every namespace with its own name, so this works untouched for
+  # ingress-nginx, and takes one edit for a Gateway controller elsewhere.
+  edgeNamespaceLabel:
+    key: kubernetes.io/metadata.name
+    value: ingress-nginx
 
 podSecurityContext:
   runAsNonRoot: true
