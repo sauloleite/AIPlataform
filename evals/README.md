@@ -129,5 +129,6 @@ failure — a run that calls the same tool three times and blows its budget — 
 the checks are asserted to catch it, because a suite where everything passes
 proves only that the evaluators return true.
 
-What is NOT here yet: online evaluation of a production traffic sample, judge
-calibration against human labels, and the scheduled run of the judged suites.
+What is NOT here yet: a model-regression suite to gate an alias swap, and a
+per-use-case suite wired to the change that should trigger it — the two rows the
+table above still marks as nothing.

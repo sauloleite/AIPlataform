@@ -8,9 +8,10 @@ FastAPI, with shared libraries mirrored across both languages.
 ```bash
 make bootstrap    # installs pnpm, uv and the dependencies
 make dev          # brings everything up in containers
-make check        # what CI runs: lint, types, architecture, tests
+make check        # what CI runs without Docker: lint, types, architecture,
+                  # route-vs-contract, tests
 make arch         # just the dependency rule
-make e2e          # flow 7.1 against the local environment
+make e2e          # flows 7.1, 7.2 and 7.3 against the local environment
 make contracts    # regenerates the types from contracts/openapi
 ```
 

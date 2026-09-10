@@ -35,7 +35,7 @@ worse, and looks like nothing at all.
 `openapi-typescript` emits types; this is a runtime value, so the generator
 gained a small emitter of its own that writes
 `packages/contracts/src/generated/data-zones.ts` and
-`python/aia_contracts/src/aia_contracts/_generated/data_zones.py`. The four
+`python/aia_contracts/src/aia_contracts/generated/data_zones.py`. The four
 copies now read one of those two. CI regenerates and fails on a diff in either.
 
 It goes in the contract rather than in `packages/auth` because it is a fact

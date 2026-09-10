@@ -46,9 +46,11 @@ production is an incident.
 4. **Canary by project.** Enable the candidate for one volunteer project, leaving
    the current one as fallback. Watch it for a week.
 
-   > Traffic splitting by weight arrives with the Gateway API migration (roadmap
-   > M2). Until then the canary is per project, by enabling the deployment for
-   > that project alone.
+   > The Gateway API migration shipped (ADR-024), and its weights split traffic
+   > between BACKEND SERVICES — not between two model deployments behind one
+   > alias, which is what a model canary needs. Per project remains the
+   > mechanism, and it is the more useful one anyway: a project is a population
+   > whose quality you can compare, and a percentage of requests is not.
 
 5. **Swap the priorities** once the canary is clean: the candidate takes over,
    the old one becomes the fallback.

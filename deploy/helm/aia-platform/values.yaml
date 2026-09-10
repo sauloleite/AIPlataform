@@ -254,6 +254,12 @@ evaluation:
   # And a judge that grades has to have been measured against human labels
   # first (ADR-028), from a record under calibrationsPath.
   judgeCalibrationMaxAgeDays: 90
+  # The online sampler (ADR-030) runs under compose and NOT here. It refuses to
+  # start without a calibration record, which lives in evals/ -- a directory the
+  # image does not contain and no volume here provides. Shipping it as a
+  # Deployment would produce a CrashLoopBackOff the moment somebody enabled
+  # sampling, which is a worse answer than its absence. It arrives with evals/.
+  samplerEnabled: false
   # These three paths are inside the image, and the image does NOT contain
   # evals/: deploy/docker/python.Dockerfile copies the service and the shared
   # libraries, nothing else. In compose the directory arrives as a read-only

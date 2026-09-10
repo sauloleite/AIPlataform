@@ -92,7 +92,7 @@ groups:
         condition: threshold
         annotations:
           summary: 'Circuit for {{ $labels.aia_deployment_id }} opened'
-          runbook: docs/runbooks/provider-outage.md
+          runbook: docs/runbooks/degraded-provider.md
           description: >-
             A provider is failing enough for the breaker to stop trying it.
             Traffic fails over to the next deployment in priority order; this

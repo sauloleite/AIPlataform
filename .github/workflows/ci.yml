@@ -544,15 +544,38 @@ jobs:
           set -euo pipefail
           rendered=$(helm template aia deploy/helm/aia-platform \
             | grep -A2 '^kind: Deployment' | grep 'name:' | sed 's/.*aia-platform-//' | sort -u)
-          for service in identity governance guardrails inference-router registry \
-                         knowledge knowledge-worker mcp-gateway agent-runtime \
-                         evaluation web; do
+
+          # Derived from compose rather than hardcoded: a list typed by hand
+          # stops mentioning whatever was added last, which is exactly the
+          # service most likely to be missing from the chart.
+          expected=$(python3 - <<'PY'
+          import pathlib, yaml
+
+          class Loader(yaml.SafeLoader):
+              pass
+
+          Loader.add_multi_constructor('!', lambda loader, suffix, node: None)
+          compose = yaml.load(pathlib.Path('deploy/compose/docker-compose.yml').read_text(), Loader)
+
+          infra = {'mongo', 'redis', 'minio', 'qdrant', 'lgtm', 'ollama', 'traefik'}
+          # evaluation-sampler is compose-only ON PURPOSE, and it is named here
+          # rather than left out of a list: the chart cannot mount evals/, so the
+          # worker would refuse to start for want of a calibration record. It
+          # joins the chart with that directory.
+          exempt = {'evaluation-sampler'}
+          print('\n'.join(sorted(set(compose['services']) - infra - exempt)))
+          PY
+          )
+
+          missing=0
+          for service in $expected; do
             if ! grep -qx "$service" <<<"$rendered"; then
               echo "::error::$service runs under compose and renders in no chart template"
-              exit 1
+              missing=1
             fi
           done
-          echo "all 11 services render"
+          [ "$missing" -eq 0 ] || exit 1
+          echo "every service compose runs renders in the chart (evaluation-sampler exempt, on purpose)"
 
       # A service can render, be declared in its contract, be reachable in
       # development and still 404 in production, because nothing compared the

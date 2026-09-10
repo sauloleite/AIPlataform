@@ -198,6 +198,11 @@ docker compose -f deploy/compose/docker-compose.yml \
 # Kubernetes (k3s, kind, EKS, GKE, AKS)
 helm install aia deploy/helm/aia-platform \
   --set mongodb.enabled=false --set mongodb.externalUri=mongodb://your-cluster
+
+# On a cluster with no Gateway controller, route with the Ingress instead
+# (ADR-024 keeps it for exactly this). Without either, nothing is reachable
+# from outside the cluster.
+helm install aia deploy/helm/aia-platform --set networking.mode=ingress
 ```
 
 Before the production compose, generate the secrets: see
@@ -226,8 +231,12 @@ documentary:
 - **Legal basis and purpose** are required when a project is created (LGPD art. 7).
 - **PII redaction** before any content is persisted.
 - **Data residency** is provable: the processing zone is on every audit record.
-- **Retention** enforced by the database through TTL, not by a job someone can
-  forget.
+- **Retention** of the inference audit is enforced by the database, per
+  document, so two projects can keep their records for different lengths of time
+  (doc 02 §10.2). It is not universal yet: agent runs, tool invocations before
+  their 365-day TTL, and the annotations this platform now collects are listed
+  with their retention — or their absence of one — in the
+  [LGPD runbook](docs/runbooks/lgpd-data-subject-request.md).
 - **Data subject rights**: procedure in a
   [runbook](docs/runbooks/lgpd-data-subject-request.md).
 - **OWASP Top 10 for LLM**: LLM01, LLM02, LLM06, LLM07 and LLM10 with explicit,
