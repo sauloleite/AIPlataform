@@ -1,4 +1,4 @@
-import type { AuditRecord } from '../../application/ports.js';
+import type { StoredAuditRecord } from '../../application/ports.js';
 
 /**
  * The audit record on the wire.
@@ -9,7 +9,7 @@ import type { AuditRecord } from '../../application/ports.js';
  * `prompt: null` as "nothing was said" is the mistake this field exists to
  * prevent.
  */
-export function toCompletionRecordResponse(record: AuditRecord): Record<string, unknown> {
+export function toCompletionRecordResponse(record: StoredAuditRecord): Record<string, unknown> {
   const captured = record.redactedPrompt !== undefined || record.redactedCompletion !== undefined;
 
   return {
@@ -34,6 +34,10 @@ export function toCompletionRecordResponse(record: AuditRecord): Record<string, 
     prompt: record.redactedPrompt ?? null,
     completion: record.redactedCompletion ?? null,
     occurred_at: record.occurredAt.toISOString(),
-    expires_at: record.expiresAt.toISOString(),
+    // Null rather than a date, for a record older than the field. The backfill
+    // at boot gives every existing record one, so this is the narrow case of a
+    // row written by a replica that has not restarted yet -- and null is the
+    // truth about it: nothing is going to expire it.
+    expires_at: record.expiresAt?.toISOString() ?? null,
   };
 }

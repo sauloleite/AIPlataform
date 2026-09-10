@@ -215,7 +215,11 @@ services:
          {"clientId":"aia-registry",
           "displayName":"Registry",
           "secret":"${REGISTRY_CLIENT_SECRET:-dev-registry-secret-change-in-production}",
-          "scopes":["projects:read"]}]
+          "scopes":["projects:read"]},
+         {"clientId":"aia-evaluation",
+          "displayName":"Evaluation sampler",
+          "secret":"${EVALUATION_CLIENT_SECRET:-dev-evaluation-secret-change-in-production}",
+          "scopes":["projects:read","inference:write","audit:read"]}]
     ports: ['3001:3001']
     depends_on:
       mongo: { condition: service_healthy }
@@ -488,7 +492,9 @@ services:
       start_period: 15s
     labels:
       traefik.enable: 'true'
-      traefik.http.routers.router.rule: 'PathPrefix(`/v1/chat`) || PathPrefix(`/v1/embeddings`) || PathPrefix(`/v1/models`)'
+      # `/v1/completions` is the audit read -- what one call recorded, content
+      # included -- not the OpenAI-compatible completions endpoint.
+      traefik.http.routers.router.rule: 'PathPrefix(`/v1/chat`) || PathPrefix(`/v1/embeddings`) || PathPrefix(`/v1/models`) || PathPrefix(`/v1/completions`)'
       traefik.http.services.router.loadbalancer.server.port: '3000'
 
   agent-runtime:
@@ -626,6 +632,10 @@ services:
       JUDGE_ALIAS: ${JUDGE_ALIAS:-}
       JUDGE_CALIBRATION_MAX_AGE_DAYS: ${JUDGE_CALIBRATION_MAX_AGE_DAYS:-90}
       ONLINE_SAMPLE_RATE: ${ONLINE_SAMPLE_RATE:-0}
+      # `audit:read` is what lets this worker read what a sampled call said;
+      # `inference:write` is what lets it ask a judge. Both are scopes on the
+      # service client above, so an operator who does not want online sampling
+      # simply does not set ONLINE_SAMPLE_RATE.
       SERVICE_CLIENT_ID: ${EVALUATION_CLIENT_ID:-}
       SERVICE_CLIENT_SECRET: ${EVALUATION_CLIENT_SECRET:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318

@@ -35,6 +35,19 @@ async function repositoryWith(...records: AuditRecord[]): Promise<FakeAuditRepos
   return repository;
 }
 
+function aServicePrincipal(scopes: string[]): Principal {
+  return {
+    id: 'aia-evaluation',
+    type: 'service',
+    issuer: 'https://identity.local',
+    expiresAt: Date.now() / 1000 + 3600,
+    globalRoles: [],
+    // Exactly what `AuthenticateClient` signs: no roles, no memberships.
+    memberships: [],
+    scopes,
+  } as unknown as Principal;
+}
+
 function aPrincipal(roles: string[], projectId = 'proj-1'): Principal {
   return {
     id: 'user-ana',
@@ -96,9 +109,85 @@ describe('who may read one', () => {
     ).toThrow(ForbiddenError);
   });
 
+  it('the sampler may, with the scope, because it can never have a role', () => {
+    // A `client_credentials` principal is signed with no roles and no
+    // memberships, so `READ_AUDIT` alone would make online sampling
+    // permanently unscorable rather than merely off (ADR-030).
+    expect(() =>
+      authorize(POLICY.READ_AUDIT_CONTENT, {
+        principal: aServicePrincipal(['audit:read']),
+        projectId: 'proj-1',
+      }),
+    ).not.toThrow();
+  });
+
+  it('a service token without the scope may not', () => {
+    // Otherwise every service token on the platform could read every
+    // conversation, which is a wider bypass than the one being fixed.
+    expect(() =>
+      authorize(POLICY.READ_AUDIT_CONTENT, {
+        principal: aServicePrincipal(['inference:write']),
+        projectId: 'proj-1',
+      }),
+    ).toThrow(ForbiddenError);
+  });
+
+  it('a PERSON with the scope and no role still may not', () => {
+    // The scope narrows the service bypass; it does not become a second way
+    // for a user to acquire the right.
+    const user = aPrincipal(['project_editor']);
+
+    expect(() =>
+      authorize(POLICY.READ_AUDIT_CONTENT, {
+        principal: { ...user, scopes: ['audit:read'] },
+        projectId: 'proj-1',
+      }),
+    ).toThrow(ForbiddenError);
+  });
+
   it('an owner of a different project may not', () => {
     expect(() =>
       authorize(POLICY.READ_AUDIT, {
+        principal: aPrincipal(['project_owner'], 'proj-2'),
+        projectId: 'proj-1',
+      }),
+    ).toThrow(ForbiddenError);
+  });
+});
+
+describe('who may spend a project on a model call', () => {
+  it('a member may, as before', () => {
+    expect(() =>
+      authorize(POLICY.CALL_MODEL, {
+        principal: aPrincipal(['project_viewer']),
+        projectId: 'proj-1',
+      }),
+    ).not.toThrow();
+  });
+
+  it('a service token with inference:write may, having no membership to check', () => {
+    expect(() =>
+      authorize(POLICY.CALL_MODEL, {
+        principal: aServicePrincipal(['inference:write']),
+        projectId: 'proj-1',
+      }),
+    ).not.toThrow();
+  });
+
+  it('a service token without it may not', () => {
+    // The sampler reads audit content with `audit:read`; asking a judge is a
+    // separate right, and holding one must not confer the other.
+    expect(() =>
+      authorize(POLICY.CALL_MODEL, {
+        principal: aServicePrincipal(['audit:read']),
+        projectId: 'proj-1',
+      }),
+    ).toThrow(ForbiddenError);
+  });
+
+  it('a stranger to the project may not', () => {
+    expect(() =>
+      authorize(POLICY.CALL_MODEL, {
         principal: aPrincipal(['project_owner'], 'proj-2'),
         projectId: 'proj-1',
       }),
@@ -121,6 +210,19 @@ describe('the record on the wire', () => {
 
     expect(body.content_captured).toBe(true);
     expect(body.prompt).toBe('how do I restart?');
+  });
+
+  it('a record older than per-project retention reads as never expiring', () => {
+    // Every record written before that field existed. `.toISOString()` on the
+    // missing date threw, so the endpoint answered 500 for exactly the rows an
+    // operator is most likely to be looking at: the old ones.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- dropping the field IS the case
+    const { expiresAt, ...older } = aRecord();
+
+    const body = toCompletionRecordResponse(older);
+
+    expect(body.expires_at).toBeNull();
+    expect(body.occurred_at).toBe('2026-09-09T12:00:00.000Z');
   });
 
   it('a call that failed is still readable, with its error code', () => {

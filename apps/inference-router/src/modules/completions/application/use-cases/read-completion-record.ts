@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { NotFoundError } from '@aia/errors';
-import { AUDIT_REPOSITORY, type AuditRecord, type AuditRepository } from '../ports.js';
+import { AUDIT_REPOSITORY, type AuditRepository, type StoredAuditRecord } from '../ports.js';
 
 /**
  * One inference call, as the audit recorded it.
@@ -25,7 +25,7 @@ export interface CompletionRecordQuery {
 export class ReadCompletionRecord {
   constructor(@Inject(AUDIT_REPOSITORY) private readonly audit: AuditRepository) {}
 
-  async execute(query: CompletionRecordQuery): Promise<AuditRecord> {
+  async execute(query: CompletionRecordQuery): Promise<StoredAuditRecord> {
     const record = await this.audit.find(query.projectId, query.requestId);
 
     // A record from another project answers 404 rather than 403: confirming

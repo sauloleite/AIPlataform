@@ -44,6 +44,24 @@ export const isMemberOfProject = spec<AccessRequest>(
   'principal does not belong to the project',
 );
 
+/**
+ * A service calling another service on nobody's behalf.
+ *
+ * The counterpart of `is_internal_service` in `aia_auth`, which has had it
+ * since the Python services stopped writing `if principal.type != 'service'`
+ * by hand. Named rather than inlined for the same reason: written as a rule it
+ * composes, and the decision records WHICH branch allowed the call.
+ *
+ * On its own it is the widest bypass on the platform -- an internal service
+ * reaching a project it is not a member of -- so it is only ever used narrowed
+ * by something else, such as a scope.
+ */
+export const isInternalService = spec<AccessRequest>(
+  'is an internal service',
+  (request) => request.principal.type === 'service',
+  'principal is not an internal service',
+);
+
 export const hasScope = (scope: string): Specification<AccessRequest> =>
   spec(
     `has the ${scope} scope`,
@@ -112,6 +130,37 @@ export const POLICY = {
   EDIT_ASSETS: hasRole(ROLES.PROJECT_OWNER, ROLES.PROJECT_EDITOR),
   MANAGE_BUDGET: hasRole(ROLES.PROJECT_OWNER),
   READ_AUDIT: hasRole(ROLES.PROJECT_OWNER, ROLES.AUDITOR),
+  /**
+   * Reading what a conversation contained, for a person OR for the platform.
+   *
+   * The second half is what makes online sampling possible at all: the sampler
+   * consumes a queue, so it acts as itself, and a `client_credentials`
+   * principal is signed with no roles and no memberships -- it can never
+   * satisfy `READ_AUDIT`, so every sample it took would have been unscorable
+   * forever (ADR-030).
+   *
+   * Narrowed by a scope rather than opened to every service token: a service
+   * client's scopes are configuration, so an operator grants `audit:read` to
+   * the one worker that needs it and to nothing else. That is the narrowest
+   * identity the platform can express for this, and it is why the scope is
+   * named after the thing rather than after the service.
+   */
+  READ_AUDIT_CONTENT: hasRole(ROLES.PROJECT_OWNER, ROLES.AUDITOR).or(
+    isInternalService.and(hasScope('audit:read')),
+  ),
+  /**
+   * Who may spend a project's budget on a model call.
+   *
+   * Membership, as before, OR a service token carrying `inference:write` --
+   * the scope the router and the agent runtime are already issued. A queue
+   * consumer has no caller to act as, so without this branch the online
+   * sampler could read what a call said and never ask a judge about it.
+   *
+   * It widens nothing by itself: a service client is granted its scopes in
+   * configuration, and a token without `inference:write` is refused exactly as
+   * it was.
+   */
+  CALL_MODEL: isMemberOfProject.or(isInternalService.and(hasScope('inference:write'))),
 } as const;
 
 /**

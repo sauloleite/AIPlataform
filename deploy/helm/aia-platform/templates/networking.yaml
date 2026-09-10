@@ -31,7 +31,9 @@ have no Gateway controller installed.
 {{- $routes = append $routes (dict "service" "governance" "port" .Values.governance.port "paths" (list "/v1/projects")) -}}
 {{- end -}}
 {{- if .Values.inferenceRouter.enabled -}}
-{{- $routes = append $routes (dict "service" "inference-router" "port" .Values.inferenceRouter.port "paths" (list "/v1/chat" "/v1/embeddings" "/v1/models")) -}}
+{{/* `/v1/completions` is the audit read, not the OpenAI-compatible completions
+     endpoint: what one call recorded, including its redacted content. */}}
+{{- $routes = append $routes (dict "service" "inference-router" "port" .Values.inferenceRouter.port "paths" (list "/v1/chat" "/v1/embeddings" "/v1/models" "/v1/completions")) -}}
 {{- end -}}
 {{- if .Values.registry.enabled -}}
 {{- $routes = append $routes (dict "service" "registry" "port" .Values.registry.port "paths" (list "/v1/assets")) -}}
@@ -48,7 +50,10 @@ have no Gateway controller installed.
 {{- $routes = append $routes (dict "service" "agent-runtime" "port" .Values.agentRuntime.port "paths" (list "/v1/agents" "/v1/runs")) -}}
 {{- end -}}
 {{- if .Values.evaluation.enabled -}}
-{{- $routes = append $routes (dict "service" "evaluation" "port" .Values.evaluation.port "paths" (list "/v1/evaluations")) -}}
+{{/* Annotations and samples are on this service too, and a route table that
+     lists only `/v1/evaluations` sends them to the console's 404 -- the same
+     drift as `/v1/runs`, two entries below. */}}
+{{- $routes = append $routes (dict "service" "evaluation" "port" .Values.evaluation.port "paths" (list "/v1/evaluations" "/v1/annotations" "/v1/samples")) -}}
 {{- end -}}
 {{- toJson $routes -}}
 {{- end }}

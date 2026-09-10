@@ -25,7 +25,9 @@ from evaluation.domain.judging import JUDGE_INSTRUCTION, judge_prompt
 
 #: A judge is asked for a number and answers with a sentence often enough that
 #: parsing it is part of the job, not an edge case.
-_SCORE = re.compile(r"(?:^|[^\d.])(0(?:\.\d+)?|1(?:\.0+)?)(?:$|[^\d])")
+#: Any number in the text, in order. The RANGE check is separate on purpose --
+#: see `parse_score`.
+_NUMBER = re.compile(r"(?:^|[^\d.])(\d+(?:\.\d+)?)")
 
 #: `Policies.INFERENCE` caps a model call at 60 s, which is right for a person
 #: waiting and wrong for an offline batch: nobody is watching, and a local model
@@ -233,11 +235,19 @@ def parse_score(text: str) -> float | None:
     at all the answer is None, NOT 0.0: a judge nobody could read has not
     graded anything, and a zero it did not give is a verdict this platform
     would be inventing.
+
+    A number OUTSIDE 0..1 is not a grade on the scale that was asked for, so it
+    is skipped and the next candidate is tried. This used to be worse than
+    unreadable: the pattern matched the leading `1` of `1.5` and clamped it,
+    turning a judge answering on some other scale into a perfect score. Trying
+    every number rather than only the first is what keeps "in 2026 the answer
+    is 0.9" readable while "1.5" is not.
     """
-    match = _SCORE.search(text.strip())
-    if match is None:
-        return None
-    return max(0.0, min(1.0, float(match.group(1))))
+    for match in _NUMBER.finditer(text.strip()):
+        value = float(match.group(1))
+        if 0.0 <= value <= 1.0:
+            return value
+    return None
 
 
 @dataclass(slots=True)

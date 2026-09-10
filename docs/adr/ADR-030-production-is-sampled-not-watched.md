@@ -46,12 +46,29 @@ turns it on.**
   Grading groundedness against that would grade the answer against the question
   and report a number for something nobody measured — ADR-021 applied to the
   online path.
-- **The sampler acts as itself, with its own client-credentials principal.** It
-  consumes a queue, so there is no caller to act as (ADR-017 covers the case
-  where there is one). This makes it one of the most privileged components in
-  the platform: it reads audit content across every project it samples. Hence
-  the empty default, the separate process from the API, and the instruction to
-  give it the narrowest identity that can still read a record.
+- **The sampler acts as itself, with its own client-credentials principal,
+  narrowed by scopes.** It consumes a queue, so there is no caller to act as
+  (ADR-017 covers the case where there is one). A service token is signed with
+  no roles and no memberships, so it satisfies neither `READ_AUDIT` nor project
+  membership: both calls the sampler makes would be refused forever, and every
+  sample would be `unscorable` while the worker logged that it was sampling.
+
+  Rather than giving service principals roles -- which would hand every service
+  the widest bypass on the platform -- each call is gated by a scope granted to
+  a client in configuration:
+
+  | The call                    | The rule                                             | The scope         |
+  | --------------------------- | ---------------------------------------------------- | ----------------- |
+  | `GET /v1/completions/{id}`  | `READ_AUDIT_CONTENT`: owner or auditor, or a service | `audit:read`      |
+  | `POST /v1/chat/completions` | `CALL_MODEL`: a project member, or a service         | `inference:write` |
+
+  Neither widens anything on its own: a token without the scope is refused
+  exactly as it was, and holding one does not confer the other. `audit:read` is
+  new and belongs to a single client; `inference:write` is what the router and
+  the agent runtime already carry. That is the narrowest identity this platform
+  can express, and it is why the scopes are named after the action rather than
+  after the service.
+
 - **The samples hold scores, never content.** What was said stays in the
   router's audit under that project's retention. Copying it into the evaluation
   database would create a second copy with a different expiry, which is how a
@@ -72,10 +89,11 @@ turns it on.**
 
 - Turning sampling on has a bill: one judged call per sampled call, against the
   sampled project's budget. 5% of traffic is 5% more inference.
-- The service credential needs a role that can read an audit
-  (`project_owner` or `auditor`) in every project it samples, or `platform_admin`
-  across them. That is a lot of privilege for a worker, and it is why this ADR
-  says so twice.
+- The service client granted `audit:read` can read the conversations of every
+  project it samples. That is a lot of privilege for a worker, which is why it
+  is one client, named in configuration, with a scope that exists for nothing
+  else -- and why an operator who does not want online sampling simply leaves
+  `ONLINE_SAMPLE_RATE` at zero.
 - A project that does not capture content can be sampled and will produce only
   unscorable samples. That is visible in the summary rather than silent, and the
   fix is a project setting, not a sampler setting.

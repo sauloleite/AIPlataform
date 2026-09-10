@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 
-from aia_auth import Principal
+from aia_auth import POLICY, AccessRequest, Principal, is_internal_service
 from aia_fastapi import AuthenticatedCaller, authenticated, health_router
 from evaluation.application.dto import Caller, RunSuiteCommand
 from evaluation.application.use_cases.annotate import RecordAnnotationCommand
@@ -46,6 +46,28 @@ def _caller(
 
 
 Authenticated = Annotated[Caller, Depends(_caller)]
+
+
+def _may_read_content(
+    identity: Annotated[AuthenticatedCaller, authenticated(lambda: get_container().verifier)],
+) -> bool:
+    """Whether this caller may see the WORDS, as against the verdict.
+
+    An annotation can carry the question and the answer it was made about, and
+    that text came out of the router's audit -- which hands it over only to
+    `project_owner` or `auditor` (ADR-004's policy, applied by ADR-029's read
+    route). Listing annotations needs only project membership, because the
+    failure taxonomy is for everybody who works on the project; the content
+    inside them cannot be, or a `project_viewer` would read here exactly what
+    the router had just refused them.
+    """
+    decision = (POLICY.READ_AUDIT | is_internal_service).evaluate(
+        AccessRequest(principal=identity.principal, project_id=identity.project_id)
+    )
+    return decision.allowed
+
+
+MayReadContent = Annotated[bool, Depends(_may_read_content)]
 
 
 def _run_response(run: EvaluationRun, *, with_cases: bool = False) -> dict[str, Any]:
@@ -151,8 +173,15 @@ class AnnotationBody(BaseModel):
     context: list[str] = Field(default_factory=list)
 
 
-def _annotation_response(annotation: Annotation) -> dict[str, Any]:
-    return {
+def _annotation_response(annotation: Annotation, *, with_content: bool) -> dict[str, Any]:
+    """The annotation, with the words in it only for a caller allowed them.
+
+    `is_label` stays visible either way: whether an annotation can calibrate a
+    judge is a fact about the label set, not about the conversation, and hiding
+    it would make the count in `evaluation labels` disagree with what the
+    console shows.
+    """
+    body = {
         "id": annotation.id,
         "project_id": annotation.project_id,
         "trace_id": annotation.trace_id,
@@ -160,13 +189,20 @@ def _annotation_response(annotation: Annotation) -> dict[str, Any]:
         "failure_mode": annotation.failure_mode,
         "note": annotation.note or None,
         "evaluator": annotation.evaluator,
-        "question": annotation.question or None,
-        "answer": annotation.answer or None,
-        "context": list(annotation.context),
         "principal_id": annotation.principal_id,
         "created_at": annotation.created_at.isoformat().replace("+00:00", "Z"),
         "is_label": annotation.is_label,
     }
+    content = (
+        {
+            "question": annotation.question or None,
+            "answer": annotation.answer or None,
+            "context": list(annotation.context),
+        }
+        if with_content
+        else {"question": None, "answer": None, "context": []}
+    )
+    return {**body, **content}
 
 
 @annotations_router.post("", status_code=201)
@@ -190,12 +226,15 @@ async def record_annotation(body: AnnotationBody, caller: Authenticated) -> dict
             context=tuple(body.context),
         )
     )
-    return _annotation_response(annotation)
+    # The caller just sent this text, so it goes back to them whatever their
+    # role: echoing somebody's own request is not a disclosure.
+    return _annotation_response(annotation, with_content=True)
 
 
 @annotations_router.get("")
 async def list_annotations(
     caller: Authenticated,
+    may_read_content: MayReadContent,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 25,
     trace_id: Annotated[str | None, Query()] = None,
     failure_mode: Annotated[str | None, Query()] = None,
@@ -204,7 +243,10 @@ async def list_annotations(
         caller, limit=limit, trace_id=trace_id, failure_mode=failure_mode
     )
     return {
-        "items": [_annotation_response(annotation) for annotation in page.items],
+        "items": [
+            _annotation_response(annotation, with_content=may_read_content)
+            for annotation in page.items
+        ],
         "taxonomy": [
             {"failure_mode": entry.failure_mode, "count": entry.count} for entry in page.taxonomy
         ],

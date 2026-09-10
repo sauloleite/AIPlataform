@@ -186,13 +186,22 @@ class MongoAnnotationRepository:
     async def save(self, annotation: Annotation) -> None:
         # Upsert on (project, trace, principal): re-annotating is a person
         # changing their mind, and keeping both would count it twice.
+        #
+        # `_id` and `created_at` go in `$setOnInsert`, not in `$set`. Mongo
+        # refuses an update that touches `_id` -- "would modify the immutable
+        # field" -- so the second annotation of a trace by the same person used
+        # to fail with a 500, which is exactly the flow this upsert exists to
+        # support. The first one worked, because on an insert the operator
+        # applies. `created_at` stays put for a plainer reason: the record was
+        # created when it was created, and a changed verdict is not a new one.
+        identity, changeable = _from_annotation(annotation)
         await self.database["annotations"].update_one(
             {
                 "project_id": annotation.project_id,
                 "trace_id": annotation.trace_id,
                 "principal_id": annotation.principal_id,
             },
-            {"$set": _from_annotation(annotation)},
+            {"$set": changeable, "$setOnInsert": identity},
             upsert=True,
         )
 
@@ -214,9 +223,14 @@ class MongoAnnotationRepository:
         return [_to_annotation(document) async for document in cursor]
 
 
-def _from_annotation(annotation: Annotation) -> dict[str, Any]:
-    return {
-        "_id": annotation.id,
+def _from_annotation(annotation: Annotation) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Splits the document into what an update may not touch and what it may.
+
+    The first half is written once, at insert. The second is what a person
+    changing their mind actually changes.
+    """
+    identity = {"_id": annotation.id, "created_at": annotation.created_at}
+    changeable = {
         "project_id": annotation.project_id,
         "trace_id": annotation.trace_id,
         "verdict": annotation.verdict.value,
@@ -227,8 +241,8 @@ def _from_annotation(annotation: Annotation) -> dict[str, Any]:
         "question": annotation.question,
         "answer": annotation.answer,
         "context": list(annotation.context),
-        "created_at": annotation.created_at,
     }
+    return identity, changeable
 
 
 def _to_annotation(document: dict[str, Any]) -> Annotation:

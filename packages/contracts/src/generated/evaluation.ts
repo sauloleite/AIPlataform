@@ -290,6 +290,12 @@ export interface components {
             failure_mode?: string | null;
             note?: string | null;
             evaluator?: string | null;
+            /**
+             * @description Null unless the reader may see it. The text came out of the router's
+             *     audit, which hands it to `project_owner` or `auditor` only — so
+             *     listing annotations needs project membership, and the words inside
+             *     them need the same right as the record they came from.
+             */
             question?: string | null;
             answer?: string | null;
             context?: string[];

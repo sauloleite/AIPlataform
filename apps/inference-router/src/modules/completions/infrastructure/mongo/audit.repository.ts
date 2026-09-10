@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import type { Collection, Db } from 'mongodb';
-import type { AuditRecord, AuditRepository } from '../../application/ports.js';
+import type { AuditRecord, AuditRepository, StoredAuditRecord } from '../../application/ports.js';
 
-interface AuditDocument extends Omit<AuditRecord, 'costMicros'> {
+interface AuditDocument extends Omit<AuditRecord, 'costMicros' | 'expiresAt'> {
   _id: string;
   /** A string so int64 precision survives BSON. */
   costMicros: string;
+  /** Absent on every record written before per-project retention existed. */
+  expiresAt?: Date;
 }
 
 /**
@@ -20,6 +22,14 @@ interface AuditDocument extends Omit<AuditRecord, 'costMicros'> {
  */
 /** Named so it can be recognised, unlike the one it replaces. */
 const EXPIRY_INDEX = 'audit_expiry_ttl';
+
+/**
+ * What a record written before per-project retention is given.
+ *
+ * The same 90 days the platform defaults to, and the same number those records
+ * were written under when the TTL was collection-wide.
+ */
+const DEFAULT_RETENTION_DAYS = 90;
 
 @Injectable()
 export class MongoAuditRepository implements AuditRepository {
@@ -47,6 +57,38 @@ export class MongoAuditRepository implements AuditRepository {
     // its own ninety days no matter what a project asked for -- and it would do
     // it silently, because a deleted audit record leaves nothing behind.
     await this.dropLegacyTtlIndex();
+    await this.backfillExpiry();
+  }
+
+  /**
+   * Gives an expiry to the records written before there was one.
+   *
+   * Without this they are immortal: the collection-wide TTL that used to expire
+   * them is dropped above, and the per-document index only expires a document
+   * that HAS `expiresAt`. Retention would then apply to everything written
+   * after the upgrade and to nothing written before it -- silently, because a
+   * record that is not deleted leaves no trace of not having been.
+   *
+   * Dated from `occurredAt` plus the platform default rather than the owning
+   * project's setting: reading a policy per record would mean a call to
+   * governance for every row at boot, and the default is the retention those
+   * records were written under anyway.
+   */
+  private async backfillExpiry(): Promise<void> {
+    const result = await this.collection.updateMany({ expiresAt: { $exists: false } }, [
+      {
+        $set: {
+          expiresAt: {
+            $add: ['$occurredAt', DEFAULT_RETENTION_DAYS * 24 * 60 * 60 * 1000],
+          },
+        },
+      },
+    ]);
+
+    if (result.modifiedCount > 0) {
+      // eslint-disable-next-line no-console -- runs at boot, before the logger.
+      console.log(`audit: gave an expiry to ${result.modifiedCount} records written without one`);
+    }
   }
 
   /**
@@ -68,7 +110,7 @@ export class MongoAuditRepository implements AuditRepository {
     }
   }
 
-  async find(projectId: string, requestId: string): Promise<AuditRecord | null> {
+  async find(projectId: string, requestId: string): Promise<StoredAuditRecord | null> {
     const document = await this.collection.findOne({ _id: requestId, projectId });
     if (document === null) return null;
 

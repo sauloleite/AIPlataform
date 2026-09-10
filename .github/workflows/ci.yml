@@ -553,3 +553,27 @@ jobs:
             fi
           done
           echo "all 11 services render"
+
+      # A service can render, be declared in its contract, be reachable in
+      # development and still 404 in production, because nothing compared the
+      # two route tables. `/v1/runs` did exactly that (ADR-024), and then
+      # `/v1/annotations`, `/v1/samples` and `/v1/completions` did it again
+      # inside the change that claimed to have fixed it.
+      - name: The chart routes what the compose edge routes
+        run: |
+          set -euo pipefail
+          helm template aia deploy/helm/aia-platform | python3 tools/scripts/check-edge-routes.py
+
+      - name: The route-table check really fails when a path drifts
+        run: |
+          set -euo pipefail
+          trap 'git checkout -- deploy/helm/aia-platform/templates/networking.yaml' EXIT
+          sed -i 's|"/v1/evaluations" "/v1/annotations" "/v1/samples"|"/v1/evaluations"|' \
+            deploy/helm/aia-platform/templates/networking.yaml
+
+          if helm template aia deploy/helm/aia-platform \
+             | python3 tools/scripts/check-edge-routes.py; then
+            echo "::error::a path was removed from the chart and the check passed."
+            exit 1
+          fi
+          echo "  route drift: caught"

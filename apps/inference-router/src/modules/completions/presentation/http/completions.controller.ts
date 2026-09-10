@@ -54,7 +54,10 @@ export class CompletionsController {
 
     const principal = principalOf(request);
     const projectId = projectIdOf(request);
-    authorize(POLICY.READ_PROJECT, { principal, projectId });
+    // `CALL_MODEL`, not `READ_PROJECT`: a queue consumer with `inference:write`
+    // has no membership to check, and asking a judge about a sampled call is a
+    // model call like any other (ADR-030).
+    authorize(POLICY.CALL_MODEL, { principal, projectId });
 
     const command = {
       requestId: randomUUID(),
@@ -248,7 +251,7 @@ export class CompletionsController {
     @Param('requestId') requestId: string,
   ): Promise<Record<string, unknown>> {
     const projectId = projectIdOf(request);
-    authorize(POLICY.READ_AUDIT, { principal: principalOf(request), projectId });
+    authorize(POLICY.READ_AUDIT_CONTENT, { principal: principalOf(request), projectId });
 
     return toCompletionRecordResponse(
       await this.readCompletionRecord.execute({

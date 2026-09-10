@@ -225,6 +225,16 @@ export interface AuditRecord {
   occurredAt: Date;
 }
 
+/**
+ * A record as the collection HOLDS it, which is not the same as one being written.
+ *
+ * `expiresAt` arrived with per-project retention. Every record written since
+ * carries it and the write type requires it; every record written BEFORE has
+ * none, and a read of one is the case a non-optional field cannot describe.
+ * Reading it as a `Date` and calling `.toISOString()` on it threw.
+ */
+export type StoredAuditRecord = Omit<AuditRecord, 'expiresAt'> & { expiresAt?: Date };
+
 export interface AuditRepository {
   record(entry: AuditRecord): Promise<void>;
 
@@ -235,7 +245,7 @@ export interface AuditRepository {
    * afterwards: this returns redacted conversation content, and a query that
    * could be scoped by its caller is a query that one day will not be.
    */
-  find(projectId: string, requestId: string): Promise<AuditRecord | null>;
+  find(projectId: string, requestId: string): Promise<StoredAuditRecord | null>;
 }
 export const AUDIT_REPOSITORY = Symbol('AuditRepository');
 
