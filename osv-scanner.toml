@@ -1,0 +1,44 @@
+# Known vulnerabilities this platform does not fix by overriding, each with the
+# reason and a date on which the exception stops applying.
+#
+# An entry here is a decision somebody can read in a diff, and it expires: the
+# scan goes red again on `ignoreUntil` whether or not anybody remembered. That is
+# the difference between an accepted risk and a silenced one.
+
+# stream-json 1.9.1, through minio 8.0.7 (aia-knowledge).
+#
+# The fix is stream-json 3.5.0, and it cannot be forced under minio. 3.x is
+# ESM-only and renamed `jsonl/Parser.js` to `jsonl/parser.js`; minio requires the
+# old path at MODULE LOAD, from internal/client.js. Tested: the require fails with
+# ERR_MODULE_NOT_FOUND, so the override would stop aia-knowledge and its worker
+# from starting at all. minio 8.0.7 is the latest release and still depends on
+# `stream-json ^1.8.0`.
+#
+# Not reachable from this platform: minio uses that parser only for
+# `listenBucketNotification`, which aia-knowledge never calls (it calls
+# bucketExists, makeBucket, getObject, statObject, removeObject and
+# presignedPutObject).
+#
+# Ends when minio depends on stream-json >= 3, or when aia-knowledge moves to the
+# S3 SDK -- MinIO speaks S3, and the client is behind the ObjectStorage port.
+[[IgnoredVulns]]
+id = "GHSA-528h-pc64-c93x"
+ignoreUntil = 2026-12-14T00:00:00Z
+reason = "stream-json 3.x breaks minio at require time (renamed jsonl/Parser.js); the vulnerable parser serves only listenBucketNotification, which aia-knowledge never calls. Remove when minio moves to stream-json >= 3."
+
+# decode-uri-component 0.2.2, through query-string 7.1.3, through minio 8.0.7.
+#
+# The fix is 0.5.0, which is ESM-only. query-string 7 does
+# `require('decode-uri-component')` and calls the result; required from
+# CommonJS, 0.5.0 loads as a namespace OBJECT, so every call would throw. Tested
+# on Node 22.
+#
+# Not reachable from this platform: the vulnerable code decodes, and minio only
+# ever calls `query-string.stringify`, to build query strings from its own
+# option objects. Nothing parses a query string through this path.
+#
+# Ends with the same event as the entry above.
+[[IgnoredVulns]]
+id = "GHSA-vcc3-ghjq-m6fr"
+ignoreUntil = 2026-12-14T00:00:00Z
+reason = "decode-uri-component 0.5 is ESM-only and breaks query-string 7's require; minio calls only query-string.stringify, never the decode path. Remove when minio moves off query-string 7."

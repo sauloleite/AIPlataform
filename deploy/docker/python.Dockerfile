@@ -36,6 +36,16 @@ FROM python:${PYTHON_VERSION} AS runtime
 ARG SERVICE
 WORKDIR /app
 
+# Debian's security fixes, applied to the image that ships. The official Python
+# tag is rebuilt on its own schedule, and until it is, the base carries whatever
+# was current then: CVE-2026-86145 and CVE-2026-89161 in libpcre2 were fixed in
+# bookworm and still present in the tag. The scan runs against what we build,
+# so this is where the fix has to land. Upgrade only -- nothing new is
+# installed, and the lists are removed so they do not become a layer.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends upgrade \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system --gid 1001 aia && \
     useradd --system --uid 1001 --gid aia --create-home aia
 

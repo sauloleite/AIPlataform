@@ -30,4 +30,28 @@ overrides:
   # postcss only runs at build time. CVE-2026-45623, CVE-2026-73646.
   postcss: '>=8.5.18'
   # GHSA-f88m-g3jw-g9cj: libvips vulnerabilities inherited by sharp.
-  sharp: '>=0.35.0'
+  # GHSA-rgj7-g3m4-5g8c raised the floor to 0.35.4.
+  sharp: '^0.35.4'
+
+  # The overrides below use a caret, not `>=`. A `>=` override follows the
+  # package into its next major the day one is published, underneath a parent
+  # that was never written against it -- which is exactly what would have
+  # happened to `stream-json` (see osv-scanner.toml).
+
+  # Carried by @nestjs/platform-express 11. The Nest release that moves to
+  # multer 2.3 is 12, a major, so the minor is forced here instead.
+  # CVE-2026-77037, CVE-2026-77078, CVE-2026-82333: denial of service while
+  # parsing a multipart upload. No route here parses one today -- documents go
+  # to object storage through a presigned PUT -- so this is not reachable yet;
+  # it ships in every Nest image regardless, and the first `FileInterceptor`
+  # anybody adds would inherit it.
+  multer: '^2.3.0'
+  # Through body-parser's urlencoded parser, which Nest's Express adapter
+  # registers on every service by default: a form-encoded body reaches it
+  # whether or not a route expects one. GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx.
+  qs: '^6.16.0'
+  # Build and commit tooling only (openapi-typescript, commitlint), and still in
+  # the lockfile the dependency scan reads. GHSA-2883-xcg3-v3hh.
+  js-yaml: '^4.3.2'
+  # nx, build tooling only. GHSA-7w5x-hrqm-74c2.
+  smol-toml: '^1.7.1'
