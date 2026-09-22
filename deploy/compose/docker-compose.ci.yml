@@ -31,6 +31,16 @@ services:
   ollama:
     profiles: ['never']
 
+  # For the same reason, no web search: its results change by the hour. The
+  # suite checks that web search is reported unavailable, which is the path an
+  # operator without a backend actually meets.
+  searxng:
+    profiles: ['never']
+
+  mcp-gateway:
+    environment:
+      WEB_SEARCH_PROVIDER: none
+
   inference-router:
     environment:
       # Any non-empty key enables the provider; the mock ignores its value.

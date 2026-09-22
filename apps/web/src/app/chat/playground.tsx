@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from 'react';
 
 import type { ServedBy } from '../../modules/console/application/use-cases/send-chat-message';
 import { readSseStream } from './read-sse-stream';
+import { Markdown } from '../_ui/markdown';
 
 interface ProjectOption {
   id: string;
@@ -121,9 +122,14 @@ export function Playground({
           {turns.map((turn, index) => (
             <div className={`turn ${turn.role}`} key={index}>
               <span className="role">{turn.role}</span>
-              <span className={streaming && index === turns.length - 1 ? 'caret' : ''}>
-                {turn.content}
-              </span>
+              {turn.role === 'assistant' ? (
+                <Markdown
+                  text={turn.content}
+                  {...(streaming && index === turns.length - 1 && { className: 'caret' })}
+                />
+              ) : (
+                <span>{turn.content}</span>
+              )}
             </div>
           ))}
         </div>

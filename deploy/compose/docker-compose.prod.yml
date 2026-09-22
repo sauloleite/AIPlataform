@@ -124,6 +124,11 @@ services:
       resources:
         limits: { cpus: '1', memory: 512M }
 
+  searxng:
+    deploy:
+      resources:
+        limits: { cpus: '1', memory: 512M }
+
 secrets:
   identity_signing_key: { file: ./secrets/identity_signing_key.pem }
   identity_pepper: { file: ./secrets/identity_pepper.txt }

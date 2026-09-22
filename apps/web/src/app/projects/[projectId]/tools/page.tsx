@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { getContainer } from '../../../../container';
 import { messageFor, requiresSignIn } from '../../../../modules/console/domain/errors';
 import { canAdministerProject } from '../../../../modules/console/domain/session';
-import type { ToolCard } from '../../../../modules/tools/application/use-cases/inspect-tools';
+import type { ToolsView } from '../../../../modules/tools/application/use-cases/inspect-tools';
 import { ToolList } from '../../../_ui/tool-list';
 
 export default async function ToolsPage({
@@ -15,7 +15,7 @@ export default async function ToolsPage({
   const { projectId } = await params;
   const { authorize, listTools } = await getContainer();
 
-  let tools: ToolCard[] = [];
+  let view: ToolsView = { builtins: [], projectTools: [] };
   let failure: string | undefined;
   let mayAdminister = false;
 
@@ -24,8 +24,7 @@ export default async function ToolsPage({
     // Allowing a tool decides what the platform may do on somebody's behalf,
     // so it is an administrative act rather than an editorial one.
     mayAdminister = canAdministerProject(session.principal, projectId);
-    const result = await listTools.execute(accessToken, projectId);
-    tools = result.tools;
+    view = await listTools.execute(accessToken, projectId);
   } catch (error) {
     if (requiresSignIn(error)) redirect('/login');
     failure = messageFor(error);
@@ -34,7 +33,8 @@ export default async function ToolsPage({
   return (
     <ToolList
       projectId={projectId}
-      tools={tools}
+      builtins={view.builtins}
+      projectTools={view.projectTools}
       mayAdminister={mayAdminister}
       {...(failure !== undefined && { failure })}
     />

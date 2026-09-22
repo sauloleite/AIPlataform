@@ -2,6 +2,8 @@
 
 export type RiskLevel = 'low' | 'medium' | 'high';
 export type ToolType = 'mcp' | 'openapi' | 'function' | 'builtin';
+/** `platform` ships with the platform and exists in every project (ADR-024). */
+export type ToolSource = 'registry' | 'platform';
 
 export interface EffectiveTool {
   toolId: string;
@@ -10,9 +12,27 @@ export interface EffectiveTool {
   name: string;
   description?: string;
   toolType: ToolType;
+  source: ToolSource;
   riskLevel: RiskLevel;
   requiresApproval: boolean;
   rateLimitPerMinute: number | null;
+}
+
+/** A built-in as its administrator sees it, including when it cannot run. */
+export interface BuiltinTool {
+  toolId: string;
+  slug: string;
+  name: string;
+  description: string;
+  builtinId: string;
+  riskLevel: RiskLevel;
+  /** `global` sends data to a third party on the public internet. */
+  dataZone: 'local' | 'global';
+  enabled: boolean;
+  available: boolean;
+  unavailableReason: string | null;
+  requiresApproval: boolean;
+  rateLimitPerMinute: number;
 }
 
 export type ConnectionKind = 'bearer' | 'api_key' | 'basic' | 'none';
@@ -58,6 +78,7 @@ export interface ToolsGateway {
   deleteConnection(accessToken: string, projectId: string, connectionId: string): Promise<void>;
 
   listEffective(accessToken: string, projectId: string): Promise<EffectiveTool[]>;
+  listBuiltins(accessToken: string, projectId: string): Promise<BuiltinTool[]>;
   listBindings(accessToken: string, projectId: string): Promise<Binding[]>;
   bind(
     accessToken: string,

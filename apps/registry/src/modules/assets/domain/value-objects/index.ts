@@ -11,8 +11,34 @@ export type ToolType = (typeof TOOL_TYPES)[number];
 export const RISK_LEVELS = ['low', 'medium', 'high'] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 
-export const BUILTIN_TOOLS = ['file_search', 'code_interpreter', 'web_search'] as const;
+export const BUILTIN_TOOLS = [
+  'file_search',
+  'code_interpreter',
+  'web_search',
+  'web_fetch',
+  'current_time',
+  'calculator',
+] as const;
 export type BuiltinTool = (typeof BUILTIN_TOOLS)[number];
+
+/**
+ * The tools the platform provides in every project (ADR-024), which an agent
+ * attaches by id with no asset behind it.
+ *
+ * aia-mcp-gateway owns and runs them; this list mirrors the ids its contract
+ * publishes, so that publishing an agent can tell "a built-in" from "an asset
+ * that was deleted" without a call back to the gateway -- which already calls
+ * this service, and a cycle between the two would make each one's outage the
+ * other's. `code_interpreter` is absent: nothing runs it yet.
+ */
+export const PLATFORM_TOOL_PREFIX = 'builtin.';
+export const PLATFORM_TOOL_IDS: readonly string[] = [
+  'web_search',
+  'web_fetch',
+  'current_time',
+  'calculator',
+  'file_search',
+].map((builtinId) => `${PLATFORM_TOOL_PREFIX}${builtinId}`);
 
 /** Same shape governance requires of a project slug, for the same reason. */
 export const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;

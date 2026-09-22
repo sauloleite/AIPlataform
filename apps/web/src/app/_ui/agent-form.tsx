@@ -1,9 +1,12 @@
 'use client';
 
 import {
+  Badge,
   Button,
+  Checkbox,
   Field,
   Input,
+  Text,
   Textarea,
   Title2,
   makeStyles,
@@ -11,6 +14,12 @@ import {
 } from '@fluentui/react-components';
 import { useActionState, type ReactElement } from 'react';
 
+import {
+  toolChoices,
+  type AttachableTool,
+  type StoreReference,
+  type ToolReference,
+} from '../../modules/registry/domain/agent-tools';
 import { createAgentAction, saveAgentDraftAction, type ActionResult } from '../actions';
 
 const EMPTY: ActionResult = {};
@@ -37,6 +46,23 @@ const useStyles = makeStyles({
     padding: tokens.spacingVerticalM,
   },
   hint: { color: tokens.colorNeutralForeground3 },
+  tools: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: tokens.spacingVerticalXS,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderRadius: tokens.borderRadiusMedium,
+    padding: tokens.spacingVerticalS,
+  },
+  tool: { display: 'flex', alignItems: 'flex-start', gap: tokens.spacingHorizontalS },
+  toolText: { display: 'flex', flexDirection: 'column', minWidth: 0 },
+  toolName: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: tokens.spacingHorizontalS,
+    flexWrap: 'wrap',
+  },
+  toolDescription: { color: tokens.colorNeutralForeground3 },
 });
 
 export interface AgentFormValues {
@@ -46,6 +72,9 @@ export interface AgentFormValues {
   instructions: string;
   modelAlias: string;
   temperature: string;
+  tools: ToolReference[];
+  /** Not edited here yet, but carried back so a save does not detach them. */
+  knowledge: StoreReference[];
 }
 
 export function AgentForm({
@@ -54,6 +83,7 @@ export function AgentForm({
   expectedVersion,
   values,
   aliases,
+  attachableTools,
 }: {
   projectId: string;
   /** Absent when creating. */
@@ -61,6 +91,7 @@ export function AgentForm({
   expectedVersion?: number;
   values: AgentFormValues;
   aliases: string[];
+  attachableTools: AttachableTool[];
 }): ReactElement {
   const styles = useStyles();
   const creating = assetId === undefined;
@@ -68,6 +99,7 @@ export function AgentForm({
     creating ? createAgentAction : saveAgentDraftAction,
     EMPTY,
   );
+  const choices = toolChoices(attachableTools, values.tools);
 
   return (
     <form action={action} className={styles.form}>
@@ -76,6 +108,8 @@ export function AgentForm({
       {expectedVersion !== undefined && (
         <input type="hidden" name="expectedVersion" value={expectedVersion} />
       )}
+      <input type="hidden" name="attachedTools" value={JSON.stringify(values.tools)} />
+      <input type="hidden" name="knowledge" value={JSON.stringify(values.knowledge)} />
 
       {creating && <Title2>New agent</Title2>}
 
@@ -134,6 +168,58 @@ export function AgentForm({
           <option key={alias} value={alias} />
         ))}
       </datalist>
+
+      <fieldset className={styles.tools} aria-describedby="agent-tools-hint">
+        <legend>
+          <Text weight="semibold">Tools</Text>
+        </legend>
+        <Text id="agent-tools-hint" size={200} className={styles.hint}>
+          What the model may call. Built-in tools come with the platform; nothing has to be created
+          first. Every call is still rate limited and audited.
+        </Text>
+        {choices.length === 0 ? (
+          <Text size={200} className={styles.hint}>
+            No tools can be attached in this project right now.
+          </Text>
+        ) : (
+          choices.map((choice) => (
+            <Checkbox
+              key={choice.toolId}
+              className={styles.tool}
+              name="tools"
+              value={choice.toolId}
+              defaultChecked={choice.attached}
+              label={
+                <span className={styles.toolText}>
+                  <span className={styles.toolName}>
+                    <Text weight="semibold">{choice.name}</Text>
+                    {choice.source === 'platform' && (
+                      <Badge appearance="outline" size="small">
+                        built-in
+                      </Badge>
+                    )}
+                    {choice.riskLevel !== undefined && choice.riskLevel !== 'low' && (
+                      <Badge appearance="tint" size="small" color="warning">
+                        {choice.riskLevel} risk
+                      </Badge>
+                    )}
+                    {!choice.available && (
+                      <Badge appearance="tint" size="small" color="danger">
+                        not available in this project
+                      </Badge>
+                    )}
+                  </span>
+                  {choice.description !== undefined && (
+                    <Text size={200} className={styles.toolDescription}>
+                      {choice.description}
+                    </Text>
+                  )}
+                </span>
+              }
+            />
+          ))
+        )}
+      </fieldset>
 
       <div className={styles.actions}>
         <Button appearance="primary" type="submit" disabled={pending}>

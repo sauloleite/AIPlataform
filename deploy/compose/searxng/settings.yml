@@ -1,0 +1,25 @@
+# SearXNG for the web_search built-in (ADR-024).
+#
+# Only aia-mcp-gateway talks to it, over the internal network, so everything a
+# public instance needs to defend itself -- the bot limiter, the image proxy --
+# is off. The defaults SearXNG ships are kept for the rest.
+use_default_settings: true
+
+server:
+  # Overridden by SEARXNG_SECRET. A placeholder here only so the file stands on
+  # its own; the value signs nothing that leaves this network.
+  secret_key: 'overridden-by-SEARXNG_SECRET'
+  limiter: false
+  image_proxy: false
+  public_instance: false
+
+search:
+  safe_search: 1
+  # `json` is the one the gateway reads. Without it SearXNG answers 403, which
+  # the gateway reports as exactly this missing setting.
+  formats:
+    - html
+    - json
+
+ui:
+  static_use_hash: true

@@ -13,6 +13,11 @@ import {
 import type { ReactElement } from 'react';
 
 import type { AgentDetail } from '../../modules/registry/application/use-cases/inspect-agent';
+import {
+  playgroundContext,
+  toolChoices,
+  type AttachableTool,
+} from '../../modules/registry/domain/agent-tools';
 import { AgentForm, type AgentFormValues } from './agent-form';
 import { AgentPlayground } from './agent-playground';
 import { PublishButton } from './publish-button';
@@ -53,16 +58,29 @@ export function AgentWorkbench({
   projectId,
   agent,
   aliases,
+  attachableTools,
   mayEdit,
 }: {
   projectId: string;
   agent: AgentDetail;
   aliases: string[];
+  attachableTools: AttachableTool[];
   mayEdit: boolean;
 }): ReactElement {
   const styles = useStyles();
   const draft = agent.draft;
   const values = formValuesFrom(agent);
+  const liveDefinition = agent.live?.definition;
+  const context =
+    agent.live !== undefined && liveDefinition?.kind === 'agent'
+      ? playgroundContext({
+          liveVersion: agent.live.version,
+          liveToolNames: toolChoices(attachableTools, liveDefinition.tools)
+            .filter((choice) => choice.attached)
+            .map((choice) => choice.name),
+          hasUnpublishedChanges: agent.hasUnpublishedChanges,
+        })
+      : undefined;
 
   return (
     <>
@@ -88,9 +106,15 @@ export function AgentWorkbench({
               {...(draft !== undefined && { expectedVersion: draft.revision })}
               values={values}
               aliases={aliases}
+              attachableTools={attachableTools}
             />
           ) : (
-            <ReadOnlySetup values={values} />
+            <ReadOnlySetup
+              values={values}
+              tools={toolChoices(attachableTools, values.tools)
+                .filter((choice) => choice.attached)
+                .map((choice) => choice.name)}
+            />
           )}
         </div>
 
@@ -99,6 +123,7 @@ export function AgentWorkbench({
             projectId={projectId}
             agentId={agent.id}
             publishable={agent.live !== undefined}
+            {...(context !== undefined && { context })}
           />
 
           <Card className={styles.card}>
@@ -155,13 +180,17 @@ function formValuesFrom(agent: AgentDetail): AgentFormValues | undefined {
     instructions: definition.instructions,
     modelAlias: definition.modelAlias,
     temperature: definition.temperature?.toString() ?? '',
+    tools: definition.tools,
+    knowledge: definition.knowledge,
   };
 }
 
 function ReadOnlySetup({
   values,
+  tools,
 }: {
   values: { instructions: string; modelAlias: string };
+  tools: string[];
 }): ReactElement {
   const styles = useStyles();
   return (
@@ -170,6 +199,8 @@ function ReadOnlySetup({
       <dd className={styles.value}>{values.modelAlias}</dd>
       <dt className={styles.term}>Instructions</dt>
       <dd className={styles.value}>{values.instructions}</dd>
+      <dt className={styles.term}>Tools</dt>
+      <dd className={styles.value}>{tools.length === 0 ? 'None' : tools.join(', ')}</dd>
     </dl>
   );
 }

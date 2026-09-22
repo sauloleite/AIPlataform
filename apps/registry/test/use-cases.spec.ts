@@ -228,6 +228,38 @@ describe('PublishVersion', () => {
     ).rejects.toThrow(UnresolvedReferenceError);
   });
 
+  // ADR-024: the platform's own tools exist in every project with no asset.
+  it('publishes an agent attached to the platform’s built-in tools, with no asset for them', async () => {
+    const assetId = await anAgent(
+      agent({
+        tools: [
+          { assetId: 'builtin.web_search', version: null },
+          { assetId: 'builtin.calculator', version: null },
+        ],
+      }),
+    );
+
+    const published = await publish.execute({
+      projectId: PROJECT,
+      assetId,
+      principalId: PRINCIPAL,
+      accessToken: TOKEN,
+    });
+
+    expect(published.status).toBe('published');
+  });
+
+  it.each([
+    ['a built-in nothing runs yet', 'builtin.code_interpreter'],
+    ['a typo in the built-in namespace', 'builtin.web_serch'],
+  ])('refuses to publish an agent attached to %s', async (_case, toolId) => {
+    const assetId = await anAgent(agent({ tools: [{ assetId: toolId, version: null }] }));
+
+    await expect(
+      publish.execute({ projectId: PROJECT, assetId, principalId: PRINCIPAL, accessToken: TOKEN }),
+    ).rejects.toThrow(UnresolvedReferenceError);
+  });
+
   // Resolving as the service would mean the registry needing read access to
   // every project on the platform. It resolves as the caller instead.
   it('resolves references with the caller identity, not a service credential', async () => {

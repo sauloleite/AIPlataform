@@ -115,6 +115,7 @@ function toDefinition(asset: RawAsset, version: RawVersion): ToolDefinition | nu
     name: asset.name,
     ...(asset.description !== undefined && { description: asset.description }),
     toolType: definition.tool_type,
+    source: 'registry',
     riskLevel: definition.risk_level,
     ...(definition.endpoint !== undefined && { endpoint: definition.endpoint }),
     ...(definition.builtin_id !== undefined && { builtinId: definition.builtin_id }),

@@ -1,6 +1,7 @@
 import { PlatformError, type ProblemDetails } from '../../../console/domain/errors';
 import type {
   Binding,
+  BuiltinTool,
   ConnectionSummary,
   CreateConnectionInput,
   EffectiveTool,
@@ -70,7 +71,30 @@ export class HttpToolsGateway implements ToolsGateway {
       name: raw.name,
       ...(raw.description !== undefined && { description: raw.description }),
       toolType: raw.tool_type,
+      // A gateway older than ADR-024 sends no source, and had only registry tools.
+      source: raw.source ?? 'registry',
       riskLevel: raw.risk_level,
+      requiresApproval: raw.requires_approval,
+      rateLimitPerMinute: raw.rate_limit_per_minute,
+    }));
+  }
+
+  async listBuiltins(accessToken: string, projectId: string): Promise<BuiltinTool[]> {
+    const body = await this.json<{ items: RawBuiltinTool[] }>(`${this.baseUrl}/v1/tools/builtins`, {
+      accessToken,
+      projectId,
+    });
+    return body.items.map((raw) => ({
+      toolId: raw.tool_id,
+      slug: raw.slug,
+      name: raw.name,
+      description: raw.description,
+      builtinId: raw.builtin_id,
+      riskLevel: raw.risk_level,
+      dataZone: raw.data_zone,
+      enabled: raw.enabled,
+      available: raw.available,
+      unavailableReason: raw.unavailable_reason ?? null,
       requiresApproval: raw.requires_approval,
       rateLimitPerMinute: raw.rate_limit_per_minute,
     }));
@@ -163,9 +187,25 @@ interface RawTool {
   name: string;
   description?: string;
   tool_type: EffectiveTool['toolType'];
+  source?: EffectiveTool['source'];
   risk_level: EffectiveTool['riskLevel'];
   requires_approval: boolean;
   rate_limit_per_minute: number | null;
+}
+
+interface RawBuiltinTool {
+  tool_id: string;
+  slug: string;
+  name: string;
+  description: string;
+  builtin_id: string;
+  risk_level: BuiltinTool['riskLevel'];
+  data_zone: BuiltinTool['dataZone'];
+  enabled: boolean;
+  available: boolean;
+  unavailable_reason?: string | null;
+  requires_approval: boolean;
+  rate_limit_per_minute: number;
 }
 
 interface RawConnection {

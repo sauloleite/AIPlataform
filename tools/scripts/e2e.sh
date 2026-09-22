@@ -384,7 +384,74 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-step "13. The console (aia-web) against the live platform"
+step "13. Built-in tools, with nothing created (ADR-024)"
+
+tools_of() {
+  curl -sS "${BASE_URL}/v1/tools" -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: $1"
+}
+
+invoke_code() {
+  curl -sS -o /dev/null -w '%{http_code}' -X POST "${BASE_URL}/v1/tools/$2/invoke" \
+    -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: $1" -H 'Content-Type: application/json' \
+    -d "{\"arguments\":$3}"
+}
+
+INTERNAL_TOOLS=$(tools_of "$PROJECT_INTERNAL" | json '" ".join(sorted(t["tool_id"] for t in d["items"]))')
+assert_contains "$INTERNAL_TOOLS" 'builtin.calculator' "a project nobody configured is offered the calculator"
+assert_contains "$INTERNAL_TOOLS" 'builtin.current_time' "... and the current time"
+
+CALCULATED=$(curl -sS -X POST "${BASE_URL}/v1/tools/builtin.calculator/invoke" \
+  -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+  -H 'Content-Type: application/json' -d '{"arguments":{"expression":"(1250 * 0.15) + 3^2"}}' \
+  | json 'd["result"]["result"]')
+assert_eq "$CALCULATED" "196.5" "the calculator runs without a tool being created or bound"
+
+# A bad argument is something the model can correct on its next turn, not an
+# endpoint failure -- and the expression is parsed, never evaluated.
+assert_eq "$(invoke_code "$PROJECT_INTERNAL" builtin.calculator '{"expression":"process.exit(1)"}')" \
+  "400" "a bad expression comes back as a 400"
+
+# SSRF: the gateway sits inside the platform's network.
+assert_eq "$(invoke_code "$PROJECT_INTERNAL" builtin.web_fetch '{"url":"http://registry:3004/v1/assets"}')" \
+  "400" "web-fetch refuses to read a platform service"
+assert_eq "$(invoke_code "$PROJECT_INTERNAL" builtin.web_fetch '{"url":"http://169.254.169.254/latest/meta-data/"}')" \
+  "400" "web-fetch refuses to read cloud metadata"
+
+# ADR-010: a restricted project's data does not leave the machine, tools included.
+RESTRICTED_TOOLS=$(tools_of "$PROJECT_RESTRICTED" | json '" ".join(sorted(t["tool_id"] for t in d["items"]))')
+assert_contains "$RESTRICTED_TOOLS" 'builtin.calculator' "a restricted project keeps the tools that stay inside"
+if printf '%s' "$RESTRICTED_TOOLS" | grep -q 'builtin.web_'; then
+  fail "a restricted project was offered a tool that sends data off the platform"
+else
+  ok "a restricted project is not offered web search or web-fetch"
+fi
+assert_eq "$(invoke_code "$PROJECT_RESTRICTED" builtin.web_fetch '{"url":"https://example.com/"}')" \
+  "403" "a restricted project calling web-fetch anyway is refused"
+
+# Switching a built-in off is a binding; removing the binding restores it.
+curl -sS -o /dev/null -X PUT "${BASE_URL}/v1/bindings/builtin.calculator" \
+  -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+  -H 'Content-Type: application/json' -d '{"enabled":false}'
+assert_eq "$(invoke_code "$PROJECT_INTERNAL" builtin.calculator '{"expression":"1+1"}')" \
+  "403" "a project that switched the calculator off cannot call it"
+curl -sS -o /dev/null -X DELETE "${BASE_URL}/v1/bindings/builtin.calculator" \
+  -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}"
+assert_eq "$(invoke_code "$PROJECT_INTERNAL" builtin.calculator '{"expression":"1+1"}')" \
+  "200" "removing the binding puts the default back"
+
+# Whether web search has a backend depends on the environment -- CI runs with
+# none. Either way the administrative view has to say so, and why.
+WEB_SEARCH=$(curl -sS "${BASE_URL}/v1/tools/builtins" \
+  -H "Authorization: Bearer ${TOKEN}" -H "X-Project-Id: ${PROJECT_INTERNAL}" \
+  | json 'next((str(t["available"]) + "|" + str(t["unavailable_reason"]) for t in d["items"] if t["builtin_id"] == "web_search"), "")')
+case "$WEB_SEARCH" in
+  True\|*) ok "web search has a backend here" ;;
+  False\|*WEB_SEARCH_PROVIDER*) ok "web search without a backend says which setting is missing" ;;
+  *) fail "the built-ins view did not explain web search (got '${WEB_SEARCH}')" ;;
+esac
+
+# ---------------------------------------------------------------------------
+step "14. The console (aia-web) against the live platform"
 
 WEB_URL="${WEB_BASE_URL:-http://localhost:3005}"
 

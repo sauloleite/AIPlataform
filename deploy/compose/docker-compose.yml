@@ -58,7 +58,10 @@ services:
 
   mongo:
     <<: *service-defaults
-    image: mongo:8.0
+    # 8.2, not 8.0: on Linux kernels 6.19 through 7.0.13 the TCMalloc vendored by
+    # 8.0 crashes (SERVER-121912), and 8.0.32 refuses to start there at all.
+    # Docker Desktop 4.91's VM runs 7.0.12; 8.2.12 starts and stays up on it.
+    image: mongo:8.2
     # A single-node replica set: transactions and change streams require one, and
     # they are what underpins the outbox pattern (state and event in one transaction).
     command: ['--replSet', 'rs0', '--bind_ip_all', '--quiet']
@@ -90,7 +93,8 @@ services:
 
   minio:
     <<: *service-defaults
-    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    # quay.io, not Docker Hub: the minio/minio repository there no longer exists.
+    image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
     command: ['server', '/data', '--console-address', ':9001']
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aia}
@@ -150,10 +154,30 @@ services:
       retries: 10
       start_period: 20s
 
+  searxng:
+    <<: *service-defaults
+    # The web_search built-in's backend (ADR-024). Open source metasearch, so a
+    # fresh environment searches the web with no account and no key. Only
+    # aia-mcp-gateway reaches it, over this network: no port on the host.
+    # Pinned to a dated build -- the project publishes several a day.
+    image: searxng/searxng:2026.9.14-ef05645f0
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-dev-searxng-secret-change-in-production}
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/healthz']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   traefik:
     <<: *service-defaults
     # The platform's single entry point: TLS, routing and rate limiting.
-    image: traefik:v3.3
+    # v3.7, not v3.3: v3.3's Docker provider cannot talk to Docker Engine 29 and
+    # retries forever, so no route is ever registered and :8080 answers 404.
+    image: traefik:v3.7
     command:
       - '--providers.docker=true'
       - '--providers.docker.exposedbydefault=false'
@@ -333,6 +357,15 @@ services:
       MONGO_DATABASE: aia_mcp_gateway
       REGISTRY_URL: http://registry:3004
       KNOWLEDGE_URL: http://knowledge:3007
+      # Where a project's classification is read, so web search and web-fetch
+      # are refused to a confidential project (ADR-010, ADR-024).
+      GOVERNANCE_URL: http://governance:3002
+      # The built-in tools (ADR-024). SearXNG is the service above; `tavily`
+      # reads AIA_SECRET_TAVILY_API_KEY, and `none` switches web search off.
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-searxng}
+      WEB_SEARCH_SEARXNG_URL: http://searxng:8080
+      AIA_SECRET_TAVILY_API_KEY: ${AIA_SECRET_TAVILY_API_KEY:-}
+      WEB_FETCH_ENABLED: ${WEB_FETCH_ENABLED:-true}
       AUDIT_RETENTION_DAYS: ${TOOL_AUDIT_RETENTION_DAYS:-365}
       # Where a connection's secret is read from (ADR-015 level 2). A file with
       # mode 600 does not leak through `docker inspect` the way a variable does.

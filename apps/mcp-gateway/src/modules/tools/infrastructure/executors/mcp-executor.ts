@@ -3,6 +3,7 @@ import { POLICIES, ResilienceExecutor } from '@aia/resilience';
 
 import { ToolExecutionFailedError } from '../../domain/errors/index.js';
 import type { ToolExecutor, ToolInvocation, ToolOutcome } from '../../application/ports.js';
+import type { ToolDefinition } from '../../domain/value-objects/index.js';
 
 interface JsonRpcResponse {
   result?: { content?: unknown; isError?: boolean };
@@ -28,8 +29,13 @@ export class McpExecutor implements ToolExecutor {
   // on the caller's behalf is how one click becomes three.
   private readonly executor = new ResilienceExecutor(POLICIES.TOOL);
 
-  supports(toolType: string): boolean {
-    return toolType === 'mcp';
+  supports(tool: ToolDefinition): boolean {
+    return tool.toolType === 'mcp';
+  }
+
+  /** Its endpoint is the tool's own; whether it answers is found out per call. */
+  async unavailableReason(): Promise<string | null> {
+    return null;
   }
 
   async execute(invocation: ToolInvocation): Promise<ToolOutcome> {

@@ -7,9 +7,17 @@ info:
     project, a risk classification, a per-tool rate limit and an audit record
     that names the caller.
 
-    The gateway holds no tool DEFINITIONS: those live in `aia-registry`, and
-    this service reads them. What it owns is the BINDING -- whether a project
-    may use a tool, at what rate, and whether a human has to approve first.
+    The gateway holds no DEFINITION a person writes: those live in
+    `aia-registry`, and this service reads them. What it owns is the BINDING --
+    whether a project may use a tool, at what rate, and whether a human has to
+    approve first.
+
+    The exception is the platform's own built-in tools (web search, reading a
+    web page, the current time, arithmetic, file search). They ship with the
+    code that runs them, exist in every project without being created, and are
+    allowed by default: a binding only switches one off or tightens its limits
+    (ADR-024). Their ids are `builtin.<builtin_id>`, which no registry asset can
+    take.
 
     A high-risk tool does not run without approval (OWASP LLM06, reference
     doc 02 §10). The gateway answers `approval_required` and the caller resumes
@@ -39,7 +47,15 @@ paths:
       summary: The tools this project may actually invoke
       description: |
         The registry's published tool assets, intersected with this project's
-        bindings. A tool that exists but is not bound does not appear.
+        bindings, plus the platform's built-in tools. A registry tool that is
+        not bound does not appear. A built-in does not appear when the project
+        switched it off, when this platform has no backend configured for it,
+        or when it would send data somewhere the project's classification does
+        not allow (ADR-010).
+
+        No two items share a slug: a registry tool with a built-in's slug hides
+        that built-in, because agents already attached to it must keep calling
+        the tool they were built against.
       parameters:
         - $ref: './_shared.yaml#/components/parameters/ProjectId'
         - $ref: './_shared.yaml#/components/parameters/Cursor'
@@ -58,13 +74,42 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/EffectiveTool' }
 
+  /v1/tools/builtins:
+    get:
+      operationId: listBuiltinTools
+      tags: [tools]
+      summary: The platform's built-in tools, and their state in this project
+      description: |
+        Every built-in, including the ones this project cannot use right now,
+        with the reason. It is the administrative view: an operator sees that
+        web search has no backend configured BEFORE an agent is built on it,
+        and a project owner can switch a built-in back on after switching it
+        off -- neither is possible from `/v1/tools`, which lists only what runs.
+      parameters:
+        - $ref: './_shared.yaml#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: The built-in tools
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/BuiltinTool' }
+        '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
+
   /v1/tools/{toolId}/invoke:
     parameters:
       - $ref: './_shared.yaml#/components/parameters/ProjectId'
       - name: toolId
         in: path
         required: true
-        description: The registry asset id of the tool.
+        description: |
+          The registry asset id of the tool, or `builtin.<builtin_id>` for one
+          of the platform's built-in tools.
         schema: { type: string }
     post:
       operationId: invokeTool
@@ -135,6 +180,10 @@ paths:
       operationId: bindTool
       tags: [bindings]
       summary: Allows a tool in this project, with its limits
+      description: |
+        A built-in is already allowed without a binding. Binding one is how a
+        project switches it off (`enabled: false`) or tightens its rate or
+        approval; deleting that binding puts the platform default back.
       requestBody:
         required: true
         content:
@@ -153,6 +202,9 @@ paths:
       operationId: unbindTool
       tags: [bindings]
       summary: Withdraws a tool from this project
+      description: |
+        For a built-in this restores the platform default -- allowed, at the
+        default rate -- rather than withdrawing it.
       responses:
         '204': { description: Withdrawn }
         '403': { $ref: './_shared.yaml#/components/responses/Forbidden' }
@@ -271,6 +323,78 @@ components:
       type: string
       enum: [mcp, openapi, function, builtin]
 
+    BuiltinId:
+      type: string
+      description: |
+        Which built-in. `code_interpreter` is reserved: it needs a sandbox this
+        platform does not ship yet, so no built-in answers to it.
+      enum: [file_search, code_interpreter, web_search, web_fetch, current_time, calculator]
+
+    ToolSource:
+      type: string
+      description: |
+        `registry` is a tool a person defined and published; `platform` is a
+        built-in that ships with the platform and exists in every project.
+      enum: [registry, platform]
+
+    DataZone:
+      type: string
+      description: |
+        Where a tool sends its arguments. `local` never leaves the platform;
+        `global` reaches a third party on the public internet, which a
+        `confidential` or `restricted` project does not allow (ADR-010).
+      enum: [local, global]
+
+    BuiltinTool:
+      type: object
+      required:
+        [
+          tool_id,
+          slug,
+          name,
+          description,
+          builtin_id,
+          risk_level,
+          data_zone,
+          enabled,
+          available,
+          requires_approval,
+          rate_limit_per_minute,
+        ]
+      properties:
+        tool_id:
+          type: string
+          description: What an agent definition attaches, and what is invoked.
+          pattern: '^builtin\.[a-z_]+$'
+        slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$'
+        name: { type: string }
+        description:
+          type: string
+          description: What the model is told the tool does.
+        builtin_id: { $ref: '#/components/schemas/BuiltinId' }
+        risk_level: { $ref: '#/components/schemas/RiskLevel' }
+        data_zone: { $ref: '#/components/schemas/DataZone' }
+        enabled:
+          type: boolean
+          description: Whether this project allows it. True unless a binding switched it off.
+        available:
+          type: boolean
+          description: |
+            Whether it can run for this project right now. False when the
+            platform has no backend for it, or when the project's
+            classification forbids where it sends data.
+        unavailable_reason:
+          type: [string, 'null']
+          description: Why it cannot run, in words an operator can act on.
+        requires_approval: { type: boolean }
+        rate_limit_per_minute: { type: integer, minimum: 1 }
+        parameters:
+          type: object
+          description: JSON Schema for the arguments.
+          additionalProperties: true
+
     ToolBinding:
       type: object
       required: [project_id, tool_id, enabled]
@@ -291,9 +415,10 @@ components:
 
     EffectiveTool:
       type: object
-      required: [tool_id, slug, name, tool_type, risk_level, requires_approval]
+      required: [tool_id, slug, name, tool_type, source, risk_level, requires_approval]
       properties:
         tool_id: { type: string }
+        source: { $ref: '#/components/schemas/ToolSource' }
         slug:
           type: string
           description: |
@@ -305,13 +430,13 @@ components:
         description: { type: string }
         tool_type: { $ref: '#/components/schemas/ToolType' }
         builtin_id:
-          type: string
+          allOf:
+            - $ref: '#/components/schemas/BuiltinId'
           description: |
             Which built-in, when `tool_type` is `builtin`. A caller needs it to
             supply what the built-in requires and the model should not choose --
             `file_search` searches the store the AGENT was attached to, not one
             the model names.
-          enum: [file_search, code_interpreter, web_search]
         risk_level: { $ref: '#/components/schemas/RiskLevel' }
         requires_approval:
           type: boolean

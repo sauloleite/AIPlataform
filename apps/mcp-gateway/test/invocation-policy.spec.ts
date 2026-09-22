@@ -23,7 +23,14 @@ function principal(roles: string[], projectId = PROJECT): Principal {
 }
 
 function tool(riskLevel: RiskLevel): ToolDefinition {
-  return { toolId: 't1', slug: 'ticket-lookup', name: 'Ticket lookup', toolType: 'mcp', riskLevel };
+  return {
+    toolId: 't1',
+    slug: 'ticket-lookup',
+    name: 'Ticket lookup',
+    toolType: 'mcp',
+    source: 'registry',
+    riskLevel,
+  };
 }
 
 function binding(overrides: Partial<Parameters<typeof ToolBinding.create>[0]> = {}): ToolBinding {

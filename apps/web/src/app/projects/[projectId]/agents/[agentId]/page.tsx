@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { getContainer } from '../../../../../container';
 import { messageFor, requiresSignIn } from '../../../../../modules/console/domain/errors';
 import { canEditAssets } from '../../../../../modules/console/domain/session';
+import type { EffectiveTool } from '../../../../../modules/tools/application/ports';
 import type { AgentDetail } from '../../../../../modules/registry/application/use-cases/inspect-agent';
 import { AgentWorkbench } from '../../../../_ui/agent-workbench';
 
@@ -13,10 +14,11 @@ export default async function AgentPage({
   params: Promise<{ projectId: string; agentId: string }>;
 }): Promise<ReactElement> {
   const { projectId, agentId } = await params;
-  const { authorize, inspectAgent, inspectProject } = await getContainer();
+  const { authorize, inspectAgent, inspectProject, listAttachableTools } = await getContainer();
 
   let agent: AgentDetail | undefined;
   let aliases: string[] = [];
+  let attachableTools: EffectiveTool[] = [];
   let failure: string | undefined;
   let mayEdit = false;
 
@@ -31,6 +33,13 @@ export default async function AgentPage({
     } catch {
       aliases = [];
     }
+    // Nor a degraded tool gateway: the editor then shows only what the agent
+    // already has attached, marked unavailable, and a save keeps it.
+    try {
+      attachableTools = await listAttachableTools.execute(accessToken, projectId);
+    } catch {
+      attachableTools = [];
+    }
   } catch (error) {
     if (requiresSignIn(error)) redirect('/login');
     failure = messageFor(error);
@@ -44,5 +53,13 @@ export default async function AgentPage({
     );
   }
 
-  return <AgentWorkbench projectId={projectId} agent={agent} aliases={aliases} mayEdit={mayEdit} />;
+  return (
+    <AgentWorkbench
+      projectId={projectId}
+      agent={agent}
+      aliases={aliases}
+      attachableTools={attachableTools}
+      mayEdit={mayEdit}
+    />
+  );
 }

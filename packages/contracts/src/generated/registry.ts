@@ -274,10 +274,12 @@ export interface components {
             /** @description MCP server URL, or the OpenAPI document URL. */
             endpoint?: string;
             /**
-             * @description Which built-in, when `tool_type` is `builtin`.
+             * @description Which built-in, when `tool_type` is `builtin`. Creating a built-in
+             *     asset is rarely needed any more: the platform provides these in
+             *     every project as `builtin.<builtin_id>` (ADR-024).
              * @enum {string}
              */
-            builtin_id?: "file_search" | "code_interpreter" | "web_search";
+            builtin_id?: "file_search" | "code_interpreter" | "web_search" | "web_fetch" | "current_time" | "calculator";
             /** @description JSON Schema for the arguments, for a `function` tool. */
             parameters?: {
                 [key: string]: unknown;
@@ -295,8 +297,17 @@ export interface components {
             variables?: string[];
         };
         ToolRef: {
+            /**
+             * @description A tool asset in this project, or `builtin.<builtin_id>` for one of
+             *     the platform's built-in tools, which exist in every project without
+             *     an asset (ADR-024). `builtin.code_interpreter` is refused: nothing
+             *     runs it yet.
+             */
             asset_id: string;
-            /** @description Null pins to whatever is published at run time. */
+            /**
+             * @description Null pins to whatever is published at run time. Ignored for a
+             *     built-in, which has no versions: it ships with the platform.
+             */
             version?: number | null;
         };
         StoreRef: {

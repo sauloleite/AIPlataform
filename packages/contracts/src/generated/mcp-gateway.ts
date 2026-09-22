@@ -18,9 +18,41 @@ export interface paths {
         /**
          * The tools this project may actually invoke
          * @description The registry's published tool assets, intersected with this project's
-         *     bindings. A tool that exists but is not bound does not appear.
+         *     bindings, plus the platform's built-in tools. A registry tool that is
+         *     not bound does not appear. A built-in does not appear when the project
+         *     switched it off, when this platform has no backend configured for it,
+         *     or when it would send data somewhere the project's classification does
+         *     not allow (ADR-010).
+         *
+         *     No two items share a slug: a registry tool with a built-in's slug hides
+         *     that built-in, because agents already attached to it must keep calling
+         *     the tool they were built against.
          */
         get: operations["listEffectiveTools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tools/builtins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The platform's built-in tools, and their state in this project
+         * @description Every built-in, including the ones this project cannot use right now,
+         *     with the reason. It is the administrative view: an operator sees that
+         *     web search has no backend configured BEFORE an agent is built on it,
+         *     and a project owner can switch a built-in back on after switching it
+         *     off -- neither is possible from `/v1/tools`, which lists only what runs.
+         */
+        get: operations["listBuiltinTools"];
         put?: never;
         post?: never;
         delete?: never;
@@ -40,7 +72,10 @@ export interface paths {
                 "X-Project-Id": components["parameters"]["ProjectId"];
             };
             path: {
-                /** @description The registry asset id of the tool. */
+                /**
+                 * @description The registry asset id of the tool, or `builtin.<builtin_id>` for one
+                 *     of the platform's built-in tools.
+                 */
                 toolId: string;
             };
             cookie?: never;
@@ -88,10 +123,19 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Allows a tool in this project, with its limits */
+        /**
+         * Allows a tool in this project, with its limits
+         * @description A built-in is already allowed without a binding. Binding one is how a
+         *     project switches it off (`enabled: false`) or tightens its rate or
+         *     approval; deleting that binding puts the platform default back.
+         */
         put: operations["bindTool"];
         post?: never;
-        /** Withdraws a tool from this project */
+        /**
+         * Withdraws a tool from this project
+         * @description For a built-in this restores the platform default -- allowed, at the
+         *     default rate -- rather than withdrawing it.
+         */
         delete: operations["unbindTool"];
         options?: never;
         head?: never;
@@ -206,6 +250,52 @@ export interface components {
         RiskLevel: "low" | "medium" | "high";
         /** @enum {string} */
         ToolType: "mcp" | "openapi" | "function" | "builtin";
+        /**
+         * @description Which built-in. `code_interpreter` is reserved: it needs a sandbox this
+         *     platform does not ship yet, so no built-in answers to it.
+         * @enum {string}
+         */
+        BuiltinId: "file_search" | "code_interpreter" | "web_search" | "web_fetch" | "current_time" | "calculator";
+        /**
+         * @description `registry` is a tool a person defined and published; `platform` is a
+         *     built-in that ships with the platform and exists in every project.
+         * @enum {string}
+         */
+        ToolSource: "registry" | "platform";
+        /**
+         * @description Where a tool sends its arguments. `local` never leaves the platform;
+         *     `global` reaches a third party on the public internet, which a
+         *     `confidential` or `restricted` project does not allow (ADR-010).
+         * @enum {string}
+         */
+        DataZone: "local" | "global";
+        BuiltinTool: {
+            /** @description What an agent definition attaches, and what is invoked. */
+            tool_id: string;
+            slug: string;
+            name: string;
+            /** @description What the model is told the tool does. */
+            description: string;
+            builtin_id: components["schemas"]["BuiltinId"];
+            risk_level: components["schemas"]["RiskLevel"];
+            data_zone: components["schemas"]["DataZone"];
+            /** @description Whether this project allows it. True unless a binding switched it off. */
+            enabled: boolean;
+            /**
+             * @description Whether it can run for this project right now. False when the
+             *     platform has no backend for it, or when the project's
+             *     classification forbids where it sends data.
+             */
+            available: boolean;
+            /** @description Why it cannot run, in words an operator can act on. */
+            unavailable_reason?: string | null;
+            requires_approval: boolean;
+            rate_limit_per_minute: number;
+            /** @description JSON Schema for the arguments. */
+            parameters?: {
+                [key: string]: unknown;
+            };
+        };
         ToolBinding: {
             project_id: string;
             tool_id: string;
@@ -222,6 +312,7 @@ export interface components {
         };
         EffectiveTool: {
             tool_id: string;
+            source: components["schemas"]["ToolSource"];
             /**
              * @description The machine name. It is what a model is told to call, so it has to
              *     survive a round trip through a provider intact -- unlike `name`,
@@ -236,9 +327,8 @@ export interface components {
              *     supply what the built-in requires and the model should not choose --
              *     `file_search` searches the store the AGENT was attached to, not one
              *     the model names.
-             * @enum {string}
              */
-            builtin_id?: "file_search" | "code_interpreter" | "web_search";
+            builtin_id?: components["schemas"]["BuiltinId"];
             risk_level: components["schemas"]["RiskLevel"];
             /** @description The tool's risk and the binding taken together. */
             requires_approval: boolean;
@@ -340,6 +430,15 @@ export interface components {
         };
     };
     responses: {
+        /** @description Access denied */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetails"];
+            };
+        };
         /** @description Invalid request */
         BadRequest: {
             headers: {
@@ -362,15 +461,6 @@ export interface components {
         TooManyRequests: {
             headers: {
                 "Retry-After"?: number;
-                [name: string]: unknown;
-            };
-            content: {
-                "application/problem+json": components["schemas"]["ProblemDetails"];
-            };
-        };
-        /** @description Access denied */
-        Forbidden: {
-            headers: {
                 [name: string]: unknown;
             };
             content: {
@@ -408,6 +498,10 @@ export interface components {
 }
 export type SchemaRiskLevel = components['schemas']['RiskLevel'];
 export type SchemaToolType = components['schemas']['ToolType'];
+export type SchemaBuiltinId = components['schemas']['BuiltinId'];
+export type SchemaToolSource = components['schemas']['ToolSource'];
+export type SchemaDataZone = components['schemas']['DataZone'];
+export type SchemaBuiltinTool = components['schemas']['BuiltinTool'];
 export type SchemaToolBinding = components['schemas']['ToolBinding'];
 export type SchemaEffectiveTool = components['schemas']['EffectiveTool'];
 export type SchemaInvokeRequest = components['schemas']['InvokeRequest'];
@@ -419,10 +513,10 @@ export type SchemaCreateConnectionRequest = components['schemas']['CreateConnect
 export type SchemaBindToolRequest = components['schemas']['BindToolRequest'];
 export type SchemaPage = components['schemas']['Page'];
 export type SchemaProblemDetails = components['schemas']['ProblemDetails'];
+export type ResponseForbidden = components['responses']['Forbidden'];
 export type ResponseBadRequest = components['responses']['BadRequest'];
 export type ResponseNotFound = components['responses']['NotFound'];
 export type ResponseTooManyRequests = components['responses']['TooManyRequests'];
-export type ResponseForbidden = components['responses']['Forbidden'];
 export type ResponseServiceUnavailable = components['responses']['ServiceUnavailable'];
 export type ParameterProjectId = components['parameters']['ProjectId'];
 export type ParameterCursor = components['parameters']['Cursor'];
@@ -462,6 +556,35 @@ export interface operations {
             };
         };
     };
+    listBuiltinTools: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Project is the platform tenant. Required on every contract, every event,
+                 *     every trace and every partition key (reference doc 02, principle 2).
+                 */
+                "X-Project-Id": components["parameters"]["ProjectId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The built-in tools */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BuiltinTool"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
     invokeTool: {
         parameters: {
             query?: never;
@@ -478,7 +601,10 @@ export interface operations {
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path: {
-                /** @description The registry asset id of the tool. */
+                /**
+                 * @description The registry asset id of the tool, or `builtin.<builtin_id>` for one
+                 *     of the platform's built-in tools.
+                 */
                 toolId: string;
             };
             cookie?: never;

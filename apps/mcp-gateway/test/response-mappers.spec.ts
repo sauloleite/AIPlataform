@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   toBindingResponse,
+  toBuiltinToolResponse,
   toEffectiveToolResponse,
   toInvocationResponse,
 } from '../src/modules/tools/presentation/http/mappers.js';
-import type { EffectiveToolView } from '../src/modules/tools/application/dto.js';
+import type { BuiltinToolView, EffectiveToolView } from '../src/modules/tools/application/dto.js';
 
 /** The wire is snake_case because `contracts/openapi/mcp-gateway.v1.yaml` says so. */
 
@@ -15,6 +16,7 @@ const TOOL: EffectiveToolView = {
   name: 'Knowledge search',
   description: 'Retrieval from a vector store',
   toolType: 'builtin',
+  source: 'registry',
   riskLevel: 'high',
   requiresApproval: true,
   rateLimitPerMinute: 3,
@@ -31,6 +33,7 @@ describe('toEffectiveToolResponse', () => {
       'requires_approval',
       'risk_level',
       'slug',
+      'source',
       'tool_id',
       'tool_type',
     ]);
@@ -93,5 +96,47 @@ describe('toInvocationResponse', () => {
       result,
       duration_ms: 486,
     });
+  });
+});
+
+describe('toBuiltinToolResponse', () => {
+  const BUILTIN: BuiltinToolView = {
+    toolId: 'builtin.web_search',
+    slug: 'web-search',
+    name: 'Web search',
+    description: 'Searches the public web',
+    builtinId: 'web_search',
+    riskLevel: 'low',
+    dataZone: 'global',
+    enabled: true,
+    available: false,
+    unavailableReason: 'No web search backend is configured on this platform',
+    requiresApproval: false,
+    rateLimitPerMinute: 60,
+  };
+
+  it('names every field the way the contract does', () => {
+    expect(Object.keys(toBuiltinToolResponse(BUILTIN)).sort()).toEqual([
+      'available',
+      'builtin_id',
+      'data_zone',
+      'description',
+      'enabled',
+      'name',
+      'rate_limit_per_minute',
+      'requires_approval',
+      'risk_level',
+      'slug',
+      'tool_id',
+      'unavailable_reason',
+    ]);
+  });
+
+  it('keeps a missing reason as an explicit null, not an absent key', () => {
+    // The console reads `unavailable_reason` to decide what to show; an absent
+    // key and a null one must not mean different things there.
+    expect(
+      toBuiltinToolResponse({ ...BUILTIN, available: true, unavailableReason: null }),
+    ).toHaveProperty('unavailable_reason', null);
   });
 });

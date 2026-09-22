@@ -21,6 +21,7 @@ import { HttpEvaluationGateway } from './modules/observability/infrastructure/ht
 import { ListEvaluations } from './modules/observability/application/use-cases/inspect-evaluations';
 import {
   BindTool,
+  ListAttachableTools,
   ListTools,
   UnbindTool,
 } from './modules/tools/application/use-cases/inspect-tools';
@@ -155,6 +156,7 @@ export interface Container {
   deleteDocument: DeleteDocument;
   searchStore: SearchStore;
   listTools: ListTools;
+  listAttachableTools: ListAttachableTools;
   bindTool: BindTool;
   unbindTool: UnbindTool;
   listConnections: ListConnections;
@@ -201,6 +203,7 @@ export async function getContainer(): Promise<Container> {
     deleteDocument: new DeleteDocument(knowledge),
     searchStore: new SearchStore(knowledge),
     listTools: new ListTools(toolsGateway),
+    listAttachableTools: new ListAttachableTools(toolsGateway),
     bindTool: new BindTool(toolsGateway),
     unbindTool: new UnbindTool(toolsGateway),
     listConnections: new ListConnections(toolsGateway),

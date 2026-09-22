@@ -1,5 +1,5 @@
 import type { ConnectionKind } from '../domain/entities/connection.js';
-import type { RiskLevel, ToolType } from '../domain/value-objects/index.js';
+import type { DataZone, RiskLevel, ToolSource, ToolType } from '../domain/value-objects/index.js';
 
 export interface InvokeToolCommand {
   projectId: string;
@@ -26,10 +26,28 @@ export interface EffectiveToolView {
   name: string;
   description?: string;
   toolType: ToolType;
+  source: ToolSource;
   builtinId?: string;
   riskLevel: RiskLevel;
   requiresApproval: boolean;
   rateLimitPerMinute: number | null;
+  parameters?: Record<string, unknown>;
+}
+
+/** A built-in as its administrator sees it: including when it cannot run, and why. */
+export interface BuiltinToolView {
+  toolId: string;
+  slug: string;
+  name: string;
+  description: string;
+  builtinId: string;
+  riskLevel: RiskLevel;
+  dataZone: DataZone;
+  enabled: boolean;
+  available: boolean;
+  unavailableReason: string | null;
+  requiresApproval: boolean;
+  rateLimitPerMinute: number;
   parameters?: Record<string, unknown>;
 }
 

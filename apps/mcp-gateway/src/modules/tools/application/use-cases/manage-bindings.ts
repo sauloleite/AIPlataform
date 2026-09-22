@@ -11,6 +11,7 @@ import {
   type Clock,
   type ToolCatalog,
 } from '../ports.js';
+import { findTool } from '../services/tool-resolution.js';
 
 function toView(binding: ToolBinding): BindingView {
   const props = binding.snapshot();
@@ -44,7 +45,8 @@ export class BindTool {
   async execute(command: BindToolCommand): Promise<BindingView> {
     // Binding a tool that does not exist would create an allow-list entry
     // nothing can ever match, and hide the typo until somebody debugs a run.
-    const tool = await this.catalog.find({
+    // A built-in is bound too -- that is how a project switches one off.
+    const tool = await findTool(this.catalog, {
       projectId: command.projectId,
       accessToken: command.accessToken,
       toolId: command.toolId,
@@ -67,6 +69,7 @@ export class BindTool {
   }
 }
 
+/** For a built-in, removing the binding puts the platform default back. */
 @Injectable()
 export class UnbindTool {
   constructor(@Inject(BINDING_REPOSITORY) private readonly bindings: BindingRepository) {}

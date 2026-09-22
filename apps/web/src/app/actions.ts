@@ -6,6 +6,11 @@ import { revalidatePath } from 'next/cache';
 import { getContainer } from '../container';
 import { messageFor, messageForSignIn } from '../modules/console/domain/errors';
 import type { ConnectionKind } from '../modules/tools/application/ports';
+import {
+  parseStoreReferences,
+  parseToolReferences,
+  toolReferencesFor,
+} from '../modules/registry/domain/agent-tools';
 
 /**
  * Server Actions: the console's write path.
@@ -116,6 +121,23 @@ export async function setBudgetAction(
 /* Agents (aia-registry)                                               */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The tools that were ticked, keeping the version pins of those already
+ * attached, and the stores the form carried back untouched.
+ */
+function attachmentsFrom(form: FormData): {
+  tools: { assetId: string; version: number | null }[];
+  knowledge: { storeId: string }[];
+} {
+  const selected = form
+    .getAll('tools')
+    .filter((value): value is string => typeof value === 'string');
+  return {
+    tools: toolReferencesFor(selected, parseToolReferences(text(form, 'attachedTools'))),
+    knowledge: parseStoreReferences(text(form, 'knowledge')),
+  };
+}
+
 function optionalNumber(form: FormData, field: string): number | undefined {
   const raw = text(form, field).trim();
   if (raw === '') return undefined;
@@ -141,8 +163,7 @@ export async function createAgentAction(
         kind: 'agent',
         instructions: text(form, 'instructions'),
         modelAlias: text(form, 'modelAlias'),
-        tools: [],
-        knowledge: [],
+        ...attachmentsFrom(form),
         ...(optionalNumber(form, 'temperature') !== undefined && {
           temperature: optionalNumber(form, 'temperature'),
         }),
@@ -172,8 +193,7 @@ export async function saveAgentDraftAction(
         kind: 'agent',
         instructions: text(form, 'instructions'),
         modelAlias: text(form, 'modelAlias'),
-        tools: [],
-        knowledge: [],
+        ...attachmentsFrom(form),
         ...(optionalNumber(form, 'temperature') !== undefined && {
           temperature: optionalNumber(form, 'temperature'),
         }),

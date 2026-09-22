@@ -1,5 +1,6 @@
 import type {
   BindingView,
+  BuiltinToolView,
   ConnectionView,
   EffectiveToolView,
   InvocationResultView,
@@ -22,8 +23,27 @@ export function toEffectiveToolResponse(tool: EffectiveToolView): Record<string,
     name: tool.name,
     ...(tool.description !== undefined && { description: tool.description }),
     tool_type: tool.toolType,
+    source: tool.source,
     ...(tool.builtinId !== undefined && { builtin_id: tool.builtinId }),
     risk_level: tool.riskLevel,
+    requires_approval: tool.requiresApproval,
+    rate_limit_per_minute: tool.rateLimitPerMinute,
+    ...(tool.parameters !== undefined && { parameters: tool.parameters }),
+  };
+}
+
+export function toBuiltinToolResponse(tool: BuiltinToolView): Record<string, unknown> {
+  return {
+    tool_id: tool.toolId,
+    slug: tool.slug,
+    name: tool.name,
+    description: tool.description,
+    builtin_id: tool.builtinId,
+    risk_level: tool.riskLevel,
+    data_zone: tool.dataZone,
+    enabled: tool.enabled,
+    available: tool.available,
+    unavailable_reason: tool.unavailableReason,
     requires_approval: tool.requiresApproval,
     rate_limit_per_minute: tool.rateLimitPerMinute,
     ...(tool.parameters !== undefined && { parameters: tool.parameters }),

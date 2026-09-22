@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { POLICIES, ResilienceExecutor } from '@aia/resilience';
 
-import { ToolExecutionFailedError } from '../../domain/errors/index.js';
+import { InvalidToolArgumentsError, ToolExecutionFailedError } from '../../domain/errors/index.js';
+import type { ToolDefinition } from '../../domain/value-objects/index.js';
 import type { ToolExecutor, ToolInvocation, ToolOutcome } from '../../application/ports.js';
 
 /**
@@ -21,8 +22,14 @@ export class KnowledgeSearchExecutor implements ToolExecutor {
 
   constructor(private readonly knowledgeUrl: string) {}
 
-  supports(toolType: string): boolean {
-    return toolType === 'builtin';
+  supports(tool: ToolDefinition): boolean {
+    return tool.toolType === 'builtin' && tool.builtinId === 'file_search';
+  }
+
+  async unavailableReason(): Promise<string | null> {
+    return this.knowledgeUrl === ''
+      ? 'File search needs aia-knowledge, and KNOWLEDGE_URL is not configured on this platform'
+      : null;
   }
 
   private static text(value: unknown): string {
@@ -30,12 +37,6 @@ export class KnowledgeSearchExecutor implements ToolExecutor {
   }
 
   async execute(invocation: ToolInvocation): Promise<ToolOutcome> {
-    if (invocation.tool.builtinId !== 'file_search') {
-      throw new ToolExecutionFailedError(
-        invocation.tool.toolId,
-        `The built-in "${invocation.tool.builtinId ?? 'unknown'}" is not available yet`,
-      );
-    }
     if (this.knowledgeUrl === '') {
       throw new ToolExecutionFailedError(
         invocation.tool.toolId,
@@ -48,7 +49,7 @@ export class KnowledgeSearchExecutor implements ToolExecutor {
     const storeId = KnowledgeSearchExecutor.text(invocation.arguments['store_id']);
     const query = KnowledgeSearchExecutor.text(invocation.arguments['query']);
     if (storeId === '' || query === '') {
-      throw new ToolExecutionFailedError(
+      throw new InvalidToolArgumentsError(
         invocation.tool.toolId,
         'file_search needs a store_id and a query',
       );

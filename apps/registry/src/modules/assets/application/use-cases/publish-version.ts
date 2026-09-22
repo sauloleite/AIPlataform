@@ -5,7 +5,11 @@ import {
   NoDraftError,
   UnresolvedReferenceError,
 } from '../../domain/errors/index.js';
-import type { AssetDefinition } from '../../domain/value-objects/index.js';
+import {
+  PLATFORM_TOOL_IDS,
+  PLATFORM_TOOL_PREFIX,
+  type AssetDefinition,
+} from '../../domain/value-objects/index.js';
 import type { AssetVersionView, PublishVersionCommand } from '../dto.js';
 import type { AssetRepository, Clock, ReferenceChecker, VersionRepository } from '../ports.js';
 import { versionView } from '../views.js';
@@ -72,6 +76,16 @@ export class PublishVersion {
     }
 
     for (const reference of agent.tools) {
+      // A built-in has no asset to find: it ships with the platform. An id in
+      // the reserved namespace that names no built-in is still unresolved --
+      // otherwise a typo would publish and fail at the agent's first call.
+      if (reference.assetId.startsWith(PLATFORM_TOOL_PREFIX)) {
+        if (!PLATFORM_TOOL_IDS.includes(reference.assetId)) {
+          unresolved.push(`built-in tool ${reference.assetId}`);
+        }
+        continue;
+      }
+
       const tool = await this.assets.findById(projectId, reference.assetId);
       if (tool === null) {
         unresolved.push(`tool ${reference.assetId}`);

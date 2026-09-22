@@ -56,12 +56,33 @@ export interface ToolOutcome {
   readonly durationMs: number;
 }
 
-/** One executor per tool type. Chosen by `supports`, never by a switch. */
+/** One executor per kind of tool. Chosen by `supports`, never by a switch. */
 export interface ToolExecutor {
-  supports(toolType: string): boolean;
+  supports(tool: ToolDefinition): boolean;
+  /**
+   * Why this executor cannot run on this platform right now, or null when it
+   * can -- a search backend nobody configured, a key nobody mounted.
+   *
+   * Asked BEFORE a tool is offered to a model or a call is approved. A tool
+   * that fails on its first call, for a reason neither the model nor the person
+   * approving can fix, is worse than a tool that was never listed.
+   */
+  unavailableReason(): Promise<string | null>;
   execute(invocation: ToolInvocation): Promise<ToolOutcome>;
 }
 export const TOOL_EXECUTORS = Symbol('ToolExecutors');
+
+/**
+ * The project's data classification, as governance holds it.
+ *
+ * Read as the CALLER (ADR-017): a member may read their own project's policy,
+ * and the gateway needs no credential of its own to find out whether a tool
+ * may send that project's data off the platform. Throws when it cannot tell.
+ */
+export interface ClassificationReader {
+  classificationOf(input: { projectId: string; accessToken: string }): Promise<string>;
+}
+export const CLASSIFICATION_READER = Symbol('ClassificationReader');
 
 export interface RateLimiter {
   /**

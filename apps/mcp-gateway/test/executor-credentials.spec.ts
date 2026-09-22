@@ -26,6 +26,7 @@ function tool(overrides: Partial<ToolDefinition> = {}): ToolDefinition {
     slug: 'ticket-lookup',
     name: 'Ticket lookup',
     toolType: 'mcp',
+    source: 'registry',
     riskLevel: 'low',
     endpoint: 'https://tools.example/mcp',
     ...overrides,

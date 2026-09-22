@@ -203,6 +203,85 @@ describe('the tools adapter reads the contract shape', () => {
     expect(tool?.rateLimitPerMinute).toBe(3);
   });
 
+  it('says where an effective tool comes from, and reads an older gateway as the registry', async () => {
+    const gateway = new HttpToolsGateway(
+      'http://gateway',
+      respondWith({
+        items: [
+          {
+            tool_id: 'builtin.web_search',
+            slug: 'web-search',
+            name: 'Web search',
+            tool_type: 'builtin',
+            source: 'platform',
+            risk_level: 'low',
+            requires_approval: false,
+            rate_limit_per_minute: 60,
+          },
+          {
+            tool_id: 't1',
+            slug: 'ticket-lookup',
+            name: 'Ticket lookup',
+            tool_type: 'mcp',
+            risk_level: 'low',
+            requires_approval: false,
+            rate_limit_per_minute: null,
+          },
+        ],
+        next_cursor: null,
+      }),
+    );
+
+    const [builtin, older] = await gateway.listEffective('token', 'p1');
+
+    expect(builtin?.source).toBe('platform');
+    // A gateway from before ADR-024 sends no source, and had only registry tools.
+    expect(older?.source).toBe('registry');
+  });
+
+  it('maps a built-in tool, including why it cannot run', async () => {
+    const gateway = new HttpToolsGateway(
+      'http://gateway',
+      respondWith({
+        items: [
+          {
+            tool_id: 'builtin.web_search',
+            slug: 'web-search',
+            name: 'Web search',
+            description: 'Searches the public web',
+            builtin_id: 'web_search',
+            risk_level: 'low',
+            data_zone: 'global',
+            enabled: true,
+            available: false,
+            unavailable_reason: 'No web search backend is configured on this platform',
+            requires_approval: false,
+            rate_limit_per_minute: 60,
+          },
+        ],
+      }),
+    );
+
+    const [tool] = await gateway.listBuiltins('token', 'p1');
+
+    expect(tool).toEqual({
+      toolId: 'builtin.web_search',
+      slug: 'web-search',
+      name: 'Web search',
+      description: 'Searches the public web',
+      builtinId: 'web_search',
+      riskLevel: 'low',
+      dataZone: 'global',
+      enabled: true,
+      // Read under the wrong key this is `undefined`, which is falsy either way
+      // -- an unavailable tool would not look ready, but the reason would vanish.
+      available: false,
+      unavailableReason: 'No web search backend is configured on this platform',
+      requiresApproval: false,
+      rateLimitPerMinute: 60,
+    });
+  });
+
   it('maps a binding', async () => {
     const gateway = new HttpToolsGateway(
       'http://gateway',

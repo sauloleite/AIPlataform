@@ -14,6 +14,7 @@ import { POLICY, authorize } from '@aia/auth';
 import { principalOf, projectIdOf, type AuthenticatedRequest } from '@aia/nest';
 
 import { InvokeTool } from '../../application/use-cases/invoke-tool.js';
+import { ListBuiltinTools } from '../../application/use-cases/list-builtin-tools.js';
 import { ListEffectiveTools } from '../../application/use-cases/list-effective-tools.js';
 import { BindTool, ListBindings, UnbindTool } from '../../application/use-cases/manage-bindings.js';
 import {
@@ -24,6 +25,7 @@ import {
 import { parseBind, parseCreateConnection, parseInvoke } from './dto.js';
 import {
   toBindingResponse,
+  toBuiltinToolResponse,
   toConnectionResponse,
   toEffectiveToolResponse,
   toInvocationResponse,
@@ -34,6 +36,7 @@ import {
 export class ToolsController {
   constructor(
     @Inject(ListEffectiveTools) private readonly listTools: ListEffectiveTools,
+    @Inject(ListBuiltinTools) private readonly listBuiltins: ListBuiltinTools,
     @Inject(InvokeTool) private readonly invokeTool: InvokeTool,
     @Inject(ListBindings) private readonly listBindings: ListBindings,
     @Inject(BindTool) private readonly bindTool: BindTool,
@@ -48,13 +51,35 @@ export class ToolsController {
     @Req() request: AuthenticatedRequest,
   ): Promise<{ items: Record<string, unknown>[]; next_cursor: null }> {
     const projectId = projectIdOf(request);
-    authorize(POLICY.READ_PROJECT, { principal: principalOf(request), projectId });
+    const principal = principalOf(request);
+    authorize(POLICY.READ_PROJECT, { principal, projectId });
 
     const items = await this.listTools.execute({
       projectId,
       accessToken: bearerOf(request),
+      principal,
     });
     return { items: items.map(toEffectiveToolResponse), next_cursor: null };
+  }
+
+  // Declared before `tools/:toolId/invoke` only for the reader: the methods and
+  // the segment counts differ, so the two can never match the same request.
+  @Get('tools/builtins')
+  async builtins(
+    @Req() request: AuthenticatedRequest,
+  ): Promise<{ items: Record<string, unknown>[] }> {
+    const projectId = projectIdOf(request);
+    const principal = principalOf(request);
+    // A viewer may see which built-ins exist and why one is unavailable: it
+    // reveals configuration, never a credential.
+    authorize(POLICY.READ_PROJECT, { principal, projectId });
+
+    const items = await this.listBuiltins.execute({
+      projectId,
+      accessToken: bearerOf(request),
+      principal,
+    });
+    return { items: items.map(toBuiltinToolResponse) };
   }
 
   @Post('tools/:toolId/invoke')

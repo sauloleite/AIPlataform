@@ -15,6 +15,8 @@ import { Play16Regular, ShieldTask20Regular } from '@fluentui/react-icons';
 import { useCallback, useRef, useState, type ReactElement } from 'react';
 
 import { parseSse } from '../../modules/console/domain/sse';
+import { Markdown } from './markdown';
+import type { PlaygroundContext } from '../../modules/registry/domain/agent-tools';
 import {
   applyRunEvent,
   openTranscript,
@@ -33,6 +35,10 @@ const useStyles = makeStyles({
     maxHeight: '46vh',
     overflowY: 'auto',
     marginBlock: tokens.spacingVerticalM,
+    // A scrolling flex column shrinks its children before it scrolls, so a
+    // long answer squashed the tool-call card above it to a sliver -- hiding
+    // exactly which tool ran.
+    '& > *': { flexShrink: 0 },
   },
   user: {
     alignSelf: 'flex-end',
@@ -42,7 +48,6 @@ const useStyles = makeStyles({
     borderRadius: tokens.borderRadiusLarge,
     padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalM}`,
   },
-  assistant: { whiteSpace: 'pre-wrap' },
   trace: {
     border: `1px solid ${tokens.colorNeutralStroke2}`,
     borderRadius: tokens.borderRadiusMedium,
@@ -76,6 +81,14 @@ const useStyles = makeStyles({
     padding: tokens.spacingVerticalS,
   },
   hint: { color: tokens.colorNeutralForeground3 },
+  context: { color: tokens.colorNeutralForeground2, marginBlockStart: tokens.spacingVerticalXS },
+  pending: {
+    border: `1px solid ${tokens.colorPaletteYellowBorder2}`,
+    backgroundColor: tokens.colorPaletteYellowBackground1,
+    borderRadius: tokens.borderRadiusMedium,
+    padding: tokens.spacingVerticalS,
+    marginBlockStart: tokens.spacingVerticalS,
+  },
 });
 
 const TOOL_TONE: Record<ToolStatus, 'success' | 'warning' | 'danger' | 'informative'> = {
@@ -92,10 +105,13 @@ export function AgentPlayground({
   projectId,
   agentId,
   publishable,
+  context,
 }: {
   projectId: string;
   agentId: string;
   publishable: boolean;
+  /** Absent until something is published. */
+  context?: PlaygroundContext;
 }): ReactElement {
   const styles = useStyles();
   const [draft, setDraft] = useState('');
@@ -186,6 +202,18 @@ export function AgentPlayground({
   return (
     <Card className={styles.card}>
       <Title3>Playground</Title3>
+      {context !== undefined && (
+        <>
+          <Text as="p" size={200} className={styles.context}>
+            {context.runs}
+          </Text>
+          {context.warning !== undefined && (
+            <Text as="p" size={200} className={styles.pending} role="status">
+              {context.warning}
+            </Text>
+          )}
+        </>
+      )}
 
       {transcript !== undefined && (
         <div className={styles.transcript} aria-live="polite">
@@ -254,13 +282,8 @@ function Entry({ entry }: { entry: RunEntry }): ReactElement {
   const styles = useStyles();
 
   if (entry.kind === 'user') return <div className={styles.user}>{entry.text}</div>;
-  if (entry.kind === 'assistant') {
-    return (
-      <Text as="p" className={styles.assistant}>
-        {entry.text}
-      </Text>
-    );
-  }
+  // The model writes Markdown; the person typed plain text and sees it as typed.
+  if (entry.kind === 'assistant') return <Markdown text={entry.text} />;
 
   return (
     <div className={styles.trace}>

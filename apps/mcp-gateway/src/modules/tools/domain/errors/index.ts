@@ -64,6 +64,21 @@ export class ToolExecutionFailedError extends DomainError {
   }
 }
 
+/**
+ * The model called a tool with arguments it cannot run with.
+ *
+ * A 400, not a 502: nothing upstream failed, and the detail is what the model
+ * needs to read to correct the call on its next turn.
+ */
+export class InvalidToolArgumentsError extends DomainError {
+  readonly code: ErrorCode = ERROR_CODES.VALIDATION_FAILED;
+  readonly status = 400;
+
+  constructor(toolId: string, reason: string) {
+    super(reason, { tool_id: toolId });
+  }
+}
+
 export class InvalidBindingError extends DomainError {
   readonly code: ErrorCode = ERROR_CODES.VALIDATION_FAILED;
   readonly status = 400;

@@ -5,16 +5,18 @@ import type { Principal } from '@aia/auth';
 
 import {
   ApprovalRequiredError,
+  InvalidToolArgumentsError,
   ToolExecutionFailedError,
   ToolNotAllowedError,
   ToolNotFoundError,
   ToolRateLimitedError,
 } from '../../domain/errors/index.js';
-import { decideInvocation } from '../../domain/services/invocation-policy.js';
+import { decideInvocation, rateLimitFor } from '../../domain/services/invocation-policy.js';
 import type { ToolDefinition } from '../../domain/value-objects/index.js';
 import type { InvocationResultView, InvokeToolCommand } from '../dto.js';
 import {
   APPROVAL_STORE,
+  CLASSIFICATION_READER,
   CONNECTION_REPOSITORY,
   SECRET_RESOLVER,
   AUDIT_REPOSITORY,
@@ -27,6 +29,7 @@ import {
   type ApprovalStore,
   type AuditRepository,
   type BindingRepository,
+  type ClassificationReader,
   type Clock,
   type IdGenerator,
   type ConnectionRepository,
@@ -36,6 +39,7 @@ import {
   type ToolCatalog,
   type ToolExecutor,
 } from '../ports.js';
+import { classificationFor, findTool, readinessOf } from '../services/tool-resolution.js';
 
 const SOURCE = 'aia-mcp-gateway';
 
@@ -45,9 +49,11 @@ const APPROVAL_TTL_SECONDS = 900;
 /**
  * Runs a tool, governed.
  *
- * The order is deliberate: resolve, decide, rate-limit, approve, execute,
- * audit. Deciding before consuming the rate means a refused call does not eat
- * somebody's budget, and auditing last means the record carries the outcome.
+ * The order is deliberate: resolve, decide, check it can run here, rate-limit,
+ * approve, execute, audit. Deciding before consuming the rate means a refused
+ * call does not eat somebody's budget; checking the executor before approval
+ * means nobody is asked to approve a call that cannot run; auditing last means
+ * the record carries the outcome.
  */
 @Injectable()
 export class InvokeTool {
@@ -59,13 +65,14 @@ export class InvokeTool {
     @Inject(TOOL_EXECUTORS) private readonly executors: readonly ToolExecutor[],
     @Inject(CONNECTION_REPOSITORY) private readonly connections: ConnectionRepository,
     @Inject(SECRET_RESOLVER) private readonly secrets: SecretResolver,
+    @Inject(CLASSIFICATION_READER) private readonly classifications: ClassificationReader,
     @Inject(AUDIT_REPOSITORY) private readonly audit: AuditRepository,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(ID_GENERATOR) private readonly ids: IdGenerator,
   ) {}
 
   async execute(command: InvokeToolCommand, principal: Principal): Promise<InvocationResultView> {
-    const tool = await this.catalog.find({
+    const tool = await findTool(this.catalog, {
       projectId: command.projectId,
       accessToken: command.accessToken,
       toolId: command.toolId,
@@ -73,6 +80,7 @@ export class InvokeTool {
     if (tool === null) throw new ToolNotFoundError(command.toolId);
 
     const binding = await this.bindings.find(command.projectId, command.toolId);
+    const dataClassification = await classificationFor(this.classifications, command, [tool]);
 
     let decision;
     try {
@@ -81,9 +89,22 @@ export class InvokeTool {
         projectId: command.projectId,
         tool,
         binding,
+        ...(dataClassification !== undefined && { dataClassification }),
       });
     } catch (error) {
       await this.recordDenial(command, tool, error);
+      throw error;
+    }
+
+    const readiness = await readinessOf(this.executors, tool);
+    if (readiness.executor === null) {
+      const error = new ToolExecutionFailedError(tool.toolId, readiness.reason);
+      await this.record(command, tool, {
+        status: 'failed',
+        durationMs: 0,
+        occurredAt: this.clock.now(),
+        errorCode: error.code,
+      });
       throw error;
     }
 
@@ -91,7 +112,7 @@ export class InvokeTool {
     // somebody else's allowance.
     const limited = await this.limiter.consume({
       key: `${command.projectId}:${command.toolId}`,
-      limitPerMinute: binding?.effectiveRateLimit ?? 60,
+      limitPerMinute: rateLimitFor(binding),
     });
     if (limited !== null) {
       const error = new ToolRateLimitedError(command.toolId, limited.retryAfterSeconds);
@@ -104,18 +125,10 @@ export class InvokeTool {
     }
 
     const started = this.clock.now();
-    const executor = this.executors.find((candidate) => candidate.supports(tool.toolType));
-    if (executor === undefined) {
-      throw new ToolExecutionFailedError(
-        tool.toolId,
-        `No executor is configured for a ${tool.toolType} tool`,
-      );
-    }
-
     const credential = await this.credentialFor(command.projectId, tool);
 
     try {
-      const outcome = await executor.execute({
+      const outcome = await readiness.executor.execute({
         tool,
         arguments: command.arguments,
         // The USER's token, not the gateway's: a BUILT-IN reaches another AIA
@@ -146,7 +159,11 @@ export class InvokeTool {
         occurredAt: started,
         errorCode: codeOf(error),
       });
-      if (error instanceof ToolExecutionFailedError) throw error;
+      // Kept as they are: each already says, in words the model can act on,
+      // what went wrong -- a bad argument is not an endpoint failure.
+      if (error instanceof ToolExecutionFailedError || error instanceof InvalidToolArgumentsError) {
+        throw error;
+      }
       throw new ToolExecutionFailedError(tool.toolId, String(error));
     }
   }
